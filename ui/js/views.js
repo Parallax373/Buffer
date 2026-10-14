@@ -13,13 +13,30 @@
     if (view === "ed" && !App.Ed.current()) view = "lib";
     if (S.view === "ed" && view !== "ed") App.Ed.leave();
     const changed = S.view !== view;
+    const prev = S.view;
+    document.querySelectorAll("#views .view.leaving").forEach((e) => e.classList.remove("leaving"));
     S.view = view;
     for (const [v, sel] of Object.entries(VIEWS)) App.$(sel).hidden = v !== view;
+    if (changed && VIEWS[prev] && App.P.settings.anim !== false) keepUnderneath(prev);
     if (view === "lib") App.Lib.render(false);
     if (view === "set") Settings.render(true);
     renderRail();
     if (changed) wipe(App.$(VIEWS[view]));
   };
+
+  /** The view being left stays on screen under the one fading in, so a switch is a dissolve and not a dark gap
+   *  (the gap made the library look like it blinked out while the editor faded in). */
+  let leaveTimer = 0;
+  function keepUnderneath(prev) {
+    const el = App.$(VIEWS[prev]);
+    el.hidden = false;
+    el.classList.add("leaving");
+    clearTimeout(leaveTimer);
+    leaveTimer = setTimeout(() => {
+      el.classList.remove("leaving");
+      if (S.view !== prev) el.hidden = true;
+    }, 400);
+  }
 
   /** A thin lime-edged sweep left → right over the incoming view, once. */
   function wipe(section) {
