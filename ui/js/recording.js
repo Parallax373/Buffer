@@ -304,6 +304,7 @@ App.RecUI = (function () {
   };
 
   /** Sticky "Co to zajmie" card; call update(c) after any video change. */
+  let sumLoadEl = null;          // the "Load" value of the summary card; paint() fills it with live numbers
   function summaryCard() {
     const defs = [[App.t("sum.clip"), 500], [App.t("sum.disk"), 700], [App.t("sum.ram"), 1400]];
     const refs = defs.map(([label]) => ({
@@ -318,7 +319,8 @@ App.RecUI = (function () {
       ...refs.map((r) => h("div", null,
         h("div", { class: "sh" }, h("b", { text: r.label }), r.val),
         h("div", { class: "sb" }, r.bars), r.note)),
-      h("div", { class: "sl" }, h("b", { text: App.t("sum.load") }), loadEl), capEl);
+      h("div", { class: "sl", title: App.t("sum.loadTip") }, h("b", { text: App.t("sum.load") }), loadEl), capEl);
+    sumLoadEl = loadEl;
     const update = (c) => {
       const e = estimates(c);
       const vals = [e.clipMb, e.diskMb, e.ramMb];
@@ -505,6 +507,12 @@ App.RecUI = (function () {
     longBtn.disabled = !r || (!r.recording && !r.idle && !lg);
     longBtn.textContent = lg ? App.t("long.stop") : App.t("long.start");
     toggleBtn.textContent = r ? App.t("st.stop") : App.t("st.start");
+    if (sumLoadEl && sumLoadEl.isConnected) {
+      // measured while recording; before that, the estimate from the encoder in use
+      if (r && r.cpu_pct != null && r.recording) {
+        sumLoadEl.textContent = `CPU ${Math.round(r.cpu_pct)}%` + (r.gpu_pct != null ? ` · GPU ${Math.round(r.gpu_pct)}%` : "");
+      } else sumLoadEl.textContent = hw() ? "GPU" : "CPU";
+    }
     const diag = App.$("#recDiag");
     if (diag) diag.textContent = r ? App.t("adv.diagFmt", { n: r.restarts, enc: r.encoder || "?", cap: r.capture || "?", rate: r.kbps ? (r.kbps / 1000).toFixed(1) + " Mb/s" : "?" }) : "—";
     for (const row of document.querySelectorAll("#recSources .aitem")) {

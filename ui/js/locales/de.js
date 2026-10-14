@@ -271,6 +271,7 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "sum.disk": "Festplattenpuffer",
   "sum.ram": "RAM",
   "sum.load": "Last",
+  "sum.loadTip": "Gemessen während der Aufnahme: Anteil von Buffer an der CPU und die am stärksten ausgelastete GPU-Engine. Nur Recorder und Encoder, nicht das Spiel.",
   "sum.d10": "passt zu Discord (10 MB)",
   "sum.d50": "passt mit Boost (50 MB)",
   "sum.d500": "passt zu Discord mit Nitro (500 MB)",

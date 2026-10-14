@@ -271,6 +271,7 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "sum.disk": "Búfer en disco",
   "sum.ram": "RAM",
   "sum.load": "Carga",
+  "sum.loadTip": "Medido durante la grabación: parte de CPU de Buffer y su motor de GPU más ocupado. Solo el grabador y su codificador, no el juego.",
   "sum.d10": "cabe en Discord (10 MB)",
   "sum.d50": "cabe con Boost (50 MB)",
   "sum.d500": "cabe en Discord con Nitro (500 MB)",

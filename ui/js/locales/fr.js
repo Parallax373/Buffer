@@ -271,6 +271,7 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "sum.disk": "Tampon disque",
   "sum.ram": "RAM",
   "sum.load": "Charge",
+  "sum.loadTip": "Mesuré pendant l'enregistrement : part de CPU de Buffer et son moteur GPU le plus sollicité. Uniquement l'enregistreur et son encodeur, pas le jeu.",
   "sum.d10": "passe sur Discord (10 Mo)",
   "sum.d50": "passe avec Boost (50 Mo)",
   "sum.d500": "passe sur Discord avec Nitro (500 Mo)",

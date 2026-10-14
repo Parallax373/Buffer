@@ -271,6 +271,7 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "sum.disk": "Disk buffer",
   "sum.ram": "RAM",
   "sum.load": "Load",
+  "sum.loadTip": "Measured while recording: Buffer's share of your CPU and its busiest GPU engine. This is the recorder and its encoder only, not the game.",
   "sum.d10": "fits Discord (10 MB)",
   "sum.d50": "fits with Boost (50 MB)",
   "sum.d500": "fits Discord with Nitro (500 MB)",

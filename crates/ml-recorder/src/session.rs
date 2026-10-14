@@ -66,6 +66,9 @@ pub struct Shared {
     pub hotkey_hits: AtomicU32,
     /// Video bitrate (kb/s) of the running session, for diagnostics.
     pub kbps_now: AtomicU32,
+    /// Measured load of the recorder and its encoder, tenths of a percent (gpu: -1 = unavailable).
+    pub cpu_x10: AtomicU32,
+    pub gpu_x10: std::sync::atomic::AtomicI32,
     /// Set when the supervisor gave up on the configured encoder (it survives settings reloads).
     pub encoder_override: Mutex<Option<String>>,
     /// The long recording in progress, if any (see longrec.rs).

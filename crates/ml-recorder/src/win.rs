@@ -81,6 +81,11 @@ impl Job {
         }
     }
 
+    /// The raw handle value (for the CPU accounting queries in perf.rs).
+    pub fn raw(&self) -> isize {
+        self.0 as isize
+    }
+
     pub fn assign(&self, child: &std::process::Child) {
         unsafe {
             AssignProcessToJobObject(self.0, child.as_raw_handle() as HANDLE);

@@ -8,6 +8,7 @@ mod input;
 mod longrec;
 mod control;
 mod overlay;
+mod perf;
 mod pick;
 mod session;
 mod tray;
@@ -177,6 +178,8 @@ fn run() {
         markers: Mutex::new(Vec::new()),
         hotkey_hits: AtomicU32::new(0),
         kbps_now: AtomicU32::new(0),
+        cpu_x10: AtomicU32::new(0),
+        gpu_x10: std::sync::atomic::AtomicI32::new(-1),
         encoder_override: Mutex::new(None),
         long: Mutex::new(None),
         long_stopping: AtomicBool::new(false),
@@ -197,6 +200,8 @@ fn run() {
     if let Err(e) = control::serve(shared.clone()) {
         log(&format!("control port unavailable: {e}"));
     }
+
+    perf::start(shared.clone());
 
     // Tray icon + global hotkey share one message-loop thread.
     let ui_shared = shared.clone();

@@ -271,6 +271,7 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "sum.disk": "Bufor na dysku",
   "sum.ram": "Pamięć RAM",
   "sum.load": "Obciążenie",
+  "sum.loadTip": "Pomiar podczas nagrywania: udział Buffera w procesorze i najbardziej obciążony silnik GPU. Dotyczy tylko nagrywarki i jej kodera, nie gry.",
   "sum.d10": "mieści się w Discordzie (10 MB)",
   "sum.d50": "mieści się z Boost (50 MB)",
   "sum.d500": "mieści się w Discordzie z Nitro (500 MB)",

@@ -271,6 +271,7 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "sum.disk": "ディスクバッファ",
   "sum.ram": "RAM",
   "sum.load": "負荷",
+  "sum.loadTip": "録画中の実測値です。Buffer の CPU 使用率と、最も使われている GPU エンジン。対象は録画ソフトとエンコーダーのみで、ゲームは含みません。",
   "sum.d10": "Discordに収まる (10 MB)",
   "sum.d50": "Boostで収まる (50 MB)",
   "sum.d500": "NitroでDiscordに収まる (500 MB)",

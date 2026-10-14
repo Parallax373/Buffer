@@ -271,6 +271,7 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "sum.disk": "磁盘缓冲",
   "sum.ram": "RAM",
   "sum.load": "负载",
+  "sum.loadTip": "录制时的实测值：Buffer 占用的 CPU 比例及最忙的 GPU 引擎。仅统计录制程序及其编码器，不含游戏。",
   "sum.d10": "适合 Discord (10 MB)",
   "sum.d50": "适合 Boost (50 MB)",
   "sum.d500": "适合 Discord Nitro (500 MB)",

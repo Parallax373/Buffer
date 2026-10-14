@@ -271,6 +271,7 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "sum.disk": "Disk arabelleği",
   "sum.ram": "RAM",
   "sum.load": "Yük",
+  "sum.loadTip": "Kayıt sırasında ölçülür: Buffer'ın CPU payı ve en yoğun GPU motoru. Yalnızca kaydedici ve kodlayıcısı, oyun değil.",
   "sum.d10": "Discord'a sığar (10 MB)",
   "sum.d50": "Boost ile sığar (50 MB)",
   "sum.d500": "Nitro ile Discord'a sığar (500 MB)",

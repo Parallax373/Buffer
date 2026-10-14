@@ -27,11 +27,15 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
             })
         })
         .collect();
+    let gpu = shared.gpu_x10.load(Ordering::Relaxed);
+    let gpu_pct = if gpu < 0 { serde_json::Value::Null } else { json!(gpu as f64 / 10.0) };
     json!({
         "recording": shared.recording.load(Ordering::Relaxed),
         "idle": shared.idle.load(Ordering::Relaxed),
         "hotkey_hits": shared.hotkey_hits.load(Ordering::Relaxed),
         "kbps": shared.kbps_now.load(Ordering::Relaxed),
+        "cpu_pct": shared.cpu_x10.load(Ordering::Relaxed) as f64 / 10.0,
+        "gpu_pct": gpu_pct,
         "game": shared.active_game.lock().unwrap().as_ref().map(|g| g.name.clone()),
         "post_roll_s": cfg.post_roll_seconds,
         "monitor": shared.monitor_now.load(Ordering::Relaxed),
