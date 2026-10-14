@@ -140,6 +140,8 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "cat.fav": "お気に入り",
   "cat.exp": "エクスポート済み",
   "cat.games": "ゲーム",
+  "cat.more": "さらに {n} 件を表示",
+  "cat.less": "表示を減らす",
   "cat.allClips": "すべてのクリップ",
   "lib.count": { other: "{n} 件のクリップ" },
   "lib.loadFail": "ライブラリを読み込めません",

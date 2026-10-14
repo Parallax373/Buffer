@@ -140,6 +140,8 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "cat.fav": "Favoriler",
   "cat.exp": "Dışa aktarılan",
   "cat.games": "Oyunlar",
+  "cat.more": "{n} tane daha göster",
+  "cat.less": "Daha az göster",
   "cat.allClips": "Tüm klipler",
   "lib.count": { one: "{n} klip", other: "{n} klip" },
   "lib.loadFail": "Kütüphane yüklenemiyor",

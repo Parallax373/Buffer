@@ -140,6 +140,8 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "cat.fav": "Ulubione",
   "cat.exp": "Wyeksportowane",
   "cat.games": "Gry",
+  "cat.more": "Pokaż jeszcze {n}",
+  "cat.less": "Pokaż mniej",
   "cat.allClips": "Wszystkie klipy",
   "lib.count": { one: "{n} klip", few: "{n} klipy", many: "{n} klipów", other: "{n} klipu" },
   "lib.loadFail": "Nie można wczytać biblioteki",

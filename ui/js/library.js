@@ -159,6 +159,14 @@
         extra.dot ? h("span", { class: "ci", style: { background: extra.dot } }) : null,
         h("span", { class: "nm", text: label }), h("span", { class: "n", text: count }));
     const recentCut = recentCutoff();
+    // the five biggest games, the rest behind "show more"; an opened game that is not among them stays visible
+    const GAMES_SHOWN = 5;
+    const games = Lib.games();
+    let shown = S.gamesOpen ? games : games.slice(0, GAMES_SHOWN);
+    if (!S.gamesOpen && S.cat.startsWith("g:") && !shown.some(([g]) => "g:" + g === S.cat)) {
+      const cur = games.find(([g]) => "g:" + g === S.cat);
+      if (cur) shown = [...shown.slice(0, GAMES_SHOWN - 1), cur];
+    }
     const frag = [
       h("div", { class: "cap", text: App.t("cat.cap") }),
       item("all", App.t("cat.all"), S.clips.length),
@@ -166,8 +174,12 @@
       item("fav", "★ " + App.t("cat.fav"), S.clips.filter(isFav).length),
       item("exp", App.t("cat.exp"), S.clips.filter((c) => isExported(c.path)).length),
       h("div", { class: "cap", text: App.t("cat.games") }),
-      ...Lib.games().map(([g, n]) => item("g:" + g, g, n, { sq: `hsl(${App.hueOf(g)} 60% 55%)` })),
-    ];
+      ...shown.map(([g, n]) => item("g:" + g, g, n, { sq: `hsl(${App.hueOf(g)} 60% 55%)` })),
+      games.length > GAMES_SHOWN
+        ? h("div", { class: "row more", onClick: () => { S.gamesOpen = !S.gamesOpen; Lib.renderSide(); } },
+          h("span", { class: "nm", text: S.gamesOpen ? App.t("cat.less") : App.t("cat.more", { n: games.length - GAMES_SHOWN }) }))
+        : null,
+    ].filter(Boolean);
     els.side.replaceChildren(...frag);
   };
 

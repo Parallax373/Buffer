@@ -140,6 +140,8 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "cat.fav": "Favoritos",
   "cat.exp": "Exportados",
   "cat.games": "Juegos",
+  "cat.more": "Mostrar {n} más",
+  "cat.less": "Mostrar menos",
   "cat.allClips": "Todos los clips",
   "lib.count": { one: "{n} clip", many: "{n} clips", other: "{n} clips" },
   "lib.loadFail": "No se puede cargar la biblioteca",

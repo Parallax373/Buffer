@@ -140,6 +140,8 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "cat.fav": "收藏",
   "cat.exp": "已导出",
   "cat.games": "游戏",
+  "cat.more": "再显示 {n} 个",
+  "cat.less": "收起",
   "cat.allClips": "所有片段",
   "lib.count": { other: "{n} 个片段" },
   "lib.loadFail": "无法加载媒体库",

@@ -140,6 +140,8 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "cat.fav": "Обрані",
   "cat.exp": "Експортовані",
   "cat.games": "Ігри",
+  "cat.more": "Показати ще {n}",
+  "cat.less": "Показати менше",
   "cat.allClips": "Усі кліпи",
   "lib.count": { one: "{n} кліп", few: "{n} кліпи", many: "{n} кліпів", other: "{n} кліпу" },
   "lib.loadFail": "Не вдалося завантажити бібліотеку",

@@ -140,6 +140,8 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "cat.fav": "Favoris",
   "cat.exp": "Exportés",
   "cat.games": "Jeux",
+  "cat.more": "Afficher {n} de plus",
+  "cat.less": "Afficher moins",
   "cat.allClips": "Tous les clips",
   "lib.count": { one: "{n} clip", many: "{n} clips", other: "{n} clips" },
   "lib.loadFail": "Impossible de charger la bibliothèque",

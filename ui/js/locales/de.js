@@ -140,6 +140,8 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "cat.fav": "Favoriten",
   "cat.exp": "Exportiert",
   "cat.games": "Spiele",
+  "cat.more": "{n} weitere zeigen",
+  "cat.less": "Weniger anzeigen",
   "cat.allClips": "Alle Clips",
   "lib.count": { one: "{n} Clip", other: "{n} Clips" },
   "lib.loadFail": "Bibliothek nicht ladbar",

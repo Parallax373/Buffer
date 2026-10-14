@@ -731,3 +731,5 @@ body { color: var(--text); }
 .devbadge { margin-left: 8px; padding: 2px 7px; border-radius: 6px; background: #ffb454; color: #111; font: 700 10px/1.3 "JetBrains Mono", monospace; letter-spacing: .08em; vertical-align: middle; }
 .customsz { gap: 10px; }
 .customsz input[type=range] { width: auto; }
+.side .row.more .nm { color: var(--muted); font-size: 12px; }
+.side .row.more:hover .nm { color: var(--text); }

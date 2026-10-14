@@ -140,6 +140,8 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "cat.fav": "Favorites",
   "cat.exp": "Exported",
   "cat.games": "Games",
+  "cat.more": "Show {n} more",
+  "cat.less": "Show less",
   "cat.allClips": "All clips",
   "lib.count": { one: "{n} clip", other: "{n} clips" },
   "lib.loadFail": "Can't load the library",
