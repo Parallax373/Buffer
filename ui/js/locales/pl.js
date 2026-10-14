@@ -16,7 +16,6 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "common.cancel": "Anuluj",
   "common.default": "Domyślny",
 
-  "rec.pill.saved": "✓ zapisano {t}",
   "rec.pill.off": "REC wył.",
   "rec.pill.idle": "czeka na grę",
   "rec.pill.stopped": "REC zatrzymany",
@@ -27,7 +26,7 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "rec.tip.stopped": "Nagrywanie zatrzymane",
   "rec.tip.down": "Nie działa: {list}",
   "rec.tip.on": "Nagrywanie · bufor {cur}/{target} s",
-  "rec.tip.save": "{base} — kliknij, aby zapisać klip teraz",
+  "rec.tip.save": "{base} — kliknij, aby otworzyć ustawienia",
   "rec.notSaved": "Nie zapisano: {err}",
   "rec.notRunning": "Nagrywanie nie działa: {err}",
 

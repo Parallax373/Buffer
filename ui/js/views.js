@@ -49,8 +49,6 @@
 
   /* ───── top bar ───── */
 
-  let savedUntil = 0;
-  let savedDur = 0;
   const recPill = h("button", { class: "recpill off", onClick: () => onRecClick() });
   const chip = h("button", { class: "expchip", onClick: () => Exports.togglePop() });
 
@@ -78,8 +76,7 @@
     const r = S.recorder;
     const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
     let cls, text;
-    if (savedUntil > Date.now()) { cls = "saved"; text = App.t("rec.pill.saved", { t: fmtBuf(savedDur) }); }
-    else if (!r) { cls = "off"; text = App.t("rec.pill.off"); }
+    if (!r) { cls = "off"; text = App.t("rec.pill.off"); }
     else if (r.idle) { cls = "idle"; text = App.t("rec.pill.idle"); }
     else if (!r.recording) { cls = "bad"; text = App.t("rec.pill.stopped"); }
     else if (down.length) { cls = "warn"; text = App.t("rec.pill.warn"); }
@@ -99,21 +96,10 @@
     return App.t("rec.tip.save", { base });
   }
 
-  async function onRecClick() {
-    const r = S.recorder;
-    if (r && r.recording) {
-      try {
-        const res = await api.invoke("recorder_cmd", { cmd: "save" });
-        if (res.ok) {
-          savedDur = r.buffer_s; savedUntil = Date.now() + 2500; paintRec();
-          setTimeout(paintRec, 2600);
-          setTimeout(() => App.Lib.load(), 800);
-        } else App.toast(App.t("rec.notSaved", { err: res.error }), "err");
-      } catch (e) { App.toast(App.t("rec.notRunning", { err: e }), "err"); }
-    } else {
-      App.Settings.tab = "rec";
-      App.go("set");
-    }
+  /** The pill is a status light: a click opens the recording settings (saving a clip is the hotkey or the button there). */
+  function onRecClick() {
+    App.Settings.tab = "rec";
+    App.go("set");
   }
 
   function paintChip() {

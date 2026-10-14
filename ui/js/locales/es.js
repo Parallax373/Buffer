@@ -16,7 +16,6 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "common.cancel": "Cancelar",
   "common.default": "Predeterminado",
 
-  "rec.pill.saved": "✓ guardado {t}",
   "rec.pill.off": "REC apagado",
   "rec.pill.idle": "esperando juego",
   "rec.pill.stopped": "REC detenido",
@@ -27,7 +26,7 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "rec.tip.stopped": "Grabación detenida",
   "rec.tip.down": "No funciona: {list}",
   "rec.tip.on": "Grabando · búfer {cur}/{target} s",
-  "rec.tip.save": "{base} — clic para guardar un clip ahora",
+  "rec.tip.save": "{base} — clic para abrir los ajustes",
   "rec.notSaved": "No guardado: {err}",
   "rec.notRunning": "La grabación no está activa: {err}",
 

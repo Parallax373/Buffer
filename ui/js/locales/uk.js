@@ -16,7 +16,6 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "common.cancel": "Скасувати",
   "common.default": "Типово",
 
-  "rec.pill.saved": "✓ збережено {t}",
   "rec.pill.off": "REC вимкнено",
   "rec.pill.idle": "очікування гри",
   "rec.pill.stopped": "REC зупинено",
@@ -27,7 +26,7 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "rec.tip.stopped": "Запис зупинено",
   "rec.tip.down": "Не працює: {list}",
   "rec.tip.on": "Запис · буфер {cur}/{target} с",
-  "rec.tip.save": "{base} — натисніть, щоб зберегти кліп зараз",
+  "rec.tip.save": "{base} — натисніть, щоб відкрити параметри",
   "rec.notSaved": "Не збережено: {err}",
   "rec.notRunning": "Запис не запущено: {err}",
 

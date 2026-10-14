@@ -16,7 +16,6 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "common.cancel": "取消",
   "common.default": "默认",
 
-  "rec.pill.saved": "✓ 已保存 {t}",
   "rec.pill.off": "录制已关闭",
   "rec.pill.idle": "等待游戏",
   "rec.pill.stopped": "录制已停止",
@@ -27,7 +26,7 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "rec.tip.stopped": "录制已停止",
   "rec.tip.down": "无法工作：{list}",
   "rec.tip.on": "录制中 · 缓冲 {cur}/{target} 秒",
-  "rec.tip.save": "{base} — 点击立即保存片段",
+  "rec.tip.save": "{base} — 点击打开设置",
   "rec.notSaved": "未保存：{err}",
   "rec.notRunning": "录制未运行：{err}",
 

@@ -16,7 +16,6 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "common.cancel": "Cancel",
   "common.default": "Default",
 
-  "rec.pill.saved": "✓ saved {t}",
   "rec.pill.off": "REC off",
   "rec.pill.idle": "waiting for game",
   "rec.pill.stopped": "REC stopped",
@@ -27,7 +26,7 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "rec.tip.stopped": "Recording stopped",
   "rec.tip.down": "Not working: {list}",
   "rec.tip.on": "Recording · buffer {cur}/{target} s",
-  "rec.tip.save": "{base} — click to save a clip now",
+  "rec.tip.save": "{base} — click for settings",
   "rec.notSaved": "Not saved: {err}",
   "rec.notRunning": "Recording isn't running: {err}",
 

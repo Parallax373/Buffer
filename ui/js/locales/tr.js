@@ -16,7 +16,6 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "common.cancel": "İptal",
   "common.default": "Varsayılan",
 
-  "rec.pill.saved": "✓ kaydedildi {t}",
   "rec.pill.off": "REC kapalı",
   "rec.pill.idle": "oyun bekleniyor",
   "rec.pill.stopped": "REC durdu",
@@ -27,7 +26,7 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "rec.tip.stopped": "Kayıt durdu",
   "rec.tip.down": "Çalışmıyor: {list}",
   "rec.tip.on": "Kayıt · arabellek {cur}/{target} sn",
-  "rec.tip.save": "{base} — şimdi klip kaydetmek için tıkla",
+  "rec.tip.save": "{base} — ayarları açmak için tıkla",
   "rec.notSaved": "Kaydedilmedi: {err}",
   "rec.notRunning": "Kayıt çalışmıyor: {err}",
 

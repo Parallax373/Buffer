@@ -16,7 +16,6 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "common.cancel": "Annuler",
   "common.default": "Par défaut",
 
-  "rec.pill.saved": "✓ enregistré {t}",
   "rec.pill.off": "REC off",
   "rec.pill.idle": "en attente de jeu",
   "rec.pill.stopped": "REC arrêté",
@@ -27,7 +26,7 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "rec.tip.stopped": "Enregistrement arrêté",
   "rec.tip.down": "Ne fonctionne pas : {list}",
   "rec.tip.on": "Enregistrement · tampon {cur}/{target} s",
-  "rec.tip.save": "{base} — cliquez pour enregistrer un clip",
+  "rec.tip.save": "{base} — cliquez pour ouvrir les réglages",
   "rec.notSaved": "Non enregistré : {err}",
   "rec.notRunning": "L'enregistrement ne tourne pas : {err}",
 

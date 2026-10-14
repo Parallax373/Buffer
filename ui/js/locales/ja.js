@@ -16,7 +16,6 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "common.cancel": "キャンセル",
   "common.default": "既定",
 
-  "rec.pill.saved": "✓ 保存済み {t}",
   "rec.pill.off": "REC オフ",
   "rec.pill.idle": "ゲーム待機中",
   "rec.pill.stopped": "REC 停止",
@@ -27,7 +26,7 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "rec.tip.stopped": "録画を停止しました",
   "rec.tip.down": "動作していません: {list}",
   "rec.tip.on": "録画中 · バッファ {cur}/{target} 秒",
-  "rec.tip.save": "{base} — クリックで今すぐクリップを保存",
+  "rec.tip.save": "{base} — クリックで設定を開く",
   "rec.notSaved": "保存できませんでした: {err}",
   "rec.notRunning": "録画が実行されていません: {err}",
 

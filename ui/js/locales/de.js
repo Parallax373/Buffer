@@ -16,7 +16,6 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "common.cancel": "Abbrechen",
   "common.default": "Standard",
 
-  "rec.pill.saved": "✓ gespeichert {t}",
   "rec.pill.off": "REC aus",
   "rec.pill.idle": "wartet auf Spiel",
   "rec.pill.stopped": "REC gestoppt",
@@ -27,7 +26,7 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "rec.tip.stopped": "Aufnahme gestoppt",
   "rec.tip.down": "Funktioniert nicht: {list}",
   "rec.tip.on": "Aufnahme · Puffer {cur}/{target} s",
-  "rec.tip.save": "{base} — Klick speichert jetzt einen Clip",
+  "rec.tip.save": "{base} — Klick öffnet die Einstellungen",
   "rec.notSaved": "Nicht gespeichert: {err}",
   "rec.notRunning": "Aufnahme läuft nicht: {err}",
 
