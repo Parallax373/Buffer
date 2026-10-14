@@ -19,7 +19,7 @@ Write-Host "Releasing $current -> $Version"
 
 & "$root\scripts\bump-version.ps1" $Version
 git add -A
-git commit -m "Release $Version" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
+git commit -m "Release $Version"
 git push origin main
 git tag "v$Version"
 git push origin "v$Version"
