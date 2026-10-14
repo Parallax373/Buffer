@@ -761,6 +761,3 @@ body { color: var(--text); }
 .ghead .gc { font: 11px "JetBrains Mono", monospace; opacity: .7; }
 .ghead .gar { margin-left: auto; font-size: 10px; }
 .ghead:hover { color: var(--text); }
-/* clean-up nudge inside the exports popover */
-.popover .nudge { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 9px; background: #ffffff08; font-size: 12px; }
-.popover .nudge .acts { display: flex; gap: 12px; white-space: nowrap; }

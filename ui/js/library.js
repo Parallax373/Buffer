@@ -19,13 +19,22 @@
 
   Lib.load = async () => {
     const dirs = App.P.libDirs.filter(Boolean);
+    let clips = [], listError = "";
     try {
-      S.clips = await api.invoke("list_clips", { dirs, recurse: App.P.settings.sub });
-      S.listError = "";
+      clips = await api.invoke("list_clips", { dirs, recurse: App.P.settings.sub });
     } catch (e) {
-      S.clips = [];
-      S.listError = String(e);
+      listError = String(e);
     }
+    // the window gaining focus (moving it, alt-tabbing back) re-lists the folders; when nothing changed the grid is left
+    // alone: no rebuild, no entrance animations, just the small tags refreshed in place
+    const sig = listError + "#" + clips.map((c) => `${c.path}|${c.modified}|${c.size}`).join("\n");
+    if (sig === Lib._sig) {
+      if (S.view === "lib") { refreshCards(); Lib.renderSide(); }
+      return;
+    }
+    Lib._sig = sig;
+    S.clips = clips;
+    S.listError = listError;
     S.byPath = new Map(S.clips.map((c) => [c.path, c]));
     App.computeNew(S.clips);
     for (const p of [...S.sel]) if (!S.byPath.has(p)) S.sel.delete(p);
@@ -213,13 +222,26 @@
   S.collapsed = S.collapsed || new Set();
 
   function bucketOf(clip) {
-    const d = new Date();
-    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000;
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
     const t = clip.modified;
-    if (t >= midnight) return 0;
-    if (t >= midnight - 6 * 86400) return 1;
-    if (t >= midnight - 29 * 86400) return 2;
-    return 3;
+    if (t >= midnight) return { key: "today", order: 0, label: App.t("group.today") };
+    if (t >= midnight - 86400) return { key: "yesterday", order: 1, label: App.t("group.yesterday") };
+    if (t >= midnight - 6 * 86400) return { key: "week", order: 2, label: App.t("group.week") };
+    const d = new Date(t * 1000);
+    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
+      return { key: "month", order: 3, label: App.t("group.month") };
+    }
+    // the last twelve months get a group each; anything older is grouped by year so the list stays short
+    if ((now.getFullYear() * 12 + now.getMonth()) - (d.getFullYear() * 12 + d.getMonth()) > 12) {
+      return { key: `y:${d.getFullYear()}`, order: 5000 + (9999 - d.getFullYear()), label: String(d.getFullYear()) };
+    }
+    const label = d.toLocaleDateString(App.tag(), { month: "long", year: "numeric" });
+    return {
+      key: `m:${d.getFullYear()}-${d.getMonth() + 1}`,
+      order: 10 + (9999 * 12 - (d.getFullYear() * 12 + d.getMonth())),     // newer months first
+      label: label.charAt(0).toUpperCase() + label.slice(1),
+    };
   }
 
   function layout(list, g) {
@@ -229,19 +251,22 @@
       list.forEach((clip, i) => items.push({ clip, ...at(i, 0) }));
       return { items, groups, height: Math.max(0, Math.ceil(list.length / g.cols) * g.rowH - GAP) };
     }
-    const buckets = [[], [], [], []];
-    for (const c of list) buckets[bucketOf(c)].push(c);
-    const keys = ["today", "week", "month", "earlier"];
+    const byKey = new Map();
+    for (const c of list) {
+      const b = bucketOf(c);
+      let e = byKey.get(b.key);
+      if (!e) byKey.set(b.key, (e = { ...b, clips: [] }));
+      e.clips.push(c);
+    }
     let y = 0;
-    buckets.forEach((b, bi) => {
-      if (!b.length) return;
-      const closed = S.collapsed.has(keys[bi]);
-      groups.push({ key: keys[bi], y, count: b.length, closed });
+    for (const e of [...byKey.values()].sort((a, b) => a.order - b.order)) {
+      const closed = S.collapsed.has(e.key);
+      groups.push({ key: e.key, label: e.label, y, count: e.clips.length, closed });
       y += GROUP_H;
-      if (closed) return;
-      b.forEach((clip, i) => items.push({ clip, ...at(i, y) }));
-      y += Math.ceil(b.length / g.cols) * g.rowH;
-    });
+      if (closed) continue;
+      e.clips.forEach((clip, i) => items.push({ clip, ...at(i, y) }));
+      y += Math.ceil(e.clips.length / g.cols) * g.rowH;
+    }
     return { items, groups, height: Math.max(0, y - GAP) };
   }
 
@@ -302,10 +327,10 @@
         els.spacer.append(el);
       }
       el.style.top = `${gr.y}px`;
-      const sig = `${gr.count}|${gr.closed}|${App.t("group." + gr.key)}`;
+      const sig = `${gr.count}|${gr.closed}|${gr.label}`;
       if (el._sig !== sig) {
         el._sig = sig;
-        el.replaceChildren(h("span", { class: "gl", text: App.t("group." + gr.key) }), h("span", { class: "gc", text: String(gr.count) }),
+        el.replaceChildren(h("span", { class: "gl", text: gr.label }), h("span", { class: "gc", text: String(gr.count) }),
           h("span", { class: "gar", text: gr.closed ? "▸" : "▾" }));
       }
     }
@@ -461,21 +486,13 @@
     els.lib?.classList.toggle("nodetail", !(S.active && S.byPath.get(S.active)));
     const c = S.active && S.byPath.get(S.active);
     if (!c) {
-      els.details._for = null;
       els.details.replaceChildren(h("div", { class: "empty" }, App.t("det.empty").split("\n").flatMap((l, i) => (i ? [h("br"), l] : [l]))));
       return;
     }
     const m = Lib.meta(c);
     const pv = h("div", { class: "pv" }, h("div", { class: "go", onClick: () => App.Ed.open(c.path) }, h("span", { text: "▶" })));
-    Lib.thumbUrl(c.path).then((u) => {
-      const box = els.details.querySelector(".pv");
-      if (u && S.active === c.path && box && !box.querySelector("img")) box.prepend(h("img", { src: u, alt: "" }));
-    });
-    // the same clip keeps its nodes (the preview does not flash); another clip is a fresh panel
-    const sameClip = els.details._for === c.path && els.details.firstChild;
-    els.details._for = c.path;
-    const paint = (...kids) => (sameClip ? App.morph(els.details, kids) : els.details.replaceChildren(...kids));
-    paint(
+    Lib.thumbUrl(c.path).then((u) => { if (u && S.active === c.path) pv.prepend(h("img", { src: u, alt: "" })); });
+    els.details.replaceChildren(
       pv,
       h("div", null,
         h("div", { class: "gamechip", title: App.t("det.game"), text: App.gameOf(c) }),

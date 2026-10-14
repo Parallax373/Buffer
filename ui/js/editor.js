@@ -511,7 +511,7 @@
       E.error ? h("div", { class: "errmsg", text: E.error }) : null,
       h("button", { class: "btn acc", style: { padding: "12px", opacity: exporting ? 0.5 : 1 }, disabled: !!S.exporting || !E.info,
         onClick: doExport, text: exporting ? App.t("ed.exporting") : E.done ? App.t("ed.again") : App.t("ed.export") })];
-    App.morph(P, items.filter(Boolean));   // patched in place: sliders, scroll and the open sections are not rebuilt
+    P.replaceChildren(...items.filter(Boolean));   // append(null) would render the text "null"
     updateEstimate();
   }
 

@@ -27,11 +27,7 @@ const App = {};
         if (v == null || v === false) continue;
         if (k === "class") el.className = v;
         else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
-        else if (k.startsWith("on") && typeof v === "function") {
-          const type = k.slice(2).toLowerCase();
-          el.addEventListener(type, v);
-          (el.__ev ||= []).push([type, v]);      // remembered so App.morph can move them onto a reused node
-        }
+        else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
         else if (k === "text") el.textContent = v;
         else if (k === "value") el.value = v;
         else if (k in el && k !== "list") el[k] = v;
@@ -46,39 +42,6 @@ const App = {};
   };
   const h = App.h;
   App.$ = (s, r = document) => r.querySelector(s);
-
-  /** Updates `parent`'s children to match `kids` while keeping the existing DOM nodes (and so scroll position, focus,
-   *  open sections, running CSS transitions). Nodes are matched by position and tag; a node that changed kind is replaced. */
-  App.morph = (parent, kids) => {
-    const nodeOf = (k) => (k.nodeType ? k : document.createTextNode(String(k)));
-    const sameKind = (a, b) => a.nodeType === b.nodeType && (a.nodeType !== 1 || a.tagName === b.tagName);
-    const patch = (o, n) => {
-      if (o.nodeType === 3) { if (o.data !== n.data) o.data = n.data; return; }
-      if (o.nodeType !== 1) return;
-      for (const a of [...o.attributes]) if (!n.hasAttribute(a.name)) o.removeAttribute(a.name);
-      for (const a of n.attributes) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
-      const typing = document.activeElement === o;
-      if ("checked" in n && o.checked !== n.checked) o.checked = n.checked;
-      if ("selected" in n && o.selected !== n.selected) o.selected = n.selected;
-      if (o.tagName === "INPUT" && !typing && o.value !== n.value) o.value = n.value;
-      for (const [t, f] of o.__ev || []) o.removeEventListener(t, f);
-      for (const [t, f] of n.__ev || []) o.addEventListener(t, f);
-      o.__ev = n.__ev;
-      morphKids(o, [...n.childNodes]);
-      if (o.tagName === "SELECT" && !typing && o.value !== n.value) o.value = n.value;
-    };
-    const morphKids = (p, nk) => {
-      const ok = [...p.childNodes];
-      nk.forEach((n, i) => {
-        const c = ok[i];
-        if (!c) p.append(n);
-        else if (sameKind(c, n)) patch(c, n);
-        else c.replaceWith(n);
-      });
-      for (let i = ok.length - 1; i >= nk.length; i--) ok[i].remove();
-    };
-    morphKids(parent, kids.filter((k) => k != null && k !== false).map(nodeOf));
-  };
 
   /* ───── formatting ───── */
   App.fmt = (s) => { s = Math.max(0, s || 0); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`; };
