@@ -236,9 +236,15 @@ pub fn apply_app_sources(shared: &session::Shared) {
 /// Hotkey: wait the configured post-roll (so the moments right after the press are in the clip), then save.
 /// Pressing again while waiting saves immediately.
 fn hotkey_save(shared: &Arc<session::Shared>) {
+    // nothing is being buffered (waiting for a game, or stopped): say so now instead of counting down to a failure
+    if !shared.recording.load(Ordering::Relaxed) && crate::longrec::elapsed_secs(shared).is_none() {
+        let why = if shared.idle.load(Ordering::Relaxed) { "pop.nothing_idle" } else { "pop.nothing_stopped" };
+        shared.popup(Event::SaveFailed, crate::lang::t("pop.nothing"), crate::lang::t(why));
+        return;
+    }
     let roll = shared.cfg.lock().unwrap().post_roll_seconds;
     if roll == 0 {
-        save_async(shared);
+        save_async(shared, false);
         return;
     }
     if shared.post_roll_active.swap(true, Ordering::Relaxed) {
@@ -258,17 +264,20 @@ fn hotkey_save(shared: &Arc<session::Shared>) {
         s.post_roll_skip.store(false, Ordering::Relaxed);
         s.post_roll_active.store(false, Ordering::Relaxed);
         *s.post_roll_until.lock().unwrap() = None;
-        save_async(&s);
+        save_async(&s, true);
     });
 }
 
-fn save_async(shared: &Arc<session::Shared>) {
+/// `announced`: the key press already showed the "will be saved" notice, so success stays quiet (one notice per save).
+fn save_async(shared: &Arc<session::Shared>, announced: bool) {
     let s = shared.clone();
     thread::spawn(move || match session::save(&s) {
         Ok(path) => {
             win::beep();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            s.popup(Event::Saved, crate::lang::t("pop.saved"), name);
+            if !announced {
+                s.popup(Event::Saved, crate::lang::t("pop.saved"), name);
+            }
         }
         Err(e) => {
             session::log(&format!("save failed: {e}"));
@@ -385,7 +394,7 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
             }
             while let Ok(ev) = MenuEvent::receiver().try_recv() {
                 if ev.id == *save_i.id() {
-                    save_async(&tick_shared);
+                    save_async(&tick_shared, false);
                 } else if ev.id == *rec_i.id() {
                     crate::longrec::toggle(&tick_shared);
                 } else if ev.id == *open_i.id() {

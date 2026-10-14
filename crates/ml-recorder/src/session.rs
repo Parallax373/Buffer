@@ -575,7 +575,11 @@ fn save_inner(shared: &Arc<Shared>) -> Result<PathBuf, String> {
     let _guard = shared.save_lock.lock().unwrap();
     let cfg = shared.cfg.lock().unwrap().clone();
 
-    let mut all = segments();
+    // empty or truncated files (a session that never produced data) would make the whole join fail
+    let mut all: Vec<PathBuf> = segments()
+        .into_iter()
+        .filter(|p| fs::metadata(p).map(|m| m.len() > 4096).unwrap_or(false))
+        .collect();
     // The newest segment is still being written and its audio is usually shorter than its video.
     if all.len() > 1 {
         all.pop();
@@ -583,7 +587,7 @@ fn save_inner(shared: &Arc<Shared>) -> Result<PathBuf, String> {
     let want = (cfg.buffer_seconds / SEGMENT_SECS) as usize;
     let take = all.len().min(want);
     if take == 0 {
-        return Err("buffer is empty; nothing has been recorded yet".into());
+        return Err(crate::lang::t("err.empty"));
     }
     let picked = &all[all.len() - take..];
 
@@ -620,7 +624,9 @@ fn save_inner(shared: &Arc<Shared>) -> Result<PathBuf, String> {
     let result = cmd.output().map_err(|e| e.to_string())?;
     if !result.status.success() {
         let _ = fs::remove_file(&tmp);
-        return Err(String::from_utf8_lossy(&result.stderr).trim().to_string());
+        // the raw ffmpeg text goes to the log; the user gets one short sentence
+        log(&format!("ffmpeg could not join the buffer: {}", String::from_utf8_lossy(&result.stderr).trim()));
+        return Err(crate::lang::t("err.read"));
     }
     fs::rename(&tmp, &out).map_err(|e| e.to_string())?;
     write_markers(shared, picked, &out);

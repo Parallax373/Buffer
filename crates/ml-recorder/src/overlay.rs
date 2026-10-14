@@ -57,7 +57,8 @@ impl Event {
 
     fn total_ms(self) -> f64 {
         match self {
-            Event::PostRoll { roll_ms } => roll_ms as f64 + 300.0 + 4000.0,
+            // one short notice at the key press; the clip is saved quietly afterwards
+            Event::PostRoll { .. } => 3500.0,
             Event::SaveFailed | Event::RecordingDown => 6500.0,
             _ => 4000.0,
         }
@@ -311,7 +312,7 @@ impl Overlay {
         let accent = ev.accent();
         let local = e - a.morph_at.unwrap_or(0.0);
         let glow = decay(local, 700.0);
-        let counting = matches!(ev, Event::PostRoll { .. }) && a.morph_at.is_none();
+        let counting = false; // no live countdown any more: the notice is a single, short message
         let px = |v: f64| (v * s).round() as i32;
         unsafe {
             let dc = self.mem;
@@ -428,6 +429,6 @@ mod tests {
     fn lifetimes_follow_the_table() {
         assert_eq!(Event::Game.total_ms(), 4000.0);
         assert_eq!(Event::SaveFailed.total_ms(), 6500.0);
-        assert_eq!(Event::PostRoll { roll_ms: 15_000 }.total_ms(), 19_300.0);
+        assert_eq!(Event::PostRoll { roll_ms: 15_000 }.total_ms(), 3_500.0);
     }
 }
