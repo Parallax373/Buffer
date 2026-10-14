@@ -13,7 +13,7 @@ App.RecUI = (function () {
   const CHAT_APPS = [["", "— nie rozdzielaj —"], ["discord", "Discord"], ["teamspeak", "TeamSpeak"], ["ts3client_win64", "TeamSpeak 3"],
     ["teams", "Microsoft Teams"], ["zoom", "Zoom"], ["telegram", "Telegram"], ["skype", "Skype"]];
   const BASE = {
-    output_dir: "", per_game_folders: true, post_roll_seconds: 30, game_only: false, follow_game_monitor: true, chat_app: "",
+    output_dir: "", per_game_folders: true, post_roll_seconds: 15, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, monitor: 0,
     encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", marker_hotkey: "Alt+M", popup: true, extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
@@ -22,7 +22,7 @@ App.RecUI = (function () {
   const FPS = [[30, "30 fps"], [60, "60 fps"]];
   const QUAL = [[8000, "Oszczędna"], [14000, "Standard"], [30000, "Wysoka"]];
   const LEN = [[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]];
-  const POST_ROLL = [[0, "Od razu"], [10, "10 s"], [30, "30 s"], [60, "60 s"]];
+  const POST_ROLL = [[0, "Od razu"], [15, "15 s"], [30, "30 s"], [60, "60 s"]];
   const PRESETS = [
     ["eco", "Lekki", "Mały klip, minimalne obciążenie", { width: 1920, fps: 30, video_kbps: 14000 }, "1080p · 30 fps"],
     ["bal", "Zbalansowany ★", "Ostry obraz, mieści się w Nitro", { width: 2560, fps: 30, video_kbps: 30000 }, "1440p · 30 fps"],

@@ -74,7 +74,7 @@ impl Default for Config {
         Config {
             output_dir: default_output_dir(),
             per_game_folders: true,
-            post_roll_seconds: 30,
+            post_roll_seconds: 15,
             game_only: false,
             follow_game_monitor: true,
             chat_app: String::new(),
