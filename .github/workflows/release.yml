@@ -27,6 +27,9 @@ jobs:
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
       - name: Test
         run: cargo test --workspace --exclude buffer   # the app crate needs the release recorder and ffmpeg resources, which the installer build creates
 

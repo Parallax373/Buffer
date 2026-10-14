@@ -1,5 +1,10 @@
 # Releasing Buffer
 
+## In short
+- **See changes while working:** double-click `Run Buffer (dev).cmd` (local helper, not in git). No installer needed.
+- **Ship a version:** `scripts\release.ps1` (or double-click `Release Buffer.cmd`). It bumps the version, pushes and tags;
+  GitHub builds, signs and publishes the installer, and installed copies update themselves.
+
 ## One-time setup
 1. **Updater key.** Already generated on the maintainer's machine in `%USERPROFILE%\.buffer-release\`
    (`updater.key`, `updater.pw`, `updater.key.pub`). The *public* key is in `src-tauri/tauri.conf.json`; the private
