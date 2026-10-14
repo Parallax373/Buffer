@@ -29,12 +29,26 @@
     setTimeout(() => w.remove(), 700);
   }
 
+  /** The icon rail is built once; later calls only move the "on" state (rebuilding it flashed the Library button). */
+  let railItems = null;
   function renderRail() {
     const nav = App.$("#nav");
-    const item = (view, icon, label, on) => h("button", { class: "item" + (on ? " on" : ""), "aria-label": label,
-      onClick: () => App.go(view) }, h("span", { class: "ic", text: icon }), h("span", { class: "lb", text: label }));
-    nav.replaceChildren(item("lib", "▦", App.t("nav.library"), S.view === "lib" || S.view === "ed"), h("div", { class: "grow" }),
-      item("set", "⚙", App.t("nav.settings"), S.view === "set"));
+    const defs = [
+      ["lib", "▦", "nav.library", S.view === "lib" || S.view === "ed"],
+      ["set", "⚙", "nav.settings", S.view === "set"],
+    ];
+    if (!railItems || !railItems.every((el) => el.isConnected)) {
+      railItems = defs.map(([view, icon]) => h("button", { class: "item", onClick: () => App.go(view) },
+        h("span", { class: "ic", text: icon }), h("span", { class: "lb" })));
+      nav.replaceChildren(railItems[0], h("div", { class: "grow" }), railItems[1]);
+    }
+    defs.forEach(([, , key, on], i) => {
+      const el = railItems[i], label = App.t(key);
+      el.classList.toggle("on", on);
+      el.setAttribute("aria-label", label);
+      const lb = el.querySelector(".lb");
+      if (lb.textContent !== label) lb.textContent = label;
+    });
   }
 
   /** Own window buttons: the native title bar is turned off. */
