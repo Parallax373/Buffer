@@ -15,6 +15,7 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "common.delete": "Supprimer",
   "common.cancel": "Annuler",
   "common.dismiss": "Fermer",
+  "dev.badgeTip": "Version de développement lancée depuis le dossier source. Le Buffer installé est fermé pendant ce temps.",
   "hk.clear": "Retirer le raccourci",
   "st.bufferNoKey": "tampon {cur} / {target}",
   "common.default": "Par défaut",

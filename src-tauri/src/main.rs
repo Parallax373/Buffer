@@ -560,6 +560,12 @@ async fn recorder_monitors() -> Result<serde_json::Value, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// True in a debug build (what `tauri dev` runs); the UI shows a DEV badge so it is never mistaken for the installed app.
+#[tauri::command]
+fn is_dev_build() -> bool {
+    cfg!(debug_assertions)
+}
+
 /// Where clips go on a fresh install: the user's Videos\Buffer folder.
 #[tauri::command]
 fn default_clips_dir() -> String {
@@ -667,6 +673,7 @@ fn main() {
         .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            is_dev_build,
             list_clips,
             probe_clip,
             prepare_audio,

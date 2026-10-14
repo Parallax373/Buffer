@@ -15,6 +15,7 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "common.delete": "Eliminar",
   "common.cancel": "Cancelar",
   "common.dismiss": "Cerrar",
+  "dev.badgeTip": "Versión de desarrollo ejecutada desde la carpeta de código. El Buffer instalado está cerrado mientras tanto.",
   "hk.clear": "Quitar atajo",
   "st.bufferNoKey": "búfer {cur} / {target}",
   "common.default": "Predeterminado",

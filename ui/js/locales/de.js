@@ -15,6 +15,7 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "common.delete": "Löschen",
   "common.cancel": "Abbrechen",
   "common.dismiss": "Schließen",
+  "dev.badgeTip": "Entwicklungsversion aus dem Quellordner. Das installierte Buffer ist währenddessen geschlossen.",
   "hk.clear": "Kürzel entfernen",
   "st.bufferNoKey": "Puffer {cur} / {target}",
   "common.default": "Standard",

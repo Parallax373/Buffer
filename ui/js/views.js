@@ -62,7 +62,8 @@
     App.$("#topbar").replaceChildren(
       h("div", { class: "brand", "data-tauri-drag-region": true },
         h("div", { class: "mini" }, widths.map((w) => h("i", { style: { width: `${w}px` } }))),
-        h("b", { text: "Buffer" })),
+        h("b", { text: "Buffer" }),
+        App.isDev ? h("span", { class: "devbadge", text: "DEV", title: App.t("dev.badgeTip") }) : null),
       h("label", { class: "search" }, h("span", { text: "⌕" }), search, h("kbd", { text: "Ctrl K" })),
       h("div", { class: "right", "data-tauri-drag-region": true }, App.i18n.topbarChip(), App.Update.chip, recPill, chip, windowControls()));
     paintRec();

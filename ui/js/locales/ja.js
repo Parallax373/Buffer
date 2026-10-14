@@ -15,6 +15,7 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "common.delete": "削除",
   "common.cancel": "キャンセル",
   "common.dismiss": "閉じる",
+  "dev.badgeTip": "ソースフォルダーから実行している開発版です。インストール済みの Buffer はその間閉じられています。",
   "hk.clear": "ショートカットを削除",
   "st.bufferNoKey": "バッファ {cur} / {target}",
   "common.default": "既定",

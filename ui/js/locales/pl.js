@@ -15,6 +15,7 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "common.delete": "Usuń",
   "common.cancel": "Anuluj",
   "common.dismiss": "Zamknij",
+  "dev.badgeTip": "Wersja deweloperska uruchomiona z folderu źródeł. Zainstalowany Buffer jest w tym czasie zamknięty.",
   "hk.clear": "Usuń skrót",
   "st.bufferNoKey": "bufor {cur} / {target}",
   "common.default": "Domyślny",

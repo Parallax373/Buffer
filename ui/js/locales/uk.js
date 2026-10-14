@@ -15,6 +15,7 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "common.delete": "Видалити",
   "common.cancel": "Скасувати",
   "common.dismiss": "Закрити",
+  "dev.badgeTip": "Версія для розробки, запущена з теки з кодом. Встановлений Buffer тим часом закрито.",
   "hk.clear": "Прибрати скорочення",
   "st.bufferNoKey": "буфер {cur} / {target}",
   "common.default": "Типово",

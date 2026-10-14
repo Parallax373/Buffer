@@ -15,6 +15,7 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "common.delete": "Delete",
   "common.cancel": "Cancel",
   "common.dismiss": "Dismiss",
+  "dev.badgeTip": "Development build running from the source folder. Your installed Buffer is closed meanwhile.",
   "hk.clear": "Clear shortcut",
   "st.bufferNoKey": "buffer {cur} / {target}",
   "common.default": "Default",
