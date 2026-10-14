@@ -199,6 +199,7 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "ed.exporting": "Eksportowanie…",
   "ed.again": "Eksportuj ponownie",
   "ed.export": "Eksportuj",
+  "ed.qualityTip": "Jak dobry będzie obraz po zmieszczeniu klipu w wybranym rozmiarze. Pasek pokazuje mieszczący się bitrate (więcej = lepiej); krótszy klip lub większy cel go podnosi.",
 
   "src.game": "Dźwięk gry",
   "src.gameTip": "Dźwięk z komputera: gry, muzyka, filmy.",

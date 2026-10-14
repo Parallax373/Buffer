@@ -199,6 +199,7 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "ed.exporting": "导出中…",
   "ed.again": "再次导出",
   "ed.export": "导出",
+  "ed.qualityTip": "将片段压缩到所选大小后的画质预估。进度条表示可用码率（越高越好）；缩短片段或提高目标大小可提升画质。",
 
   "src.game": "游戏音频",
   "src.gameTip": "来自电脑的声音：游戏、音乐、视频。",

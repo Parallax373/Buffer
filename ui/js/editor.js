@@ -513,7 +513,7 @@
       onClick: () => { E[key] = !E[key]; renderPanel(); paintCrop(); updateEstimate(); } },
       h("span", { text: label }), h("span", { class: "toggle" + (E[key] ? " on" : "") }));
 
-    const sum = h("div", { class: "sumcard" },
+    const sum = h("div", { class: "sumcard", title: App.t("ed.qualityTip") },
       h("div", { class: "r1" }, h("span", { class: "big", id: "sumLen" }), h("span", { class: "mono muted", id: "sumTarget", style: { fontSize: "12px" } })),
       h("div", { class: "meter" }, h("div", { id: "sumMeter" })),
       h("div", { class: "r3" }, h("span", { id: "sumQ" }), h("span", { id: "sumKbps" })));

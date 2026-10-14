@@ -199,6 +199,7 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "ed.exporting": "Aktarılıyor…",
   "ed.again": "Tekrar aktar",
   "ed.export": "Dışa aktar",
+  "ed.qualityTip": "Klip seçilen boyuta sığdırıldığında görüntünün ne kadar iyi olacağı. Çubuk sığan bit hızını gösterir (yüksek daha iyi); daha kısa klip veya daha büyük hedef bunu artırır.",
 
   "src.game": "Oyun sesi",
   "src.gameTip": "PC'den gelen ses: oyunlar, müzik, videolar.",

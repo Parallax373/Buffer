@@ -199,6 +199,7 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "ed.exporting": "Exporting…",
   "ed.again": "Export again",
   "ed.export": "Export",
+  "ed.qualityTip": "How good the picture will be when this clip is squeezed into the chosen size. The bar shows the bitrate that fits (more is better); a shorter clip or a bigger target raises it.",
 
   "src.game": "Game audio",
   "src.gameTip": "Sound from the PC: games, music, videos.",

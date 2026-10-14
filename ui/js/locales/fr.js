@@ -199,6 +199,7 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "ed.exporting": "Export…",
   "ed.again": "Exporter à nouveau",
   "ed.export": "Exporter",
+  "ed.qualityTip": "Qualité de l'image une fois le clip ramené à la taille choisie. La barre montre le débit disponible (plus = mieux) ; un clip plus court ou une cible plus grande l'augmente.",
 
   "src.game": "Audio du jeu",
   "src.gameTip": "Son du PC : jeux, musique, vidéos.",
