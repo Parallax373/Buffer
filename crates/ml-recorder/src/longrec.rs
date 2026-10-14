@@ -146,7 +146,7 @@ pub fn toggle(shared: &Arc<Shared>) {
             Ok(()) => {
                 // read the shortcut first: `popup` takes the config lock itself, so it must not be held here
                 let hk = shared.cfg.lock().unwrap().record_hotkey.clone();
-                shared.popup_always(Event::Game, crate::lang::t("lr.started"), crate::lang::f("lr.started_sub", &[("hk", &hk)]));
+                shared.popup(Event::Game, crate::lang::t("lr.started"), crate::lang::f("lr.started_sub", &[("hk", &hk)]));
             }
             Err(e) => shared.popup(Event::SaveFailed, crate::lang::t("lr.start_failed"), e),
         }
@@ -165,7 +165,7 @@ pub fn stop_async(shared: &Arc<Shared>, reason: Option<String>) {
             Ok(Some(path)) => {
                 win::beep();
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                s.popup_always(Event::Saved, reason.map_or(crate::lang::t("lr.saved"), |r| crate::lang::f("lr.stopped", &[("r", &r)])), name);
+                s.popup(Event::Saved, reason.map_or(crate::lang::t("lr.saved"), |r| crate::lang::f("lr.stopped", &[("r", &r)])), name);
             }
             Ok(None) => {}
             Err(e) => {

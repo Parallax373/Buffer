@@ -79,13 +79,6 @@ pub struct Shared {
 }
 
 impl Shared {
-    /// The answer to something you just did (pressing the save shortcut, starting a recording): shown even when the
-    /// "Buffer active" popup setting is off, because a key press that gives no sign at all feels broken.
-    pub fn popup_always(&self, event: Event, title: impl Into<String>, sub: impl Into<String>) {
-        let _ = self.popups.lock().unwrap().send(Popup { event, title: title.into(), sub: sub.into() });
-        crate::overlay::wake();
-    }
-
     pub fn popup(&self, event: Event, title: impl Into<String>, sub: impl Into<String>) {
         // errors are always shown; the rest follows the "Buffer active popup" setting
         if !self.cfg.lock().unwrap().popup && !event.is_error() {

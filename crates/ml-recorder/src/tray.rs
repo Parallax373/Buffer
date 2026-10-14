@@ -255,7 +255,7 @@ fn hotkey_save(shared: &Arc<session::Shared>) {
         shared.post_roll_skip.store(true, Ordering::Relaxed);
         return;
     }
-    shared.popup_always(Event::PostRoll { roll_ms: roll as u64 * 1000 }, crate::lang::f("pop.postroll", &[("n", &roll)]), crate::lang::t("pop.postroll_sub"));
+    shared.popup(Event::PostRoll { roll_ms: roll as u64 * 1000 }, crate::lang::f("pop.postroll", &[("n", &roll)]), crate::lang::t("pop.postroll_sub"));
     *shared.post_roll_until.lock().unwrap() = Some(std::time::Instant::now() + std::time::Duration::from_secs(roll as u64));
     let s = shared.clone();
     thread::spawn(move || {
@@ -280,7 +280,7 @@ fn save_async(shared: &Arc<session::Shared>, announced: bool) {
             win::beep();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             if !announced {
-                s.popup_always(Event::Saved, crate::lang::t("pop.saved"), name);
+                s.popup(Event::Saved, crate::lang::t("pop.saved"), name);
             }
         }
         Err(e) => {
