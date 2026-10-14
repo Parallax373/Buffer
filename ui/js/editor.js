@@ -81,7 +81,7 @@
     el.src = api.src(file);
     const node = ctx.createGain();
     ctx.createMediaElementSource(el).connect(node).connect(ctx.destination);
-    const gain = (App.P.gains[name] ?? 100) / 100;
+    const gain = App.clipGain(E.clip.path, name) / 100;
     node.gain.value = gain;
     return { name, index, el, node, gain, wave: null };
   }
@@ -253,7 +253,7 @@
   function renderLanes() {
     const dur = E.info ? E.info.duration : 0;
     const shown = E.tracks.filter((t) => !t.empty);
-    const names = E.tracks.length ? (shown.length ? shown : E.tracks) : ["Game", "Chat", "Mic"].map((n) => ({ name: n, gain: (App.P.gains[n] ?? 100) / 100 }));
+    const names = E.tracks.length ? (shown.length ? shown : E.tracks) : ["Game", "Chat", "Mic"].map((n) => ({ name: n, gain: App.clipGain(E.clip.path, n) / 100 }));
     const labels = h("div", { class: "labels" }, h("div", { style: { height: "20px" } }),
       h("div", { class: "lane-l", style: { color: "var(--muted)", justifyContent: "center", flexDirection: "row", alignItems: "center" } }, App.t("ed.lane")));
     const area = h("div", { class: "area" });
@@ -271,8 +271,7 @@
         onInput: (e) => {
           t.gain = e.target.value / 100;
           if (t.node) t.node.gain.value = t.gain;
-          App.P.gains[t.name] = +e.target.value;
-          App.persist();
+          App.setClipGain(E.clip.path, t.name, +e.target.value);
           val.textContent = `${e.target.value}%`;
           drawLanes(); updateEstimate();
         } });

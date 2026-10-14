@@ -43,6 +43,19 @@ const App = {};
   const h = App.h;
   App.$ = (s, r = document) => r.querySelector(s);
 
+  /** Rejects when `p` takes longer than `ms`: a hung background process must never make a screen wait for it. */
+  App.timeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+
+  /** Per-clip track volumes (percent), 100 when the clip has none saved. */
+  App.clipGain = (path, name) => ((App.P.clipGains || {})[path] || {})[name] ?? 100;
+  App.setClipGain = (path, name, pct) => {
+    const all = (App.P.clipGains ||= {});
+    const mine = (all[path] ||= {});
+    if (pct === 100) delete mine[name]; else mine[name] = pct;
+    if (!Object.keys(mine).length) delete all[path];
+    App.persist();
+  };
+
   /* ───── formatting ───── */
   App.fmt = (s) => { s = Math.max(0, s || 0); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`; };
   App.fmtS = (s) => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -97,7 +110,7 @@ const App = {};
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false, presets: [10, 50, 500], autoCleanDays: 7,
     },
     libDirs: ["E:\\Nagrania"],
-    favs: {}, titles: {}, trims: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
+    favs: {}, titles: {}, trims: {}, clipGains: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
   };
   App.P = structuredClone(DEFAULTS);
 

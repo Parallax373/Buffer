@@ -71,7 +71,7 @@ App.RecUI = (function () {
     for (const [k] of SRC) if (clean[k].secondary && !clean[k].secondary.id) clean[k].secondary = null;
     await api.invoke("set_recorder_config", { config: clean });
     if (S.recorder) {
-      await api.invoke("recorder_cmd", { cmd: "reload" }).catch(() => {});
+      await App.timeout(api.invoke("recorder_cmd", { cmd: "reload" }), 4000).catch(() => {});
       if (hint) App.toast(hint);
     }
     App.Rec.refresh();
@@ -445,12 +445,17 @@ App.RecUI = (function () {
     const behBox = h("div", { class: "card2 tgl" });
     const drawBeh = () => {
       behBox.replaceChildren(
-        U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), cfg.game_only, async (v) => { await save({ game_only: v }); drawBeh(); }),
-        U.trow(App.t("beh.follow"), App.t("beh.followD"), cfg.follow_game_monitor, async (v) => { await save({ follow_game_monitor: v }); drawBeh(); }),
-        U.trow(App.t("beh.popup"), App.t("beh.popupD"), cfg.popup, async (v) => { await save({ popup: v }); drawBeh(); }),
-        U.trow(App.t("beh.autostart"), App.t("beh.autostartD"), autostart, async (v) => {
-          autostart = await api.invoke("recorder_autostart", { enable: v }).catch(() => autostart);
+        U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), cfg.game_only, (v) => { save({ game_only: v }); drawBeh(); }),
+        U.trow(App.t("beh.follow"), App.t("beh.followD"), cfg.follow_game_monitor, (v) => { save({ follow_game_monitor: v }); drawBeh(); }),
+        U.trow(App.t("beh.popup"), App.t("beh.popupD"), cfg.popup, (v) => { save({ popup: v }); drawBeh(); }),
+        U.trow(App.t("beh.autostart"), App.t("beh.autostartD"), autostart, (v) => {
+          const was = autostart;
+          autostart = v;                       // shown at once; the registry write follows
           drawBeh();
+          App.timeout(api.invoke("recorder_autostart", { enable: v }), 6000)
+            .then((now) => { autostart = now; })
+            .catch(() => { autostart = was; })
+            .finally(drawBeh);
         }));
     };
     drawBeh();

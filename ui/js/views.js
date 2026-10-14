@@ -129,7 +129,8 @@
   const Rec = (App.Rec = {});
   let pollTimer = 0;
   Rec.refresh = async () => {
-    try { S.recorder = await api.invoke("recorder_cmd", { cmd: "status" }); } catch { S.recorder = null; }
+    // a recorder that stops answering counts as not running, instead of freezing the poll loop
+    try { S.recorder = await App.timeout(api.invoke("recorder_cmd", { cmd: "status" }), 4000); } catch { S.recorder = null; }
     paintRec();
     if (S.view === "set" && Settings.tab === "rec") Settings.paintRecorder();
   };
@@ -166,7 +167,7 @@
     const dir = App.exportDirFor();
     const suffix = (o.wide != null ? "_16x9" : "") + (o.speed && o.speed !== 1 ? `_${o.speed}x` : "");
     const output = `${dir}\\${clip.name}${suffix}_${mb}MB.mp4`;
-    const volumes = o.volumes || ["Game", "Chat", "Mic"].map((n) => [n, (App.P.gains[n] ?? 100) / 100]);
+    const volumes = o.volumes || ["Game", "Chat", "Mic"].map((n) => [n, App.clipGain(clip.path, n) / 100]);
     const opts = {
       input: clip.path, output, start: o.start ?? 0, end: o.end ?? null,
       target_bytes: Math.round(mb * 1048576), max_height: o.maxHeight ?? null,
