@@ -1,0 +1,194 @@
+//! Tray icon (always-visible recorder state), the global save hotkey, the "Buffer active" popup and
+//! game detection. They share one thread because they all need that thread's Win32 message loop.
+
+use crate::overlay::{Kind, Overlay, Popup};
+use crate::{session, win};
+use std::{
+    collections::HashSet,
+    process::Command,
+    sync::{atomic::Ordering, mpsc::Receiver, Arc},
+    thread,
+};
+use tray_icon::{
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    Icon, TrayIconBuilder,
+};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum State {
+    Ok,
+    Warn,
+    Stopped,
+}
+
+/// Programs that are never treated as games even when they cover the whole screen.
+const NEVER_GAMES: &[&str] = &[
+    "explorer", "searchhost", "shellexperiencehost", "applicationframehost", "startmenuexperiencehost",
+    "lockapp", "chrome", "msedge", "firefox", "opera", "brave", "vivaldi", "vlc", "mpv", "potplayer",
+    "code", "devenv", "powerpnt", "winword", "excel", "buffer", "buffer-recorder", "obs64", "teams",
+    "zoom", "discord", "spotify", "slack", "steamwebhelper", "taskmgr", "mstsc", "vmware", "virtualbox",
+];
+
+/// 32x32 logo mark: a play triangle built from scan-lines with faded tails, in the state colour
+/// (lime = all good, amber = a source is down, red = stopped).
+fn icon(state: State) -> Icon {
+    let (r, g, b) = match state {
+        State::Ok => (0xc6, 0xf4, 0x32),
+        State::Warn => (0xff, 0xb4, 0x54),
+        State::Stopped => (0xff, 0x5d, 0x5d),
+    };
+    const N: usize = 32;
+    let mut px = vec![0u8; N * N * 4];
+    let put = |px: &mut Vec<u8>, x: usize, y: usize, a: u8| {
+        if x < N && y < N {
+            let i = (y * N + x) * 4;
+            px[i..i + 4].copy_from_slice(&[r, g, b, a]);
+        }
+    };
+    // 7 bars of 3px with 1px gaps, widest in the middle (like the full logo, thicker for 16-32px)
+    let tails = [9usize, 3, 11, 5, 8, 2, 10];
+    for (i, tail) in tails.iter().enumerate() {
+        let y0 = 2 + i * 4;
+        let w = 6 + (3 - (i as i32 - 3).unsigned_abs() as usize) * 5;
+        for dy in 0..3 {
+            for x in 0..*tail {
+                put(&mut px, 10usize.saturating_sub(*tail) + x, y0 + dy, 80);
+            }
+            for x in 0..w {
+                put(&mut px, 10 + x, y0 + dy, 255);
+            }
+        }
+    }
+    Icon::from_rgba(px, N as u32, N as u32).expect("valid icon")
+}
+
+fn state_of(shared: &session::Shared) -> (State, String) {
+    let recording = shared.recording.load(Ordering::Relaxed);
+    let down: Vec<&str> = shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| s.name).collect();
+    let buffered = session::buffered_seconds();
+    if !recording {
+        let err = shared.last_error.lock().unwrap().clone();
+        let msg = if err.is_empty() { "nagrywanie zatrzymane".to_string() } else { format!("nagrywanie zatrzymane: {err}") };
+        return (State::Stopped, format!("Buffer — {msg}"));
+    }
+    if down.is_empty() {
+        (State::Ok, format!("Buffer — nagrywa · bufor {buffered} s · Game/Chat/Mic działają"))
+    } else {
+        (State::Warn, format!("Buffer — nagrywa, ale nie działa: {}", down.join(", ")))
+    }
+}
+
+fn open_editor() {
+    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        let _ = Command::new(dir.join("buffer.exe")).spawn();
+    }
+}
+
+fn save_async(shared: &Arc<session::Shared>) {
+    let s = shared.clone();
+    thread::spawn(move || match session::save(&s) {
+        Ok(path) => {
+            win::beep();
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            s.popup(Kind::Ok, "Zapisano klip", name);
+        }
+        Err(e) => {
+            session::log(&format!("save failed: {e}"));
+            *s.last_error.lock().unwrap() = format!("save failed: {e}");
+            s.popup(Kind::Error, "Nie udało się zapisać klipu", e);
+        }
+    });
+}
+
+/// "Buffer active" message shown when a game comes to the foreground.
+fn announce_game(shared: &session::Shared, game: &str) {
+    let cfg = shared.cfg.lock().unwrap().clone();
+    let down: Vec<&str> = shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| s.name).collect();
+    let len = if cfg.buffer_seconds >= 60 && cfg.buffer_seconds % 60 == 0 {
+        format!("{} min", cfg.buffer_seconds / 60)
+    } else {
+        format!("{} s", cfg.buffer_seconds)
+    };
+    if !shared.recording.load(Ordering::Relaxed) {
+        shared.popup(Kind::Error, format!("{game}: nagrywanie nie działa"), "Otwórz Buffer → Ustawienia → Nagrywanie");
+    } else if down.is_empty() {
+        shared.popup(Kind::Ok, "Buffer aktywny", format!("{} — zapisz ostatnie {len} · {game}", cfg.hotkey));
+    } else {
+        shared.popup(Kind::Warn, "Buffer aktywny, ale uwaga", format!("Nie działa: {} · {} zapisuje klip", down.join(", "), cfg.hotkey));
+    }
+}
+
+/// Never returns while the recorder runs.
+pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>) {
+    let menu = Menu::new();
+    let save_i = MenuItem::new("Zapisz klip teraz", true, None);
+    let open_i = MenuItem::new("Otwórz edytor", true, None);
+    let quit_i = MenuItem::new("Zakończ nagrywanie", true, None);
+    let _ = menu.append_items(&[&save_i, &open_i, &PredefinedMenuItem::separator(), &quit_i]);
+
+    let tray = TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_tooltip("Buffer")
+        .with_icon(icon(State::Warn))
+        .build()
+        .map_err(|e| session::log(&format!("tray unavailable: {e}")))
+        .ok();
+
+    if let Err(e) = win::register_hotkey(&hotkey) {
+        session::log(&e);
+        *shared.last_error.lock().unwrap() = e;
+    }
+
+    let mut overlay = Overlay::new();
+    let mut shown: Option<State> = None;
+    let mut notified: HashSet<u32> = HashSet::new();
+    let mut tick = 0u32;
+    let my_pid = std::process::id();
+
+    let hk_shared = shared.clone();
+    let tick_shared = shared.clone();
+    win::pump_messages(
+        || save_async(&hk_shared),
+        || {
+            tick += 1;
+            overlay.tick();
+            while let Ok(p) = popups.try_recv() {
+                let ms = if p.kind == Kind::Error { 6500 } else { 4000 };
+                overlay.show(p, ms);
+            }
+            while let Ok(ev) = MenuEvent::receiver().try_recv() {
+                if ev.id == *save_i.id() {
+                    save_async(&tick_shared);
+                } else if ev.id == *open_i.id() {
+                    open_editor();
+                } else if ev.id == *quit_i.id() {
+                    tick_shared.quit.store(true, Ordering::Relaxed);
+                }
+            }
+            if let Some(tray) = &tray {
+                let (state, tip) = state_of(&tick_shared);
+                let _ = tray.set_tooltip(Some(tip));
+                if shown != Some(state) {
+                    let _ = tray.set_icon(Some(icon(state)));
+                    shown = Some(state);
+                }
+            }
+            // Game detection: twice a second is plenty and costs next to nothing.
+            if let Some(fg) = win::foreground() {
+                if fg.pid != my_pid && !notified.contains(&fg.pid) {
+                    let cfg = tick_shared.cfg.lock().unwrap().clone();
+                    let ignored = NEVER_GAMES.contains(&fg.stem.as_str()) || cfg.ignore_apps.iter().any(|a| a == &fg.stem);
+                    let forced = cfg.extra_games.iter().any(|a| a == &fg.stem);
+                    if !ignored && (fg.fullscreen || forced) {
+                        notified.insert(fg.pid);
+                        if notified.len() > 256 {
+                            notified.clear();
+                        }
+                        announce_game(&tick_shared, &session::current_game_name(&cfg));
+                    }
+                }
+            }
+            let _ = tick;
+        },
+    );
+}

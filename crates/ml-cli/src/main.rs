@@ -7,7 +7,7 @@ use ml_core::{
 use std::{io::Write, path::PathBuf};
 
 #[derive(Parser)]
-#[command(name = "ml", about = "moments-lite: simple clip tools")]
+#[command(name = "ml", about = "Buffer: simple clip tools")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -32,7 +32,7 @@ enum Cmd {
         /// Downscale to this height if the source is taller
         #[arg(long)]
         max_height: Option<u32>,
-        #[arg(long, value_enum, default_value_t = CodecArg::H264)]
+        #[arg(long, value_enum, default_value_t = CodecArg::Auto)]
         codec: CodecArg,
         #[arg(long, default_value_t = 128)]
         audio_kbps: u32,
@@ -52,6 +52,7 @@ enum Cmd {
 
 #[derive(Clone, ValueEnum)]
 enum CodecArg {
+    Auto,
     H264,
     Hevc,
     X264,
@@ -89,6 +90,7 @@ fn main() -> Result<()> {
                 target_bytes: size * 1024 * 1024,
                 max_height,
                 codec: match codec {
+                    CodecArg::Auto => Codec::Auto,
                     CodecArg::H264 => Codec::H264Nvenc,
                     CodecArg::Hevc => Codec::HevcNvenc,
                     CodecArg::X264 => Codec::X264,
@@ -98,6 +100,7 @@ fn main() -> Result<()> {
                 crop_wide: wide.then_some(0.5),
                 speed,
                 normalize,
+                hwaccel: true,
             };
             let r = export(&opts, |p| {
                 print!("\r{:5.1}%", p * 100.0);

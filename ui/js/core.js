@@ -1,0 +1,188 @@
+"use strict";
+/* Shared state, backend bridge and small helpers. Everything hangs off the global `App`. */
+
+const App = {};
+(function () {
+  const T = window.__TAURI__;
+  const invoke = T.core.invoke;
+
+  App.api = {
+    invoke,
+    src: (p) => T.core.convertFileSrc(p),
+    listen: (n, f) => T.event.listen(n, f),
+    pickFolder: async () => {
+      const r = await T.dialog.open({ directory: true, multiple: false });
+      return typeof r === "string" ? r : null;
+    },
+    startDrag: (path) => invoke("plugin:drag|start_drag", {
+      item: [path], image: App.dragIcon(), onEvent: new T.core.Channel(),
+    }),
+  };
+
+  /* ───── tiny DOM helper ───── */
+  App.h = function h(tag, props, ...kids) {
+    const el = document.createElement(tag);
+    if (props) {
+      for (const [k, v] of Object.entries(props)) {
+        if (v == null || v === false) continue;
+        if (k === "class") el.className = v;
+        else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
+        else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
+        else if (k === "text") el.textContent = v;
+        else if (k === "value") el.value = v;
+        else if (k in el && k !== "list") el[k] = v;
+        else el.setAttribute(k, v === true ? "" : v);
+      }
+    }
+    for (const kid of kids.flat()) {
+      if (kid == null || kid === false) continue;
+      el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    }
+    return el;
+  };
+  App.$ = (s, r = document) => r.querySelector(s);
+
+  /* ───── formatting ───── */
+  App.fmt = (s) => { s = Math.max(0, s || 0); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`; };
+  App.fmtS = (s) => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  App.fmtMB = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : `${(b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`);
+  App.date = (ts) => new Date(ts * 1000).toLocaleDateString("pl-PL");
+  App.baseName = (p) => p.slice(Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/")) + 1);
+
+  /** `Risk-of-Rain-2__2025-04-22__14-41-40` -> "Risk of Rain 2" */
+  App.gameOf = (clip) => {
+    const raw = clip.name.split("__")[0] || clip.name;
+    return raw.replace(/-+/g, " ").replace(/\s+/g, " ").trim() || "Nieznana gra";
+  };
+  App.hueOf = (s) => { let x = 0; for (const c of s) x = (x * 31 + c.charCodeAt(0)) >>> 0; return x % 360; };
+
+  /* ───── persisted state (debounced) ───── */
+  const DEFAULTS = {
+    settings: {
+      theme: "graphite", accent: "#c6f432", brand: 2, anim: true, lite: false, thumb: "M",
+      sub: true, auto: true, thumbs: true, cache: true, hw: true,
+      normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false,
+    },
+    libDirs: ["E:\\Nagrania"],
+    favs: {}, tags: {}, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
+  };
+  App.P = structuredClone(DEFAULTS);
+  App.TAGS = [["Highlight", "#ffb454"], ["Śmieszne", "#4cc38a"], ["Do wysłania", "#6aa8ff"]];
+
+  let saveTimer = 0;
+  App.persist = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => invoke("save_state", { state: App.P }).catch(() => {}), 400);
+  };
+  App.loadPersisted = async () => {
+    try {
+      const s = await invoke("load_state");
+      App.fresh = Object.keys(s).length === 0;
+      // v2 of the look: the brand lime replaces the old orange default (only if it was never changed).
+      if (s.settings && s.settings.brand !== 2) {
+        if (s.settings.accent === "#ff6a1f") s.settings.accent = "#c6f432";
+        s.settings.brand = 2;
+      }
+      App.P = { ...DEFAULTS, ...s, settings: { ...DEFAULTS.settings, ...(s.settings || {}) },
+        gains: { ...DEFAULTS.gains, ...(s.gains || {}) } };
+    } catch { /* first run */ }
+  };
+
+  /* ───── runtime state ───── */
+  App.S = {
+    view: "lib", clips: [], byPath: new Map(), cat: "all", q: "", sort: "newest",
+    sel: new Set(), active: null, listError: "",
+    exporting: null,           // { name, pct }
+    recorder: null,            // last status from the recorder, or null if it is not running
+  };
+
+  /* ───── theme ───── */
+  App.applyTheme = () => {
+    const s = App.P.settings, r = document.documentElement;
+    r.dataset.theme = s.theme === "graphite" ? "" : s.theme;
+    r.dataset.anim = s.anim ? "on" : "off";
+    r.dataset.lite = s.lite ? "on" : "off";
+    r.style.setProperty("--acc", s.accent);
+    r.style.setProperty("--acc-dim", s.accent + "2e");
+  };
+
+  /* ───── toast ───── */
+  App.toast = (msg, kind = "") => {
+    const box = App.$("#toast");
+    const t = App.h("div", { class: `t ${kind}`, text: msg });
+    box.append(t);
+    setTimeout(() => t.remove(), kind === "err" ? 7000 : 3500);
+  };
+
+  /* ───── helpers shared by several views ───── */
+  App.dragIcon = (() => {
+    let url = "";
+    return () => {
+      if (url) return url;
+      const c = document.createElement("canvas");
+      c.width = c.height = 64;
+      const g = c.getContext("2d");
+      g.fillStyle = "#c6f432";
+      g.beginPath(); g.roundRect(4, 4, 56, 56, 12); g.fill();
+      g.fillStyle = "#111";
+      g.beginPath(); g.moveTo(25, 18); g.lineTo(25, 46); g.lineTo(47, 32); g.closePath(); g.fill();
+      return (url = c.toDataURL("image/png"));
+    };
+  })();
+
+  /** Logo 5a "buffer": a play triangle made of scan-lines, each trailing a faded tail. */
+  App.logo = (size = 36, color = "#c6f432") => {
+    const tails = [30, 10, 38, 18, 26, 6, 34, 14, 40, 22, 8, 32, 16];
+    const NS = "http://www.w3.org/2000/svg";
+    const W = 44 + 84, H = 13 * 6 + 12 * 3;
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("width", size);
+    svg.setAttribute("height", Math.round((size * H) / W));
+    svg.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < 13; i++) {
+      const w = 12 + (6 - Math.abs(i - 6)) * 12, y = i * 9;
+      const tail = document.createElementNS(NS, "rect");
+      tail.setAttribute("x", 44 - tails[i]); tail.setAttribute("y", y);
+      tail.setAttribute("width", tails[i]); tail.setAttribute("height", 6); tail.setAttribute("rx", 3);
+      tail.setAttribute("fill", color); tail.setAttribute("opacity", ".3");
+      const bar = document.createElementNS(NS, "rect");
+      bar.setAttribute("x", 44); bar.setAttribute("y", y);
+      bar.setAttribute("width", w); bar.setAttribute("height", 6); bar.setAttribute("rx", 3);
+      bar.setAttribute("fill", color);
+      svg.append(tail, bar);
+    }
+    return svg;
+  };
+
+  /** Run async jobs with a concurrency cap; later calls can be cancelled while still queued. */
+  App.queue = (limit) => {
+    const waiting = [];
+    let running = 0;
+    const pump = () => {
+      while (running < limit && waiting.length) {
+        const job = waiting.shift();
+        running++;
+        job().finally(() => { running--; pump(); });
+      }
+    };
+    return (fn) => new Promise((res, rej) => {
+      waiting.push(() => fn().then(res, rej));
+      pump();
+    });
+  };
+
+  App.exportDirFor = () => {
+    const s = App.P.settings;
+    if (s.outDir) return s.outDir.replace(/[\\/]+$/, "");
+    const base = (App.P.libDirs[0] || "E:\\Nagrania").replace(/[\\/]+$/, "");
+    return `${base}\\Exported Clips`;
+  };
+
+  /** Bitrate maths shared by editor panel and batch export; mirrors ml-core's budget. */
+  App.kbps = (targetMb, seconds, speed = 1) =>
+    Math.max(0, Math.floor((targetMb * 1048576 * 8 * 0.96) / (seconds / speed) / 1000) - 128);
+  App.quality = (kbps) =>
+    kbps < 150 ? ["za mało", "var(--err)"] : kbps < 800 ? ["niska", "var(--warn)"]
+      : kbps < 3000 ? ["dobra", "var(--ok)"] : ["świetna", "var(--ok)"];
+})();

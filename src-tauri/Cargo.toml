@@ -1,5 +1,5 @@
 [package]
-name = "moments-lite"
+name = "buffer"
 version.workspace = true
 edition.workspace = true
 
@@ -12,3 +12,5 @@ ml-core = { path = "../crates/ml-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-drag = "2.1.1"
+trash = "5"
+tauri-plugin-dialog = "2"

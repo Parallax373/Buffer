@@ -1,6 +1,6 @@
-[workspace]
+﻿[workspace]
 resolver = "2"
-members = ["crates/ml-core", "crates/ml-cli", "src-tauri"]
+members = ["crates/ml-core", "crates/ml-cli", "crates/ml-recorder", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,3 +10,4 @@ edition = "2021"
 lto = true
 codegen-units = 1
 strip = true
+

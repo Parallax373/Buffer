@@ -3,115 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Moments Lite</title>
+  <title>Buffer</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
-  <aside id="library">
-    <div class="row">
-      <input id="dir" spellcheck="false" value="E:\Nagrania" title="Folder z klipami">
-      <button id="reload" title="Odśwież">⟳</button>
-    </div>
-    <input id="filter" placeholder="Szukaj…" spellcheck="false">
-    <ul id="clips"></ul>
-    <div id="libStatus" class="muted"></div>
-  </aside>
-
-  <main>
-    <div id="stage">
-      <div id="empty" class="muted">Wybierz klip z listy</div>
-      <div id="videoWrap" hidden>
-        <video id="video" muted playsinline preload="auto"></video>
-        <div id="cropBox" hidden></div>
-      </div>
-    </div>
-
-    <div id="transport">
-      <button id="play" title="Spacja">▶</button>
-      <span id="time" class="mono">0:00.0 / 0:00.0</span>
-      <span class="spacer"></span>
-      <button id="setIn" title="I">Ustaw początek [I]</button>
-      <button id="setOut" title="O">Ustaw koniec [O]</button>
-      <span id="selLen" class="mono muted"></span>
-    </div>
-
-    <div id="timeline">
-      <div id="selection"></div>
-      <div id="handleIn" class="handle"></div>
-      <div id="handleOut" class="handle"></div>
-      <div id="playhead"></div>
-    </div>
-    <div id="hint" class="muted">Spacja – odtwarzaj · I / O – początek / koniec · ←/→ – krok 1 s (Shift = 5 s) · klik w oś – przewiń</div>
-  </main>
-
-  <aside id="panel">
-    <section>
-      <h3>Ścieżki audio</h3>
-      <div id="tracks"></div>
-      <label class="check"><input type="checkbox" id="normalize"> Normalizuj głośność (-16 LUFS)</label>
-    </section>
-
-    <section>
-      <h3>Format</h3>
-      <label class="check"><input type="checkbox" id="wide"> Kadr 16:9</label>
-      <div id="panRow" class="row" hidden>
-        <span class="muted">Pozycja</span>
-        <input type="range" id="pan" min="0" max="100" value="50">
-      </div>
-      <div class="row">
-        <span class="muted">Prędkość</span>
-        <select id="speed">
-          <option value="0.5">0.5×</option>
-          <option value="0.75">0.75×</option>
-          <option value="1" selected>1×</option>
-          <option value="1.25">1.25×</option>
-          <option value="1.5">1.5×</option>
-          <option value="2">2×</option>
-        </select>
-      </div>
-    </section>
-
-    <section>
-      <h3>Eksport</h3>
-      <div id="presets">
-        <button data-mb="10">Discord<br><small>10 MB</small></button>
-        <button data-mb="50">Boost<br><small>50 MB</small></button>
-        <button data-mb="500">Nitro<br><small>500 MB</small></button>
-      </div>
-      <div class="row">
-        <span class="muted">Cel (MiB)</span>
-        <input type="number" id="targetMb" value="10" min="1" max="4000">
-      </div>
-      <div class="row">
-        <span class="muted">Rozdzielczość</span>
-        <select id="maxHeight">
-          <option value="">oryginał</option>
-          <option value="1080">1080p</option>
-          <option value="720">720p</option>
-          <option value="540">540p</option>
-          <option value="480">480p</option>
-        </select>
-      </div>
-      <div class="row">
-        <span class="muted">Kodek</span>
-        <select id="codec">
-          <option value="h264-nvenc">H.264 (NVENC)</option>
-          <option value="hevc-nvenc">HEVC (NVENC)</option>
-          <option value="x264">H.264 (CPU)</option>
-        </select>
-      </div>
-      <div id="estimate" class="muted"></div>
-      <button id="export" class="primary">Eksportuj</button>
-      <div id="progress" hidden><div id="bar"></div></div>
-      <div id="exportStatus"></div>
-      <div id="dragChip" hidden title="Przeciągnij plik do Discorda lub innego okna">
-        <span class="icon">⇪</span>
-        <span id="dragName"></span>
-      </div>
-    </section>
-  </aside>
+  <nav id="nav"></nav>
+  <div id="views">
+    <section id="v-lib" class="view"></section>
+    <section id="v-ed" class="view" hidden></section>
+    <section id="v-exp" class="view" hidden></section>
+    <section id="v-set" class="view" hidden></section>
+  </div>
 </div>
-<script src="app.js"></script>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="js/core.js"></script>
+<script src="js/library.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/recording.js"></script>
+<script src="js/views.js"></script>
+<script src="js/boot.js"></script>
 </body>
 </html>

@@ -10,14 +10,34 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Codec {
+    /// Best H.264 encoder available on this machine (NVIDIA, AMD, Intel, then CPU).
+    Auto,
     H264Nvenc,
+    H264Amf,
+    H264Qsv,
     HevcNvenc,
     X264,
 }
 
 impl Codec {
+    /// Replaces `Auto` with the concrete encoder.
+    pub fn resolve(self) -> Codec {
+        match self {
+            Codec::Auto => match crate::tools::best_h264_encoder() {
+                "h264_nvenc" => Codec::H264Nvenc,
+                "h264_amf" => Codec::H264Amf,
+                "h264_qsv" => Codec::H264Qsv,
+                _ => Codec::X264,
+            },
+            other => other,
+        }
+    }
+
     fn args(self) -> &'static [&'static str] {
         match self {
+            Codec::Auto => &["-c:v", "libx264", "-preset", "slow"],
+            Codec::H264Amf => &["-c:v", "h264_amf", "-quality", "quality", "-rc", "vbr_peak"],
+            Codec::H264Qsv => &["-c:v", "h264_qsv", "-preset", "slower"],
             Codec::H264Nvenc => &[
                 "-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-multipass", "fullres",
             ],
@@ -56,6 +76,13 @@ pub struct ExportOptions {
     /// Normalise the mixed audio to about -16 LUFS.
     #[serde(default)]
     pub normalize: bool,
+    /// Decode on the GPU when encoding with NVENC (falls back to CPU decoding automatically).
+    #[serde(default = "yes")]
+    pub hwaccel: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize)]
@@ -71,6 +98,9 @@ const MIN_VIDEO_KBPS: i64 = 150;
 const MAX_ATTEMPTS: u32 = 4;
 
 pub fn export(opts: &ExportOptions, mut on_progress: impl FnMut(f64)) -> Result<ExportResult> {
+    let mut resolved = opts.clone();
+    resolved.codec = opts.codec.resolve();
+    let opts = &resolved;
     let info = probe(&opts.input)?;
     let end = opts.end.unwrap_or(info.duration).min(info.duration);
     let src_dur = end - opts.start;
@@ -187,9 +217,9 @@ impl Job<'_> {
     }
 
     fn run(&self, video_kbps: u64, on_progress: &mut impl FnMut(f64)) -> Result<()> {
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = Command::new(crate::tools::ffmpeg());
         cmd.args(["-y", "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1"]);
-        if self.opts.codec != Codec::X264 {
+        if self.opts.hwaccel && self.opts.codec != Codec::X264 {
             // Let the GPU decode too; frames come back to system memory for the CPU filters.
             cmd.args(["-hwaccel", "auto"]);
         }
