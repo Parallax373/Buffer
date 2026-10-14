@@ -1,0 +1,13 @@
+[package]
+name = "ml-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "ml"
+path = "src/main.rs"
+
+[dependencies]
+ml-core = { path = "../ml-core" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
