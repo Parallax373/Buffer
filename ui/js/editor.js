@@ -29,7 +29,7 @@
     E = {
       clip, info: null, start: 0, end: 0, tracks: [], playing: false,
       target: App.P.settings.defTarget, wide: false, pan: 50, norm: App.P.settings.normDef,
-      speed: 1, codec: "auto", res: "orig", done: null, adv: false, rec: [],
+      speed: 1, codec: "auto", res: "orig", done: null, adv: false, rec: [], v0: 0, v1: 0,
     };
     App.markSeen(path);
     App.go("ed");          // needs E to be set: go() falls back to the library when no clip is open
@@ -45,6 +45,8 @@
       E.info = info;
       E.start = 0;
       E.end = info.duration;
+      E.v0 = 0;
+      E.v1 = info.duration;
       api.invoke("clip_markers", { path }).then((m) => {
         if (token === loadToken) { E.rec = m; renderMarkers(); }
       }).catch(() => {});
@@ -127,6 +129,10 @@
         if (Math.abs(t.el.currentTime - video.currentTime) > 0.08) t.el.currentTime = video.currentTime;
       }
     }
+    if (zoomed()) {
+      const t = video.currentTime, span = E.v1 - E.v0;
+      if (t > E.v1 || t < E.v0) setView(t - span * 0.1, t - span * 0.1 + span);
+    }
     paintHead();
     raf = requestAnimationFrame(tick);
   }
@@ -152,7 +158,6 @@
     const root = App.$("#v-ed");
     root.replaceChildren();
     ui = {
-      rail: h("div", { class: "rail" }),
       head: h("div", { class: "edhead" }),
       stage: h("div", { class: "stage" }),
       crop: h("div", { class: "crop", hidden: true }),
@@ -161,60 +166,38 @@
       lanesWrap: h("div", { class: "tl" }),
       panel: h("div", { class: "expanel" }),
       kb: h("div", { class: "kbpop", hidden: true }, [
-        ["Odtwórz / pauza", "Spacja"], ["Początek / koniec", "I / O"], ["Znacznik", "M"],
+        ["Odtwórz / pauza", "Spacja"], ["Początek / koniec", "I / O"], ["Znacznik", "M"], ["Przybliż / oddal oś", "kółko · + −"],
         ["Poprzedni / następny znacznik", "J / K"], ["Krok 1 s / 5 s", "← → / Shift"],
         ["Poprzedni / następny klip", "PgUp / PgDn"], ["Eksportuj", "Ctrl E"], ["Szukaj", "Ctrl K"],
       ].map(([l, k]) => h("div", null, h("span", { text: l }), h("kbd", { text: k })))),
     };
     const box = h("div", { class: "box" }, video, ui.crop);
     ui.stage.append(box, ui.big);
-    root.append(h("div", { class: "ed" }, ui.rail,
-      h("div", { class: "edmain" }, ui.head, ui.stage, ui.transport, ui.lanesWrap,
-        h("div", { class: "hint", text: "Spacja – odtwarzaj · I / O – początek / koniec · przeciągnij uchwyty, aby przyciąć · klik w oś – przewiń" })),
+    root.append(h("div", { class: "ed" },
+      h("div", { class: "edmain" }, ui.head, ui.stage, ui.transport, ui.lanesWrap),
       ui.panel, ui.kb));
   }
 
   function renderAll() {
-    renderRail(); renderHead(); renderTransport(); renderLanes(); renderPanel(); paintCrop();
+    renderHead(); renderTransport(); renderLanes(); renderPanel(); paintCrop();
   }
 
   const toggle = () => (video.paused ? play() : stop());
 
-  /** The rail lists every clip of the current library view; thumbnails load lazily while scrolling. */
-  let railObserver = null;
-  function renderRail() {
-    const list = App.Lib.visible().slice(0, 400);
-    railObserver?.disconnect();
-    const items = list.map((c) => {
-      const tn = h("div", { class: "tn" + (c.path === E.clip.path ? " on" : ""), title: App.gameOf(c),
-        onClick: () => Ed.open(c.path) });
-      tn.dataset.path = c.path;
-      return tn;
-    });
-    ui.rail.replaceChildren(
-      h("button", { class: "back", title: "Biblioteka", onClick: () => App.go("lib"), text: "▦" }),
-      h("div", { class: "tns" }, items));
-    railObserver = new IntersectionObserver((entries) => {
-      for (const en of entries) {
-        if (!en.isIntersecting) continue;
-        const tn = en.target;
-        railObserver.unobserve(tn);
-        App.Lib.thumbUrl(tn.dataset.path).then((u) => { if (u) tn.style.backgroundImage = `url("${u}")`; });
-      }
-    }, { root: ui.rail.querySelector(".tns"), rootMargin: "120px" });
-    items.forEach((tn) => railObserver.observe(tn));
-    ui.rail.querySelector(".tn.on")?.scrollIntoView({ block: "center" });
-  }
 
   function renderHead() {
     const list = App.Lib.visible();
     const i = list.findIndex((c) => c.path === E.clip.path);
     const step = (d) => { if (list.length) Ed.open(list[(i + d + list.length) % list.length].path); };
     Ed.step = step;
+    const rename = (ev) => App.editTitle(ev.currentTarget.closest(".edhead").querySelector(".ttl"), E.clip.path, () => renderHead());
     ui.head.replaceChildren(
+      h("button", { class: "backbtn", title: "Wróć do biblioteki", onClick: () => App.go("lib") }, "← Biblioteka"),
       h("button", { class: "nv", onClick: () => step(-1), title: "Poprzedni klip [PgUp]", text: "‹" }),
       h("button", { class: "nv", onClick: () => step(1), title: "Następny klip [PgDn]", text: "›" }),
-      h("b", { style: { fontSize: "14px" }, text: App.gameOf(E.clip) }),
+      h("b", { class: "ttl", style: { fontSize: "14px" }, title: "Zmień nazwę", text: App.titleOf(E.clip),
+        onClick: (ev) => App.editTitle(ev.currentTarget, E.clip.path, () => renderHead()) }),
+      h("button", { class: "ren", title: "Zmień nazwę", text: "✎", onClick: rename }),
       h("span", { class: "mono muted", style: { fontSize: "12px" }, text: App.baseName(E.clip.path) }),
       h("span", { class: "sp" }),
       h("button", { class: "qm", title: "Skróty klawiszowe", text: "?", onClick: () => ui.kb.hidden = !ui.kb.hidden }),
@@ -234,7 +217,11 @@
       h("span", { class: "sp" }),
       h("button", { class: "mk", onClick: setIn }, "Początek ", h("b", { text: "I" })),
       h("button", { class: "mk", onClick: setOut }, "Koniec ", h("b", { text: "O" })),
-      h("span", { class: "sel", id: "edSel", text: `wybrano ${App.fmtS(E.end - E.start)}` }));
+      h("span", { class: "sel", id: "edSel", text: `wybrano ${App.fmtS(E.end - E.start)}` }),
+      h("span", { class: "zoomctl" },
+        h("button", { title: "Oddal oś czasu [−]", text: "−", onClick: () => zoomAt(1 / 1.6, video.currentTime) }),
+        h("button", { title: "Przybliż oś czasu [+]", text: "+", onClick: () => zoomAt(1.6, video.currentTime) }),
+        h("button", { title: "Cały klip [0]", text: "↔", onClick: fitView })));
   }
 
   function setIn() { if (E?.info) { E.start = Math.min(video.currentTime, E.end - MIN_SEL); layoutSel(); } }
@@ -251,12 +238,8 @@
     ui.area = area;
     const ruler = h("div", { class: "ruler" });
     ui.marks = h("div", { class: "marks" });
-    ruler.append(ui.marks);
-    for (let i = 0; i < 7; i++) {
-      const sp = h("span", { text: App.fmtS((dur * i) / 6), style: { left: `${(i / 6) * 100}%`,
-        transform: i === 0 ? "none" : i === 6 ? "translateX(-100%)" : "translateX(-50%)" } });
-      ruler.append(sp);
-    }
+    ui.ticks = h("div", { class: "ticks" });
+    ruler.append(ui.ticks, ui.marks);
     area.append(ruler, h("div", { class: "lane" }));
     ui.canvases = [];
     for (const t of names) {
@@ -285,8 +268,10 @@
     ui.hIn = h("div", { class: "hnd" });
     ui.hOut = h("div", { class: "hnd" });
     ui.head_ = h("div", { class: "head" });
-    area.append(ui.dimL, ui.dimR, ui.selbox, ui.hIn, ui.hOut, ui.head_);
+    ui.pan = h("div", { class: "panbar", hidden: true }, h("i"));
+    area.append(ui.pan, ui.dimL, ui.dimR, ui.selbox, ui.hIn, ui.hOut, ui.head_);
     bindTimeline(area);
+    renderTicks();
     ui.lanesWrap.replaceChildren(labels, area);
     layoutSel();
     renderMarkers();
@@ -320,7 +305,7 @@
     const titles = { auto: "Szczyt głośności", rec: "Znacznik z nagrania", user: "Twój znacznik (dwuklik usuwa)" };
     ui.marks.replaceChildren(...allMarkers().map((m) => {
       const el = h("div", { class: "mk " + m.kind, title: `${titles[m.kind]} ${App.fmt(m.t)}`,
-        style: { left: `${pct(m.t)}%` } }, m.kind === "auto" ? null : h("i"));
+        style: { left: `${pct(m.t)}%` }, hidden: pct(m.t) < 0 || pct(m.t) > 100 }, m.kind === "auto" ? null : h("i"));
       el.addEventListener("pointerdown", (ev) => { ev.stopPropagation(); seek(m.t); });
       if (m.kind === "user") el.addEventListener("dblclick", (ev) => {
         ev.stopPropagation();
@@ -346,16 +331,68 @@
     if (next != null) seek(next);
   }
 
-  const pct = (t) => (E?.info ? (t / E.info.duration) * 100 : 0);
+  /* The timeline shows the window [v0, v1] of the clip; everything is positioned relative to it. */
+  const MIN_SPAN = 1;
+  const pct = (t) => (E?.info ? ((t - E.v0) / (E.v1 - E.v0)) * 100 : 0);
+  const clampPct = (p) => Math.max(0, Math.min(100, p));
+  const zoomed = () => E?.info && E.v1 - E.v0 < E.info.duration - 0.01;
+
+  function applyView() {
+    layoutSel();
+    renderTicks();
+    renderMarkers();
+    paintPan();
+  }
+
+  function setView(v0, v1) {
+    const dur = E.info.duration;
+    let span = Math.min(Math.max(v1 - v0, Math.min(MIN_SPAN, dur)), dur);
+    v0 = Math.min(Math.max(v0, 0), dur - span);
+    E.v0 = v0;
+    E.v1 = v0 + span;
+    applyView();
+  }
+
+  function zoomAt(factor, anchor) {
+    if (!E?.info) return;
+    const span = E.v1 - E.v0;
+    const next = Math.min(Math.max(span / factor, Math.min(MIN_SPAN, E.info.duration)), E.info.duration);
+    const frac = span > 0 ? (anchor - E.v0) / span : 0.5;
+    const a = Math.min(Math.max(frac, 0), 1);
+    setView(anchor - a * next, anchor - a * next + next);
+  }
+
+  function fitView() { if (E?.info) setView(0, E.info.duration); }
+
+  function renderTicks() {
+    if (!ui.ticks || !E?.info) return;
+    const span = E.v1 - E.v0;
+    const fmt = span < 20 ? App.fmt : App.fmtS;
+    ui.ticks.replaceChildren(...Array.from({ length: 7 }, (_, i) => h("span", { text: fmt(E.v0 + (span * i) / 6),
+      style: { left: `${(i / 6) * 100}%`, transform: i === 0 ? "none" : i === 6 ? "translateX(-100%)" : "translateX(-50%)" } })));
+  }
+
+  function paintPan() {
+    if (!ui.pan || !E?.info) return;
+    ui.pan.hidden = !zoomed();
+    const dur = E.info.duration;
+    const th = ui.pan.firstChild;
+    th.style.left = `${(E.v0 / dur) * 100}%`;
+    th.style.width = `${((E.v1 - E.v0) / dur) * 100}%`;
+  }
 
   function layoutSel() {
     if (!E || !ui.selbox) return;
-    ui.dimL.style.width = `${pct(E.start)}%`;
-    ui.dimR.style.width = `${100 - pct(E.end)}%`;
-    ui.selbox.style.left = `${pct(E.start)}%`;
-    ui.selbox.style.width = `${pct(E.end) - pct(E.start)}%`;
-    ui.hIn.style.left = `${pct(E.start)}%`;
-    ui.hOut.style.left = `${pct(E.end)}%`;
+    const p0 = pct(E.start), p1 = pct(E.end);
+    const c0 = clampPct(p0), c1 = clampPct(p1);
+    ui.dimL.style.width = `${c0}%`;
+    ui.dimR.style.width = `${100 - c1}%`;
+    ui.selbox.style.left = `${c0}%`;
+    ui.selbox.style.width = `${Math.max(0, c1 - c0)}%`;
+    ui.hIn.style.left = `${p0}%`;
+    ui.hOut.style.left = `${p1}%`;
+    ui.hIn.hidden = p0 < -0.3 || p0 > 100.3;
+    ui.hOut.hidden = p1 < -0.3 || p1 > 100.3;
     const sel = App.$("#edSel");
     if (sel) sel.textContent = `wybrano ${App.fmtS(E.end - E.start)}`;
     updateEstimate();
@@ -365,14 +402,18 @@
 
   function paintHead() {
     if (!E?.info || !ui.head_) return;
-    ui.head_.style.left = `${pct(video.currentTime)}%`;
+    const p = pct(video.currentTime);
+    ui.head_.style.left = `${p}%`;
+    ui.head_.hidden = p < 0 || p > 100;
     const t = App.$("#edTime");
     if (t) t.textContent = `${App.fmt(video.currentTime)} / ${App.fmt(E.info.duration)}`;
   }
 
   function drawLanes() {
-    if (!E || !ui.canvases) return;
-    const dur = E.info ? E.info.duration : 0;
+    if (!E || !ui.canvases || !E.info) return;
+    const dur = E.info.duration;
+    const BPS = 50;                                   // bars per second in the waveform data
+    const span = E.v1 - E.v0;
     for (const { cv, track } of ui.canvases) {
       const w = cv.clientWidth, hgt = cv.clientHeight;
       if (!w) continue;
@@ -383,15 +424,19 @@
       g.clearRect(0, 0, w, hgt);
       const bars = track.wave;
       if (!bars) continue;
-      const hex = TRACK_HEX[track.name] || "#8b919c";
+      g.fillStyle = TRACK_HEX[track.name] || "#8b919c";
       const scale = track.gain > 1 ? 1 : 0.4 + track.gain / 1.7;
-      const n = bars.length, bw = w / n;
-      for (let i = 0; i < n; i++) {
-        const t = (i / n) * dur;
-        g.globalAlpha = t >= E.start && t <= E.end ? 0.95 : 0.35;
-        g.fillStyle = hex;
-        const bh = Math.max(1.5, (bars[i] / 100) * (hgt - 8) * scale);
-        g.fillRect(i * bw + 0.5, (hgt - bh) / 2, Math.max(1, bw - 1), bh);
+      const col = 3;                                  // 2 px bar + 1 px gap
+      for (let x = 0; x < w; x += col) {
+        const t0 = E.v0 + (x / w) * span, t1 = E.v0 + ((x + col) / w) * span;
+        if (t1 <= 0 || t0 >= dur) continue;
+        const i0 = Math.max(0, Math.floor(t0 * BPS));
+        const i1 = Math.min(bars.length - 1, Math.max(i0, Math.ceil(t1 * BPS) - 1));
+        let m = 0;
+        for (let i = i0; i <= i1; i++) if (bars[i] > m) m = bars[i];
+        g.globalAlpha = t1 >= E.start && t0 <= E.end ? 0.95 : 0.35;
+        const bh = Math.max(1.5, (m / 100) * (hgt - 8) * scale);
+        g.fillRect(x + 0.5, (hgt - bh) / 2, col - 1, bh);
       }
     }
     if (ui.canvases[0]) ui.canvases[0].cv.dataset.ready = "1";
@@ -401,9 +446,39 @@
   function bindTimeline(area) {
     const timeAt = (ev) => {
       const r = area.getBoundingClientRect();
-      return Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1) * (E?.info?.duration ?? 0);
+      const f = Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1);
+      return E.v0 + f * (E.v1 - E.v0);
     };
     area.addEventListener("pointerdown", (ev) => { if (E?.info) seek(timeAt(ev)); });
+    // wheel zooms around the cursor; Shift/Alt (or a sideways wheel) pans
+    area.addEventListener("wheel", (ev) => {
+      if (!E?.info) return;
+      ev.preventDefault();
+      const span = E.v1 - E.v0;
+      if (ev.shiftKey || ev.altKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) {
+        const d = (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY) / 600;
+        setView(E.v0 + d * span, E.v1 + d * span);
+      } else {
+        zoomAt(ev.deltaY < 0 ? 1.3 : 1 / 1.3, timeAt(ev));
+      }
+    }, { passive: false });
+    // the thin bar under the lanes pans the zoomed view
+    ui.pan.addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const r = ui.pan.getBoundingClientRect();
+      const dur = E.info.duration, span = E.v1 - E.v0;
+      const grab = ((ev.clientX - r.left) / r.width) * dur;
+      const offset = grab >= E.v0 && grab <= E.v1 ? grab - E.v0 : span / 2;
+      const move = (e) => {
+        const t = ((e.clientX - r.left) / r.width) * dur;
+        setView(t - offset, t - offset + span);
+      };
+      move(ev);
+      const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    });
     const drag = (node, apply) => {
       node.addEventListener("pointerdown", (ev) => {
         if (!E?.info) return;
@@ -418,6 +493,7 @@
     drag(ui.hIn, (t) => { E.start = Math.min(t, E.end - MIN_SEL); });
     drag(ui.hOut, (t) => { E.end = Math.max(t, E.start + MIN_SEL); });
   }
+
 
   /* ───── crop overlay ───── */
 
@@ -535,6 +611,9 @@
       case "o": case "O": setOut(); return true;
       case "ArrowLeft": seek(video.currentTime - step); return true;
       case "ArrowRight": seek(video.currentTime + step); return true;
+      case "+": case "=": zoomAt(1.6, video.currentTime); return true;
+      case "-": case "_": zoomAt(1 / 1.6, video.currentTime); return true;
+      case "0": fitView(); return true;
       case "m": case "M": addMarker(); return true;
       case "j": case "J": jumpMarker(-1); return true;
       case "k": case "K": jumpMarker(1); return true;

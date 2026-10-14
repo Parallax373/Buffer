@@ -2,6 +2,7 @@
 # Rust changes rebuild incrementally in debug mode (seconds instead of minutes of LTO).
 #   .\scripts\dev.ps1                # debug recorder + app with live UI
 #   .\scripts\dev.ps1 -NoRecorder    # app only (talks to an already running recorder)
+# Note: a plain `cargo build -p buffer` copies ffmpeg.exe next to the debug exe; it fails while the debug recorder\n# is running from there (os error 32). Use this script (or stop the recorder first).
 # The installer is only for releases (build-installer.ps1 / publish.ps1).
 param([switch]$NoRecorder)
 $ErrorActionPreference = "Stop"
@@ -15,3 +16,4 @@ if (-not $NoRecorder) {
     Start-Process (Resolve-Path "target\debug\buffer-recorder.exe") -ArgumentList "run" -WindowStyle Hidden
 }
 npx tauri dev --config src-tauri/tauri.dev.conf.json
+

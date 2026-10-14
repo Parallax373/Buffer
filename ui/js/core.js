@@ -40,6 +40,7 @@ const App = {};
     }
     return el;
   };
+  const h = App.h;
   App.$ = (s, r = document) => r.querySelector(s);
 
   /* ───── formatting ───── */
@@ -54,6 +55,35 @@ const App = {};
     const raw = clip.name.split("__")[0] || clip.name;
     return raw.replace(/-+/g, " ").replace(/\s+/g, " ").trim() || "Nieznana gra";
   };
+  /** What the user sees as the clip's name: their own title, else the game derived from the file name. */
+  App.titleOf = (clip) => App.P.titles[clip.path] || App.gameOf(clip);
+
+  /** Turns `el` into a text field to rename the clip; Enter/blur saves, Esc cancels, empty resets. */
+  App.editTitle = (el, path, done) => {
+    const clip = App.S.byPath.get(path);
+    if (!clip) return;
+    const input = h("input", { class: "field titlein", value: App.titleOf(clip), maxLength: 80, spellcheck: false });
+    let finished = false;
+    const finish = (save) => {
+      if (finished) return;
+      finished = true;
+      if (save) {
+        const v = input.value.trim();
+        if (v && v !== App.gameOf(clip)) App.P.titles[path] = v; else delete App.P.titles[path];
+        App.persist();
+      }
+      done();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") finish(true);
+      else if (e.key === "Escape") finish(false);
+    });
+    input.addEventListener("blur", () => finish(true));
+    el.replaceWith(input);
+    input.focus();
+    input.select();
+  };
+
   App.hueOf = (s) => { let x = 0; for (const c of s) x = (x * 31 + c.charCodeAt(0)) >>> 0; return x % 360; };
 
   /* ───── persisted state (debounced) ───── */
@@ -64,7 +94,7 @@ const App = {};
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false,
     },
     libDirs: ["E:\\Nagrania"],
-    favs: {}, markers: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
+    favs: {}, titles: {}, markers: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
   };
   App.P = structuredClone(DEFAULTS);
 
@@ -214,4 +244,20 @@ const App = {};
   App.quality = (kbps) =>
     kbps < 150 ? ["za mało", "var(--err)"] : kbps < 800 ? ["niska", "var(--warn)"]
       : kbps < 3000 ? ["dobra", "var(--ok)"] : ["świetna", "var(--ok)"];
+})();
+
+/* Explanations never take space in the UI: any description line is moved into a tooltip of its row. */
+(function () {
+  const SEL = ".line .ds, .src .desc, .wizbody > p.muted";
+  const move = (d) => {
+    const host = d.closest(".line") || d.closest(".src") || d.closest(".wizbody")?.querySelector("h2");
+    if (host && d.textContent.trim()) host.title = d.textContent.trim();
+    d.remove();
+  };
+  const scan = (n) => {
+    if (n.nodeType !== 1) return;
+    if (n.matches(SEL)) move(n);
+    n.querySelectorAll(SEL).forEach(move);
+  };
+  new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach(scan))).observe(document.body, { childList: true, subtree: true });
 })();

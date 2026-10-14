@@ -101,30 +101,25 @@ App.RecUI = (function () {
     const wrap = h("div", { class: "stack", id: "recSources" });
     const draw = () => {
       const shared = sharedOutput();
-      const callout = (shared || cfg.chat_app) ? h("div", { class: "callout" },
-        h("div", { class: "tt", text: cfg.chat_app ? "Czat jest wydzielony z gry" : "Gra i czat korzystają z tego samego wyjścia" }),
-        h("div", { class: "muted", text: cfg.chat_app
-          ? "Czat = tylko dźwięk wybranej aplikacji, gra = wszystko poza nią. Działa także przy jednym wyjściu."
-          : "Bez rozdzielenia rozmowa znajdzie się w obu ścieżkach. Wskaż aplikację czatu — Buffer wyodrębni jej dźwięk." }),
+      const callout = (shared || cfg.chat_app) ? h("div", { class: "callout",
+        title: "Gra i czat dzielą jedno wyjście. Wskaż aplikację czatu, a jej dźwięk trafi tylko na ścieżkę Czat, a ścieżka Gra dostanie całą resztę." },
+        h("span", { text: "Aplikacja czatu" }),
         h("select", { class: "field", onChange: (e) => { cfg.chat_app = e.target.value; onChange("chat_app"); draw(); } },
           CHAT_APPS.map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.chat_app || "") === v })))) : null;
       wrap.replaceChildren(...SRC.flatMap(([key, name, label, kind, desc]) => {
         const c = cfg[key];
         const showBackup = !!c.secondary;
-        const card = h("div", { class: "src", "data-src": name },
+        const card = h("div", { class: "src", "data-src": name, title: desc },
           h("div", { class: "nm", text: label }),
           h("div", { class: "meter" }, h("div")),
           h("div", { class: "st", text: "—" }),
-          h("div", { class: "desc muted", text: desc }),
-          h("label", { class: "main" }, h("span", { class: "muted", text: "Źródło" }),
+          h("div", { class: "pick" },
             deviceSelect(key, kind, c.primary, (v) => { cfg[key] = { ...cfg[key], primary: v }; onChange(key); draw(); }, false)),
           showBackup
-            ? h("label", { class: "main" },
-              h("span", { class: "muted", text: "Zapasowe — włączy się, gdy główne zostanie odłączone" }),
-              h("div", { class: "pathrow" },
-                deviceSelect(key, kind, c.secondary, (v) => { cfg[key] = { ...cfg[key], secondary: v }; onChange(key); draw(); }, true),
-                h("button", { class: "btn ghost", text: "Usuń", onClick: () => { cfg[key] = { ...cfg[key], secondary: null }; onChange(key); draw(); } })))
-            : h("button", { class: "linkbtn", text: "+ Dodaj urządzenie zapasowe", onClick: () => {
+            ? h("div", { class: "pick pathrow", title: "Zapasowe: włączy się, gdy główne urządzenie zostanie odłączone" },
+              deviceSelect(key, kind, c.secondary, (v) => { cfg[key] = { ...cfg[key], secondary: v }; onChange(key); draw(); }, true),
+              h("button", { class: "btn ghost", text: "✕", title: "Usuń urządzenie zapasowe", onClick: () => { cfg[key] = { ...cfg[key], secondary: null }; onChange(key); draw(); } }))
+            : h("button", { class: "linkbtn", text: "+ zapasowe", title: "Urządzenie, które włączy się, gdy główne zostanie odłączone", onClick: () => {
               cfg[key] = { ...cfg[key], secondary: { id: "", name: "" } };   // placeholder until a device is picked
               draw();
             } }));
@@ -189,12 +184,12 @@ App.RecUI = (function () {
 
   const fmtMb = (mb) => (mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`);
 
-  function meterBar(label, value, scaleMax, ticks, val, text) {
-    return h("div", { class: "est" },
+  function meterBar(label, value, scaleMax, ticks, val, text, quiet) {
+    return h("div", { class: "est", title: quiet ? text : "" },
       h("div", { class: "top" }, h("span", { text: label }), h("b", { text: value })),
       h("div", { class: "bar" }, h("i", { style: { width: `${Math.min(100, (val / scaleMax) * 100)}%` } }),
         ...ticks.map(([at, t]) => h("u", { style: { left: `${(at / scaleMax) * 100}%` }, title: t }))),
-      h("div", { class: "note muted", text }));
+      quiet ? null : h("div", { class: "note muted", text }));
   }
 
   /** Controls on the left, what they will cost on the right. `onChange(patch)` persists. */
@@ -223,11 +218,11 @@ App.RecUI = (function () {
         h("div", { class: "estimates" },
           h("div", { class: "cap", text: "Co to zajmie" }),
           meterBar("Jeden klip", fmtMb(e.clipMb), 500, [[10, "Discord 10 MB"], [50, "Discord 50 MB"]], e.clipMb, fits),
-          meterBar("Bufor na dysku", fmtMb(e.diskMb), 1000, [], e.diskMb, "tymczasowy, ciągle nadpisywany — nie rośnie"),
-          meterBar("Pamięć RAM", `≈ ${fmtMb(e.ramMb)}`, 2000, [], e.ramMb, "szacunek dla procesu nagrywającego"),
-          h("div", { class: "est" },
+          meterBar("Bufor na dysku", fmtMb(e.diskMb), 1000, [], e.diskMb, "Tymczasowy, ciągle nadpisywany — nie rośnie.", true),
+          meterBar("Pamięć RAM", `≈ ${fmtMb(e.ramMb)}`, 2000, [], e.ramMb, "Szacunek dla procesu nagrywającego.", true),
+          h("div", { class: "est", title: hw ? "Nagrywanie praktycznie nie obciąża gry." : "Brak kodera sprzętowego — przy wyższej jakości może spadać FPS w grze." },
             h("div", { class: "top" }, h("span", { text: "Obciążenie" }), h("b", { text: hw ? "GPU (koder sprzętowy)" : "procesor (CPU)" })),
-            h("div", { class: "note muted", text: hw ? "Nagrywanie praktycznie nie obciąża gry." : "Brak kodera sprzętowego — przy wyższej jakości może spadać FPS w grze." })),
+            null),
           h("div", { class: "note muted", text: `Obraz zapisywany w ${e.w}×${e.hgt} px, ${c.fps} fps. 10 klipów ≈ ${fmtMb(e.clipMb * 10)}.` })));
     };
     draw();
@@ -286,13 +281,11 @@ App.RecUI = (function () {
             onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) }))),
       h("div", { class: "sec" }, cap("Skrót zapisu klipu"),
         hotkeyInput(cfg.hotkey, (c) => save({ hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania")),
-        h("div", { style: { marginTop: "14px" } }, cap("Znacznik w trakcie gry"),
-          hotkeyInput(cfg.marker_hotkey || "Alt+M", (c) => save({ marker_hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania")),
-          h("div", { class: "muted", style: { fontSize: "12px", marginTop: "6px" }, text: "Pojawia się jako ◆ na osi czasu w edytorze." })),
-        h("div", { style: { marginTop: "14px" } }, cap("Dogrywaj po naciśnięciu skrótu"),
+        h("div", { style: { marginTop: "14px" }, title: "Pojawia się jako ◆ na osi czasu w edytorze." }, cap("Znacznik w trakcie gry"),
+          hotkeyInput(cfg.marker_hotkey || "Alt+M", (c) => save({ marker_hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania"))),
+        h("div", { style: { marginTop: "14px" }, title: "Po skrócie nagrywanie trwa jeszcze tyle sekund i dopiero wtedy zapisuje klip, więc w klipie są też chwile tuż po. Drugie naciśnięcie zapisuje od razu." }, cap("Dogrywaj po naciśnięciu skrótu"),
           seg(POST_ROLL, cfg.post_roll_seconds, (v) => save({ post_roll_seconds: +v }).then(rerender)),
-          h("div", { class: "muted", style: { fontSize: "12px", marginTop: "6px" },
-            text: cfg.post_roll_seconds ? `Po skrócie nagrywanie trwa jeszcze ${cfg.post_roll_seconds} s i dopiero wtedy zapisuje klip — w klipie są też chwile tuż po. Drugie naciśnięcie zapisuje od razu.` : "Klip jest zapisywany od razu po naciśnięciu skrótu." }))),
+          null)),
       toggle("Znaczniki ze szczytów głośności", "Automatyczne kreski na osi czasu w edytorze", App.P.settings.autoMarkers !== false,
         async (v) => { App.P.settings.autoMarkers = v; App.persist(); rerender(); }),
       toggle("Nagrywaj tylko gry", "Bufor działa tylko, gdy jest uruchomiona gra, a ścieżka Game zawiera wyłącznie dźwięk tej gry (bez muzyki i rozmów)", cfg.game_only,

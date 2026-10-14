@@ -89,7 +89,7 @@
     const cat = S.cat, q = S.q.trim().toLowerCase();
     const recentCut = recentCutoff();
     let list = S.clips.filter((c) => {
-      if (q && !(App.gameOf(c) + " " + c.name).toLowerCase().includes(q)) return false;
+      if (q && !(App.titleOf(c) + " " + App.gameOf(c) + " " + c.name).toLowerCase().includes(q)) return false;
       if (cat === "all") return true;
       if (cat === "recent") return c.modified >= recentCut;
       if (cat === "fav") return isFav(c);
@@ -267,6 +267,7 @@
     const star = th.querySelector(".star");
     star.textContent = isFav(clip) ? "★" : "☆";
     star.classList.toggle("on", isFav(clip));
+    el.querySelector(".info b").textContent = App.titleOf(clip);
     const m = Lib.meta(clip);
     th.querySelector(".dur").textContent = m ? App.fmtS(m.dur) : "";
     th.querySelector(".dur").hidden = !m;
@@ -366,7 +367,7 @@
     try {
       await api.invoke("delete_clips", { paths });
       for (const p of paths) {
-        delete App.P.favs[p]; delete App.P.meta[p];
+        delete App.P.favs[p]; delete App.P.meta[p]; delete App.P.titles[p];
         S.sel.delete(p);
       }
       App.persist();
@@ -393,7 +394,11 @@
     Lib.thumbUrl(c.path).then((u) => { if (u && S.active === c.path) pv.prepend(h("img", { src: u, alt: "" })); });
     els.details.replaceChildren(
       pv,
-      h("div", null, h("h2", { text: App.gameOf(c) }), h("div", { class: "file", text: App.baseName(c.path) })),
+      h("div", null,
+        h("h2", { class: "ttl", title: "Zmień nazwę", text: App.titleOf(c), onClick: (ev) => {
+          App.editTitle(ev.currentTarget, c.path, () => { refreshCards(); Lib.renderSide(); Lib.renderDetails(); });
+        } }),
+        h("div", { class: "file", text: App.baseName(c.path) })),
       h("dl", null,
         h("dt", { text: "Data" }), h("dd", { text: App.date(c.modified) }),
         h("dt", { text: "Czas" }), h("dd", { text: m ? App.fmtS(m.dur) : "…" }),

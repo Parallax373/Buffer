@@ -5,7 +5,7 @@
 (function () {
   const { h, S, api } = App;
   const VIEWS = { lib: "#v-lib", ed: "#v-ed", set: "#v-set" };
-  const NAV = [["lib", "▦", "Biblioteka"], ["ed", "✂", "Edytor"]];
+  const NAV = [["lib", "▦", "Biblioteka"]];
 
   /* ───── navigation ───── */
 
@@ -32,9 +32,20 @@
 
   function renderRail() {
     const nav = App.$("#nav");
-    const item = (v, icon, label) => h("button", { class: "item" + (S.view === v ? " on" : ""), "data-label": label,
-      "aria-label": label, onClick: () => App.go(v) }, h("span", { class: "ic", text: icon }));
-    nav.replaceChildren(...NAV.map(([v, i, l]) => item(v, i, l)), h("div", { class: "grow" }), item("set", "⚙", "Ustawienia"));
+    const item = (view, icon, label, on) => h("button", { class: "item" + (on ? " on" : ""), "aria-label": label,
+      onClick: () => App.go(view) }, h("span", { class: "ic", text: icon }), h("span", { class: "lb", text: label }));
+    nav.replaceChildren(item("lib", "▦", "Biblioteka", S.view === "lib" || S.view === "ed"), h("div", { class: "grow" }),
+      item("set", "⚙", "Ustawienia", S.view === "set"));
+  }
+
+  /** Own window buttons: the native title bar is turned off. */
+  function windowControls() {
+    const w = window.__TAURI__?.window?.getCurrentWindow?.();
+    const btn = (cls, title, fn) => h("button", { class: "wc " + cls, title, "aria-label": title, onClick: () => w && fn(w) }, h("i"));
+    return h("div", { class: "winctl" },
+      btn("min", "Zminimalizuj", (x) => x.minimize()),
+      btn("max", "Maksymalizuj", (x) => x.toggleMaximize()),
+      btn("cls", "Zamknij", (x) => x.close()));
   }
 
   /* ───── top bar ───── */
@@ -52,11 +63,11 @@
         if (S.view !== "lib") App.go("lib"); else App.Lib.render(false);
       } });
     App.$("#topbar").replaceChildren(
-      h("div", { class: "brand" },
+      h("div", { class: "brand", "data-tauri-drag-region": true },
         h("div", { class: "mini" }, widths.map((w) => h("i", { style: { width: `${w}px` } }))),
         h("b", { text: "Buffer" })),
       h("label", { class: "search" }, h("span", { text: "⌕" }), search, h("kbd", { text: "Ctrl K" })),
-      h("div", { class: "right" }, recPill, chip));
+      h("div", { class: "right", "data-tauri-drag-region": true }, recPill, chip, windowControls()));
     paintRec();
     paintChip();
   }
@@ -168,7 +179,7 @@
       codec: o.codec || "auto", audio_kbps: 128, volumes,
       crop_wide: o.wide ?? null, speed: o.speed ?? 1, normalize: o.normalize ?? s.normDef, hwaccel: s.hw,
     };
-    S.exporting = { name: App.gameOf(clip), target: mb, pct: 0, source: clip.path, startedAt: Date.now() };
+    S.exporting = { name: App.titleOf(clip), target: mb, pct: 0, source: clip.path, startedAt: Date.now() };
     S.lastDone = null;
     Exports.openPop();
     notifyState();
@@ -404,8 +415,7 @@
         line("Pamięć podręczna audio", "Ścieżki wyodrębnione bez rekodowania", "cache"),
         line("Dekodowanie sprzętowe (NVDEC)", "Automatyczny powrót do CPU przy błędzie", "hw"),
         h("div", { class: "line static" },
-          h("div", null, h("div", { class: "tt", text: "Pamięć podręczna" }),
-            h("div", { class: "ds", text: `Ścieżki audio, miniatury i fale · ${App.fmtMB(size)}` })),
+          h("div", null, h("div", { class: "tt", text: `Pamięć podręczna · ${App.fmtMB(size)}` })),
           h("button", { class: "btn", text: "Wyczyść", onClick: async () => {
             await api.invoke("clear_cache").catch(() => {});
             App.toast("Wyczyszczono pamięć podręczną", "ok");

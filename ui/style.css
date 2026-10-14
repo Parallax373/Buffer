@@ -468,3 +468,56 @@ body { color: var(--text); }
 .found.on .chk { background: var(--acc); border-color: var(--acc); }
 .found .mono { font-size: 12.5px; }
 
+
+/* ═════ Own title bar, simpler left side, rename, zoom ═════ */
+#topbar { padding-right: 0; }
+.winctl { display: flex; align-self: stretch; margin-left: 6px; }
+.wc { width: 46px; display: flex; align-items: center; justify-content: center; color: var(--text2); transition: background .15s ease, color .15s ease; }
+.wc:hover { background: #ffffff14; color: var(--text); }
+.wc.cls:hover { background: #e5484d; color: #fff; }
+.wc i { display: block; position: relative; pointer-events: none; }
+.wc.min i { width: 11px; height: 1px; background: currentColor; }
+.wc.max i { width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 1px; }
+.wc.cls i { width: 12px; height: 12px; }
+.wc.cls i::before, .wc.cls i::after { content: ""; position: absolute; left: 5.5px; top: -1px; width: 1px; height: 14px; background: currentColor; }
+.wc.cls i::before { transform: rotate(45deg); }
+.wc.cls i::after { transform: rotate(-45deg); }
+#topbar .brand, #topbar .right { min-height: 44px; }
+
+#body { grid-template-columns: 72px minmax(0, 1fr); }
+#nav { padding: 10px 0; gap: 6px; }
+#nav .item { width: 60px; height: 60px; flex-direction: column; gap: 4px; border-radius: 12px; }
+#nav .item .ic { font-size: 22px; line-height: 1; }
+#nav .item .lb { font-size: 10.5px; font-weight: 500; }
+#nav .item::before { left: -6px; top: 12px; bottom: 12px; }
+#nav .item:hover::after { content: none; }
+
+.ed { grid-template-columns: minmax(0, 1fr) 290px; }
+.edhead .backbtn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 9px; background: var(--raised);
+  border: 1px solid var(--line); font-weight: 500; margin-right: 4px; transition: border-color .2s ease; }
+.edhead .backbtn:hover { border-color: var(--acc); }
+.edhead .ttl { cursor: text; border-bottom: 1px dashed transparent; }
+.edhead .ttl:hover { border-color: var(--muted); }
+.edhead .ren { color: var(--muted); font-size: 13px; padding: 0 4px; }
+.edhead .ren:hover { color: var(--acc); }
+.titlein { width: 280px; padding: 4px 8px; font: 600 14px "Instrument Sans", sans-serif; }
+.details h2.ttl { cursor: text; border-bottom: 1px dashed transparent; display: inline-block; }
+.details h2.ttl:hover { border-color: var(--muted); }
+.details .titlein { width: 100%; font-size: 17px; }
+
+.zoomctl { display: flex; gap: 4px; margin-left: 8px; }
+.zoomctl button { width: 28px; height: 28px; border-radius: 8px; background: var(--raised); border: 1px solid var(--line); color: var(--text2); font-size: 15px; line-height: 1; }
+.zoomctl button:hover { border-color: var(--acc); color: var(--text); }
+.tl .ruler .ticks { position: absolute; inset: 0; }
+.tl .panbar { position: absolute; left: 0; right: 0; bottom: -12px; height: 8px; border-radius: 4px; background: #ffffff0f; cursor: pointer; z-index: 4; }
+.tl .panbar i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: #c6f43266; min-width: 12px; }
+.tl .panbar:hover i { background: #c6f432aa; }
+.tl { padding-bottom: 18px; }
+
+.src { grid-template-columns: 120px minmax(0, 1fr) 190px; row-gap: 8px; }
+.src .pick { grid-column: 1 / -1; min-width: 0; }
+.src .pick select { width: 100%; }
+.src .pick.pathrow { display: flex; gap: 8px; }
+.src .pick.pathrow select { flex: 1; }
+.callout { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; }
+.callout select { min-width: 200px; }

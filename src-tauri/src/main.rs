@@ -17,7 +17,7 @@ use std::{
     sync::{Condvar, Mutex},
     time::{Duration, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const VIDEO_EXT: [&str; 3] = ["mp4", "mkv", "mov"];
 /// Folders the app writes to or that only hold derived files.
@@ -228,15 +228,17 @@ async fn thumbnail(path: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
-const WAVE_BARS: usize = 240;
+/// Waveform resolution: 50 bars per second, so zooming the timeline stays sharp.
+const WAVE_HZ: usize = 4000;
+const SAMPLES_PER_BAR: usize = WAVE_HZ / 50;
 
 #[tauri::command]
 async fn waveform(path: String, index: usize) -> Result<Vec<u8>, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
         let input = PathBuf::from(&path);
-        let cache = cache_dir(&input)?.join(format!("wave{index}.bin"));
+        let cache = cache_dir(&input)?.join(format!("wave{index}.v2.bin"));
         if let Ok(b) = fs::read(&cache) {
-            if b.len() == WAVE_BARS {
+            if !b.is_empty() {
                 return Ok(b);
             }
         }
@@ -246,7 +248,7 @@ async fn waveform(path: String, index: usize) -> Result<Vec<u8>, String> {
         let mut cmd = ffmpeg_cmd();
         cmd.args(["-v", "error", "-i"])
             .arg(file)
-            .args(["-ac", "1", "-ar", "2000", "-f", "s16le", "-"])
+            .args(["-ac", "1", "-ar", "4000", "-f", "s16le", "-"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         let mut child = cmd.spawn().map_err(|e| e.to_string())?;
@@ -254,15 +256,13 @@ async fn waveform(path: String, index: usize) -> Result<Vec<u8>, String> {
         child.stdout.take().unwrap().read_to_end(&mut raw).map_err(|e| e.to_string())?;
         let _ = child.wait();
         let samples: Vec<i16> = raw.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
-        let mut bars = vec![0u8; WAVE_BARS];
-        if !samples.is_empty() {
-            for (i, bar) in bars.iter_mut().enumerate() {
-                let a = i * samples.len() / WAVE_BARS;
-                let b = ((i + 1) * samples.len() / WAVE_BARS).max(a + 1).min(samples.len());
-                let peak = samples[a..b].iter().map(|s| s.unsigned_abs()).max().unwrap_or(0) as f32 / 32768.0;
-                *bar = (peak.sqrt() * 100.0).round().clamp(0.0, 100.0) as u8;
-            }
-        }
+        let bars: Vec<u8> = samples
+            .chunks(SAMPLES_PER_BAR)
+            .map(|c| {
+                let peak = c.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0) as f32 / 32768.0;
+                (peak.sqrt() * 100.0).round().clamp(0.0, 100.0) as u8
+            })
+            .collect();
         let _ = fs::write(&cache, &bars);
         Ok(bars)
     })
@@ -641,6 +641,14 @@ fn recorder_autostart(enable: Option<bool>) -> Result<bool, String> {
 fn main() {
     ml_core::paths::migrate_legacy_dirs();
     tauri::Builder::default()
+        // Only one window ever: a second launch (tray click, shortcut) just brings the first one forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
