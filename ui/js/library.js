@@ -122,8 +122,8 @@
       side: h("div", { class: "side" }),
       title: h("h1"), count: h("span", { class: "count" }),
       sort: h("select", { class: "field", onChange: (e) => { S.sort = e.target.value; Lib.render(false); } },
-        [["newest", "Najnowsze"], ["oldest", "Najstarsze"], ["size", "Największe"], ["dur", "Najdłuższe"]]
-          .map(([v, t]) => h("option", { value: v, text: t, selected: S.sort === v }))),
+        ["newest", "oldest", "size", "dur"]
+          .map((v) => h("option", { value: v, text: App.t("sort." + v), selected: S.sort === v }))),
       thumbSeg: h("div", { class: "seg" }),
       grid: h("div", { class: "grid", onScroll: () => layoutGrid() }),
       spacer: h("div", { class: "spacer" }),
@@ -160,21 +160,21 @@
         h("span", { class: "nm", text: label }), h("span", { class: "n", text: count }));
     const recentCut = recentCutoff();
     const frag = [
-      h("div", { class: "cap", text: "Biblioteka" }),
-      item("all", "Wszystkie", S.clips.length),
-      item("recent", "Ostatnie", S.clips.filter((c) => c.modified >= recentCut).length),
-      item("fav", "★ Ulubione", S.clips.filter(isFav).length),
-      item("exp", "Wyeksportowane", S.clips.filter((c) => isExported(c.path)).length),
-      h("div", { class: "cap", text: "Gry" }),
+      h("div", { class: "cap", text: App.t("cat.cap") }),
+      item("all", App.t("cat.all"), S.clips.length),
+      item("recent", App.t("cat.recent"), S.clips.filter((c) => c.modified >= recentCut).length),
+      item("fav", "★ " + App.t("cat.fav"), S.clips.filter(isFav).length),
+      item("exp", App.t("cat.exp"), S.clips.filter((c) => isExported(c.path)).length),
+      h("div", { class: "cap", text: App.t("cat.games") }),
       ...Lib.games().map(([g, n]) => item("g:" + g, g, n, { sq: `hsl(${App.hueOf(g)} 60% 55%)` })),
     ];
     els.side.replaceChildren(...frag);
   };
 
   function renderToolbar() {
-    const titles = { all: "Wszystkie klipy", recent: "Ostatnie", fav: "Ulubione", exp: "Wyeksportowane" };
+    const titles = { all: App.t("cat.allClips"), recent: App.t("cat.recent"), fav: App.t("cat.fav"), exp: App.t("cat.exp") };
     els.title.textContent = titles[S.cat] || S.cat.slice(2);
-    els.count.textContent = `${Lib.visible().length} klipów`;
+    els.count.textContent = App.t("lib.count", { n: Lib.visible().length });
     els.thumbSeg.replaceChildren(...["S", "M", "L"].map((k) =>
       h("button", { class: App.P.settings.thumb === k ? "on" : "", text: k,
         onClick: () => { App.P.settings.thumb = k; App.persist(); renderToolbar(); layoutGrid(true); } })));
@@ -201,9 +201,9 @@
     if (!list.length) {
       const filtered = !!S.q || S.cat !== "all";
       els.spacer.replaceChildren(App.emptyState(
-        S.listError ? "Nie można wczytać biblioteki" : "Brak klipów",
-        S.listError || (S.clips.length ? "W tym widoku nic nie pasuje." : "W folderach biblioteki nie ma jeszcze klipów."),
-        filtered ? "Wyczyść filtry" : null,
+        S.listError ? App.t("lib.loadFail") : App.t("lib.none"),
+        S.listError || (S.clips.length ? App.t("lib.noMatch") : App.t("lib.empty")),
+        filtered ? App.t("lib.clearFilters") : null,
         () => { S.q = ""; S.cat = "all"; const i = App.$("#topSearch"); if (i) i.value = ""; Lib.render(false); }));
       cards.clear();
       return;
@@ -248,7 +248,7 @@
         h("div", { class: "chk", onClick: (e) => { e.stopPropagation(); Lib.toggleSel(clip.path); } }),
         h("div", { class: "star", text: "☆", onClick: (e) => { e.stopPropagation(); Lib.toggleFav(clip.path); } }),
         h("div", { class: "dur" }),
-        h("div", { class: "now", text: "NOWE" }),
+        h("div", { class: "now", text: App.t("badge.new") }),
         h("div", { class: "tg" })),
       h("div", { class: "info" }, h("b", { text: App.gameOf(clip) }), h("span")));
     updateCard(el, clip);
@@ -272,7 +272,7 @@
     th.querySelector(".dur").textContent = m ? App.fmtS(m.dur) : "";
     th.querySelector(".dur").hidden = !m;
     const tg = th.querySelector(".tg");
-    tg.replaceChildren(...(isExported(clip.path) ? [h("span", { text: "✓ wyeksp." })] : []));
+    tg.replaceChildren(...(isExported(clip.path) ? [h("span", { text: App.t("badge.exported") })] : []));
     // a clip with its own name shows the game next to the date, so the card still says what it is
     el.querySelector(".info span").textContent = `${App.customTitle(clip) ? App.gameOf(clip) + " · " : ""}${App.date(clip.modified)} · ${App.fmtMB(clip.size)}`;
   }
@@ -347,14 +347,14 @@
     if (!S.sel.size) { els.bulk.replaceChildren(); return; }
     const t = App.P.settings.defTarget;
     els.bulk.replaceChildren(h("div", { class: "bulk" },
-      h("b", { text: String(S.sel.size) }), h("span", { class: "muted", text: "zaznaczone" }), h("span", { class: "sp" }),
+      h("b", { text: String(S.sel.size) }), h("span", { class: "muted", text: App.t("bulk.selected") }), h("span", { class: "sp" }),
       h("div", { class: "chip", style: { cursor: "pointer" }, onClick: () => {
         for (const p of S.sel) App.P.favs[p] = 1;
         App.persist(); refreshCards(); Lib.renderSide(); } }, "★ Ulubione"),
       h("button", { class: "btn acc", style: { padding: "7px 14px", borderRadius: "8px" },
-        onClick: () => App.Exports.batch([...S.sel]), text: `Eksportuj partię · ${t} MB` }),
+        onClick: () => App.Exports.batch([...S.sel]), text: App.t("bulk.export", { mb: t }) }),
       h("button", { class: "btn danger", style: { padding: "7px 11px", borderRadius: "8px" },
-        onClick: () => Lib.remove([...S.sel]), text: "Usuń" }),
+        onClick: () => Lib.remove([...S.sel]), text: App.t("common.delete") }),
       h("button", { class: "btn ghost", style: { padding: "7px 9px", border: 0, background: "none" },
         onClick: Lib.clearSel, text: "✕" })));
   };
@@ -362,8 +362,8 @@
   Lib.remove = async (paths) => {
     if (!paths.length) return;
     const msg = paths.length === 1
-      ? `Przenieść „${App.baseName(paths[0])}” do Kosza?`
-      : `Przenieść ${paths.length} klipów do Kosza?`;
+      ? App.t("rm.one", { name: App.baseName(paths[0]) })
+      : App.t("rm.many", { n: paths.length });
     if (!confirm(msg)) return;
     try {
       await api.invoke("delete_clips", { paths });
@@ -372,10 +372,10 @@
         S.sel.delete(p);
       }
       App.persist();
-      App.toast(`Przeniesiono do Kosza: ${paths.length}`, "ok");
+      App.toast(App.t("rm.done", { n: paths.length }), "ok");
       await Lib.load();
     } catch (e) {
-      App.toast(`Nie udało się usunąć: ${e}`, "err");
+      App.toast(App.t("rm.fail", { err: e }), "err");
     }
   };
 
@@ -387,7 +387,7 @@
     els.lib?.classList.toggle("nodetail", !(S.active && S.byPath.get(S.active)));
     const c = S.active && S.byPath.get(S.active);
     if (!c) {
-      els.details.replaceChildren(h("div", { class: "empty" }, "Wybierz klip,", h("br"), "aby zobaczyć szczegóły."));
+      els.details.replaceChildren(h("div", { class: "empty" }, App.t("det.empty").split("\n").flatMap((l, i) => (i ? [h("br"), l] : [l]))));
       return;
     }
     const m = Lib.meta(c);
@@ -396,23 +396,23 @@
     els.details.replaceChildren(
       pv,
       h("div", null,
-        h("div", { class: "gamechip", title: "Gra", text: App.gameOf(c) }),
-        h("h2", { class: "ttl" + (App.customTitle(c) ? "" : " ph"), title: "Nazwa klipu — kliknij, aby zmienić",
+        h("div", { class: "gamechip", title: App.t("det.game"), text: App.gameOf(c) }),
+        h("h2", { class: "ttl" + (App.customTitle(c) ? "" : " ph"), title: App.t("det.rename"),
           text: App.customTitle(c) || App.whenOf(c), onClick: (ev) => {
           App.editTitle(ev.currentTarget, c.path, () => { refreshCards(); Lib.renderSide(); Lib.renderDetails(); });
         } }),
         h("div", { class: "file", text: App.baseName(c.path) })),
       h("dl", null,
-        h("dt", { text: "Data" }), h("dd", { text: App.date(c.modified) }),
-        h("dt", { text: "Czas" }), h("dd", { text: m ? App.fmtS(m.dur) : "…" }),
-        h("dt", { text: "Rozmiar" }), h("dd", { text: App.fmtMB(c.size) }),
-        h("dt", { text: "Format" }), h("dd", { text: m ? `${m.h}p · ${Math.round(m.fps)} fps` : "…" })),
+        h("dt", { text: App.t("det.date") }), h("dd", { text: App.date(c.modified) }),
+        h("dt", { text: App.t("det.len") }), h("dd", { text: m ? App.fmtS(m.dur) : "…" }),
+        h("dt", { text: App.t("det.size") }), h("dd", { text: App.fmtMB(c.size) }),
+        h("dt", { text: App.t("det.format") }), h("dd", { text: m ? `${m.h}p · ${Math.round(m.fps)} fps` : "…" })),
       h("div", { class: "sp" }),
-      h("button", { class: "btn acc", style: { padding: "11px" }, onClick: () => App.Ed.open(c.path), text: "✂  Edytuj i przytnij" }),
+      h("button", { class: "btn acc", style: { padding: "11px" }, onClick: () => App.Ed.open(c.path), text: App.t("det.edit") }),
       h("button", { class: "btn", onClick: () => App.Exports.quick(c.path),
-        text: `Szybki eksport · ${App.P.settings.defTarget === 10 ? "Discord " : ""}${App.P.settings.defTarget} MB` }),
+        text: App.t("det.quick", { target: `${App.P.settings.defTarget === 10 ? "Discord " : ""}${App.P.settings.defTarget} MB` }) }),
       h("div", { style: { display: "flex", gap: "8px" } },
-        h("button", { class: "btn ghost", style: { flex: 1 }, onClick: () => api.invoke("reveal", { path: c.path }), text: "Pokaż w folderze" }),
-        h("button", { class: "btn danger", onClick: () => Lib.remove([c.path]), text: "Usuń" })));
+        h("button", { class: "btn ghost", style: { flex: 1 }, onClick: () => api.invoke("reveal", { path: c.path }), text: App.t("det.reveal") }),
+        h("button", { class: "btn danger", onClick: () => Lib.remove([c.path]), text: App.t("common.delete") })));
   };
 })();

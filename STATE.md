@@ -11,7 +11,7 @@ no bloat, no launcher/update breakage, a richer editor, and a size-targeted expo
 - `build-installer.ps1` — builds recorder + app + NSIS installer (`target/release/bundle/nsis`).
 
 ## Recorder (always-on)
-- ffmpeg `ddagrab` + NVENC → rolling 2-second MPEG-TS segments in `%LOCALAPPDATA%\moments-lite\buffer`.
+- ffmpeg `ddagrab` + a GPU encoder (NVENC, else AMF, else QuickSync, else x264) → rolling 2-second MPEG-TS segments in `%LOCALAPPDATA%\moments-lite\buffer`.
 - Audio is captured by the recorder itself via WASAPI (Game and Chat as loopback of playback endpoints, Mic as
   capture), fed to ffmpeg at real-time rate (zeros while silent/unplugged) so streams never desync or stall.
 - Save (hotkey / tray / UI) joins the last N seconds byte-wise (`concat:` protocol) and remuxes to MP4 with three
@@ -36,6 +36,19 @@ Favourites/exports/settings persist in `%APPDATA%\moments-lite\app-state.json`.
 - Publish: `scripts/publish.ps1` (GitHub Release via gh) or push a `v*` tag (`.github/workflows/release.yml`).
 - ffmpeg is GPL; `FFMPEG-LICENSE.txt` is shipped next to it.
 
+## Encoders, bindings, long recording
+- Encoder "auto": each candidate is probed with the recorder's real arguments (`encoder_usable`); a failing GPU encoder
+  falls back to libx264 for the rest of the run (`Shared.encoder_override`, survives settings reloads). x264 is capped
+  at 1080p30. Every encoder gets `-force_key_frames` so segments stay 2.0 s. AMF/QSV were NOT run on real hardware
+  (only `ffmpeg -h encoder=` option names were checked); NVENC and x264 were.
+- Bindings (`hotkey`, `marker_hotkey`, `record_hotkey`) are comma-separated: keyboard combo (RegisterHotKey, needs a
+  restart), `Mouse3/4/5` with optional modifiers, `Pad:View+RB` chords (>= 2 buttons, XInput only). `input.rs` polls
+  mouse/pad on its own thread (no hooks) and posts WM_HOTKEY to the tray thread; applied live. Pad path untested (no pad).
+- Long recording (`longrec.rs`, Alt+R / tray / Settings button / `record-start|record-stop`): finished segments are
+  appended to `<game>__<stamp>.rec.ts` next to the clips, remuxed to MP4 on stop (3 named tracks, no faststart).
+  Restarts/reloads are held back until it ends; `game_only` idle is overridden; stops itself below 2 GB free;
+  orphaned `.rec.ts` files are recovered at recorder start.
+
 ## Audio sources
 Each of Game/Chat/Mic has a primary and an optional secondary device (id + name). Rules live in `pick.rs` (unit-tested):
 primary, else secondary, else wait. A configured-but-missing device never silently becomes the Windows default and
@@ -47,3 +60,13 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
 - Tray menu, global hotkey, popup over a real game, drag-out to Discord were not exercised by hand.
 - Popup cannot appear above exclusive-fullscreen games (borderless is fine); windowed games need "Dodatkowe gry".
 - Not done: multi-cut/join, captions, import of SteelSeries-saved edits.
+
+## Languages (i18n)
+- UI text lives in `ui/js/locales/<code>.js` (en = master/fallback, pl, de, es, fr, uk, tr, ja, zh); `ui/js/i18n.js` provides
+  `App.t(key, vars)` (`{name}` placeholders, plural objects via `Intl.PluralRules`). Call `App.t()` at draw time, never at script load:
+  the language is known only after the saved state loads.
+- English is the default (`settings.lang`). The OS language is only *suggested*: a link on wizard step 1 for new users, a one-time
+  dismissible bar for returning users (`settings.langHint` = handled). Switching saves state and reloads the window.
+- All catalogs except `pl` are AI-translated; Settings → App → Language shows a small "AI-translated" note for them (`ai: true`).
+- Add a key to `en.js` first, then every locale; `node scripts/check-i18n.js` checks key/placeholder/plural parity.
+- Not translated yet: the recorder's tray menu, popups and overlay (`crates/ml-recorder`, still Polish) and Rust error text shown in toasts.

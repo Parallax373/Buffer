@@ -47,25 +47,25 @@ const App = {};
   App.fmt = (s) => { s = Math.max(0, s || 0); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`; };
   App.fmtS = (s) => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
   App.fmtMB = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : `${(b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`);
-  App.date = (ts) => new Date(ts * 1000).toLocaleDateString("pl-PL");
+  App.date = (ts) => new Date(ts * 1000).toLocaleDateString(App.tag());
   App.baseName = (p) => p.slice(Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/")) + 1);
 
   /** `Risk-of-Rain-2__2025-04-22__14-41-40` -> "Risk of Rain 2" */
   App.gameOf = (clip) => {
     const raw = clip.name.split("__")[0] || clip.name;
-    return raw.replace(/-+/g, " ").replace(/\s+/g, " ").trim() || "Nieznana gra";
+    return raw.replace(/-+/g, " ").replace(/\s+/g, " ").trim() || App.t("clip.unknown");
   };
   /** What the user sees as the clip's name: their own title, else the game derived from the file name. */
   App.titleOf = (clip) => App.P.titles[clip.path] || App.gameOf(clip);
   /** The clip's own name (empty until the user sets one). The game is shown separately, never edited here. */
   App.customTitle = (clip) => App.P.titles[clip.path] || "";
-  App.whenOf = (clip) => new Date(clip.modified * 1000).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  App.whenOf = (clip) => new Date(clip.modified * 1000).toLocaleString(App.tag(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
   /** Turns `el` into a text field to rename the clip; Enter/blur saves, Esc cancels, empty resets. */
   App.editTitle = (el, path, done) => {
     const clip = App.S.byPath.get(path);
     if (!clip) return;
-    const input = h("input", { class: "field titlein", value: App.customTitle(clip), placeholder: "Nazwa klipu", maxLength: 80, spellcheck: false });
+    const input = h("input", { class: "field titlein", value: App.customTitle(clip), placeholder: App.t("clip.namePh"), maxLength: 80, spellcheck: false });
     let finished = false;
     const finish = (save) => {
       if (finished) return;
@@ -94,7 +94,7 @@ const App = {};
     settings: {
       theme: "ink", anim: true, lite: false, thumb: "M",
       sub: true, auto: true, thumbs: true, cache: true, hw: true,
-      normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false,
+      normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false,
     },
     libDirs: ["E:\\Nagrania"],
     favs: {}, titles: {}, markers: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
@@ -257,7 +257,7 @@ const App = {};
   App.kbps = (targetMb, seconds, speed = 1) =>
     Math.max(0, Math.floor((targetMb * 1048576 * 8 * 0.96) / (seconds / speed) / 1000) - 128);
   App.quality = (kbps) =>
-    kbps < 150 ? ["za mało", "var(--err)"] : kbps < 800 ? ["niska", "var(--warn)"]
-      : kbps < 3000 ? ["dobra", "var(--ok)"] : ["świetna", "var(--ok)"];
+    kbps < 150 ? [App.t("q.bad"), "var(--err)"] : kbps < 800 ? [App.t("q.low"), "var(--warn)"]
+      : kbps < 3000 ? [App.t("q.good"), "var(--ok)"] : [App.t("q.great"), "var(--ok)"];
 })();
 

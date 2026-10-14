@@ -5,7 +5,6 @@
 (function () {
   const { h, S, api } = App;
   const VIEWS = { lib: "#v-lib", ed: "#v-ed", set: "#v-set" };
-  const NAV = [["lib", "▦", "Biblioteka"]];
 
   /* ───── navigation ───── */
 
@@ -34,8 +33,8 @@
     const nav = App.$("#nav");
     const item = (view, icon, label, on) => h("button", { class: "item" + (on ? " on" : ""), "aria-label": label,
       onClick: () => App.go(view) }, h("span", { class: "ic", text: icon }), h("span", { class: "lb", text: label }));
-    nav.replaceChildren(item("lib", "▦", "Biblioteka", S.view === "lib" || S.view === "ed"), h("div", { class: "grow" }),
-      item("set", "⚙", "Ustawienia", S.view === "set"));
+    nav.replaceChildren(item("lib", "▦", App.t("nav.library"), S.view === "lib" || S.view === "ed"), h("div", { class: "grow" }),
+      item("set", "⚙", App.t("nav.settings"), S.view === "set"));
   }
 
   /** Own window buttons: the native title bar is turned off. */
@@ -43,9 +42,9 @@
     const w = window.__TAURI__?.window?.getCurrentWindow?.();
     const btn = (cls, title, fn) => h("button", { class: "wc " + cls, title, "aria-label": title, onClick: () => w && fn(w) }, h("i"));
     return h("div", { class: "winctl" },
-      btn("min", "Zminimalizuj", (x) => x.minimize()),
-      btn("max", "Maksymalizuj", (x) => x.toggleMaximize()),
-      btn("cls", "Zamknij", (x) => x.close()));
+      btn("min", App.t("win.min"), (x) => x.minimize()),
+      btn("max", App.t("win.max"), (x) => x.toggleMaximize()),
+      btn("cls", App.t("win.close"), (x) => x.close()));
   }
 
   /* ───── top bar ───── */
@@ -57,7 +56,7 @@
 
   function buildTopbar() {
     const widths = [5, 9, 13, 17, 13, 9, 5];
-    const search = h("input", { id: "topSearch", placeholder: "Szukaj klipów…", spellcheck: false,
+    const search = h("input", { id: "topSearch", placeholder: App.t("search.ph"), spellcheck: false,
       onInput: (e) => {
         S.q = e.target.value;
         if (S.view !== "lib") App.go("lib"); else App.Lib.render(false);
@@ -67,7 +66,7 @@
         h("div", { class: "mini" }, widths.map((w) => h("i", { style: { width: `${w}px` } }))),
         h("b", { text: "Buffer" })),
       h("label", { class: "search" }, h("span", { text: "⌕" }), search, h("kbd", { text: "Ctrl K" })),
-      h("div", { class: "right", "data-tauri-drag-region": true }, recPill, chip, windowControls()));
+      h("div", { class: "right", "data-tauri-drag-region": true }, App.Update.chip, recPill, chip, windowControls()));
     paintRec();
     paintChip();
   }
@@ -79,12 +78,12 @@
     const r = S.recorder;
     const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
     let cls, text;
-    if (savedUntil > Date.now()) { cls = "saved"; text = `✓ zapisano ${fmtBuf(savedDur)}`; }
-    else if (!r) { cls = "off"; text = "REC wył."; }
-    else if (r.idle) { cls = "idle"; text = "czeka na grę"; }
-    else if (!r.recording) { cls = "bad"; text = "REC zatrzymane"; }
-    else if (down.length) { cls = "warn"; text = "REC · uwaga"; }
-    else { cls = "on"; text = `REC · bufor ${fmtBuf(r.buffer_s)}`; }
+    if (savedUntil > Date.now()) { cls = "saved"; text = App.t("rec.pill.saved", { t: fmtBuf(savedDur) }); }
+    else if (!r) { cls = "off"; text = App.t("rec.pill.off"); }
+    else if (r.idle) { cls = "idle"; text = App.t("rec.pill.idle"); }
+    else if (!r.recording) { cls = "bad"; text = App.t("rec.pill.stopped"); }
+    else if (down.length) { cls = "warn"; text = App.t("rec.pill.warn"); }
+    else { cls = "on"; text = App.t("rec.pill.on", { t: fmtBuf(r.buffer_s) }); }
     recPill.className = `recpill ${cls}`;
     recPill.title = recTooltip();
     recPill.replaceChildren(h("span", { class: "dot" }), text);
@@ -92,12 +91,12 @@
 
   function recTooltip() {
     const r = S.recorder;
-    if (!r) return "Nagrywanie nie działa — kliknij, aby przejść do ustawień";
-    if (r.idle) return "Czeka na grę — nagrywanie tylko podczas gry";
-    if (!r.recording) return r.last_error || "Nagrywanie zatrzymane";
+    if (!r) return App.t("rec.tip.off");
+    if (r.idle) return App.t("rec.tip.idle");
+    if (!r.recording) return r.last_error || App.t("rec.tip.stopped");
     const down = r.sources.filter((s) => !s.live).map((s) => s.name);
-    const base = down.length ? `Nie działa: ${down.join(", ")}` : `Nagrywa · bufor ${r.buffer_s}/${r.buffer_target_s} s`;
-    return `${base} — kliknij, aby zapisać klip teraz`;
+    const base = down.length ? App.t("rec.tip.down", { list: down.join(", ") }) : App.t("rec.tip.on", { cur: r.buffer_s, target: r.buffer_target_s });
+    return App.t("rec.tip.save", { base });
   }
 
   async function onRecClick() {
@@ -109,8 +108,8 @@
           savedDur = r.buffer_s; savedUntil = Date.now() + 2500; paintRec();
           setTimeout(paintRec, 2600);
           setTimeout(() => App.Lib.load(), 800);
-        } else App.toast(`Nie zapisano: ${res.error}`, "err");
-      } catch (e) { App.toast(`Nagrywanie nie działa: ${e}`, "err"); }
+        } else App.toast(App.t("rec.notSaved", { err: res.error }), "err");
+      } catch (e) { App.toast(App.t("rec.notRunning", { err: e }), "err"); }
     } else {
       App.Settings.tab = "rec";
       App.go("set");
@@ -126,7 +125,7 @@
     } else if (S.lastDone && Date.now() - S.lastDone.at < 7000) {
       chip.replaceChildren(`✓ ${S.lastDone.size} MiB`);
     } else {
-      chip.replaceChildren("⇪ Eksporty");
+      chip.replaceChildren("⇪ " + App.t("exp.chip"));
     }
   }
 
@@ -159,12 +158,12 @@
 
   const ago = (ts) => {
     const m = Math.round((Date.now() - ts) / 60000);
-    return m < 1 ? "teraz" : m < 60 ? `${m} min temu` : m < 1440 ? `${Math.round(m / 60)} h temu` : `${Math.round(m / 1440)} d temu`;
+    return m < 1 ? App.t("ago.now") : m < 60 ? App.t("ago.min", { n: m }) : m < 1440 ? App.t("ago.h", { n: Math.round(m / 60) }) : App.t("ago.d", { n: Math.round(m / 1440) });
   };
 
   /** Runs one export with the editor's or the quick-export defaults. Resolves with the finished file or null. */
   Exports.run = async (o) => {
-    if (S.exporting) { App.toast("Eksport już trwa", "err"); return null; }
+    if (S.exporting) { App.toast(App.t("exp.busy"), "err"); return null; }
     const clip = S.byPath.get(o.path);
     if (!clip) return null;
     const s = App.P.settings;
@@ -196,9 +195,9 @@
       popUntil = Date.now() + 7000;
       return { name: entry.name, path: output, size: entry.size };
     } catch (e) {
-      if (String(e).includes("cancelled")) App.toast("Eksport anulowany");
+      if (String(e).includes("cancelled")) App.toast(App.t("exp.cancelled"));
       else {
-        App.toast(`Eksport nie powiódł się: ${e}`, "err");
+        App.toast(App.t("exp.failed", { err: e }), "err");
         if (App.Ed.current()) App.Ed.current().error = String(e);
       }
       return null;
@@ -226,7 +225,7 @@
     while (exQueue.length) {
       const p = exQueue.shift();
       n++;
-      App.toast(`Partia ${n}/${total}`);
+      App.toast(App.t("exp.batch", { n, total }));
       await Exports.run({ path: p });
     }
     App.Lib.clearSel();
@@ -254,11 +253,11 @@
   }, 500);
 
   const dragHandle = (path, cls, text) => {
-    const el = h("span", { class: cls, text, title: "Przeciągnij do Discorda lub innego okna" });
+    const el = h("span", { class: cls, text, title: App.t("exp.dragTip") });
     el.addEventListener("pointerdown", (ev) => {
       if (ev.button !== 0) return;
       ev.preventDefault();
-      api.startDrag(path).catch((err) => App.toast(`Nie udało się przeciągnąć: ${err}`, "err"));
+      api.startDrag(path).catch((err) => App.toast(App.t("exp.dragFail", { err }), "err"));
     });
     return el;
   };
@@ -284,14 +283,14 @@
         h("div", { class: "pr1" }, h("b", { text: `${ex.name} · ${ex.target} MB` }), h("span", { class: "mono lime", text: `${Math.round(p)}%` })),
         h("div", { class: "scan" }, Array.from({ length: 30 }, (_, i) =>
           h("i", { style: { opacity: p / 100 * 30 > i ? 0.35 + 0.65 * (i / 30) : 0.12 } }))),
-        h("div", { class: "pr3 mono muted" }, h("span", { text: eta == null ? "liczenie…" : `≈ ${eta} s` }),
-          h("button", { class: "linkbtn", text: "Anuluj", onClick: Exports.cancel }))));
+        h("div", { class: "pr3 mono muted" }, h("span", { text: eta == null ? App.t("exp.calc") : `≈ ${eta} s` }),
+          h("button", { class: "linkbtn", text: App.t("common.cancel"), onClick: Exports.cancel }))));
     }
     if (done) {
       parts.push(h("div", { class: "donecard" },
         h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: done.name }),
-          h("div", { class: "mono lime", text: `Gotowe w ${done.secs} s · ${done.size} MiB` })),
-        dragHandle(done.path, "big", "⇪ Przeciągnij")));
+          h("div", { class: "mono lime", text: App.t("exp.done", { secs: done.secs, size: done.size }) })),
+        dragHandle(done.path, "big", "⇪ " + App.t("exp.dragBig"))));
     }
     for (const e of recent) {
       parts.push(h("div", { class: "prow" }, thumbBox(e.path, "tn"),
@@ -299,8 +298,8 @@
           h("div", { class: "mono muted", text: `${e.size} MiB · ${ago(e.created)}` })),
         dragHandle(e.path, "lime", "⇪")));
     }
-    if (!ex && !done && !recent.length) parts.push(h("div", { class: "muted", text: "Tu pojawią się wyeksportowane klipy." }));
-    parts.push(h("button", { class: "histlink", text: `Historia (${App.P.exports.length}) →`,
+    if (!ex && !done && !recent.length) parts.push(h("div", { class: "muted", text: App.t("exp.empty") }));
+    parts.push(h("button", { class: "histlink", text: App.t("exp.history", { n: App.P.exports.length }),
       onClick: () => { drawerOpen = true; renderDrawer(); } }));
     host.replaceChildren(h("div", { class: "popover",
       onMouseenter: () => { popHover = true; }, onMouseleave: () => { popHover = false; popUntil = Date.now() + 3000; } }, parts));
@@ -313,13 +312,13 @@
     const close = () => { drawerOpen = false; popUntil = Date.now() + 3000; renderDrawer(); };
     host.replaceChildren(h("div", { class: "scrim", onClick: close },
       h("aside", { class: "drawer", onClick: (e) => e.stopPropagation() },
-        h("div", { class: "dhead" }, h("b", { text: "Historia eksportów" }), h("button", { class: "linkbtn", text: "✕", onClick: close })),
+        h("div", { class: "dhead" }, h("b", { text: App.t("exp.historyTitle") }), h("button", { class: "linkbtn", text: "✕", onClick: close })),
         ...(App.P.exports.length ? App.P.exports.map((e) => h("div", { class: "drow" }, thumbBox(e.path, "tn"),
           h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: e.name }),
             h("div", { class: "mono muted", text: `${e.size} MiB · ${ago(e.created)}` })),
           h("div", { class: "acts" },
-            h("button", { class: "linkbtn", text: "Pokaż", onClick: () => api.invoke("reveal", { path: e.path }) }),
-            dragHandle(e.path, "lime", "⇪")))) : [h("div", { class: "muted", text: "Brak eksportów." })]))));
+            h("button", { class: "linkbtn", text: App.t("exp.show"), onClick: () => api.invoke("reveal", { path: e.path }) }),
+            dragHandle(e.path, "lime", "⇪")))) : [h("div", { class: "muted", text: App.t("exp.none") })]))));
   }
 
   /* ───── settings: Nagrywanie · Biblioteka · Aplikacja ───── */
@@ -327,19 +326,19 @@
   const Settings = (App.Settings = { tab: "rec", adv: false });
   const U = App.ui;
   Settings.paintRecorder = () => App.RecUI.paint();   // called by the recorder poll while the tab is open
-  const TABS = [["rec", "Nagrywanie"], ["lib", "Biblioteka"], ["app", "Aplikacja"]];
-  const THEMES = [["ink", "Ink", "#0b0c0a"], ["oled", "OLED czerń", "#000000"]];
+  const TABS = ["rec", "lib", "app"];
+  const THEMES = [["ink", "#0b0c0a"], ["oled", "#000000"]];
 
   /** Settings pane; only a tab switch plays the slide-in, edits inside a tab re-render quietly. */
   Settings.render = async (animate = false) => {
     const root = App.$("#v-set");
     const pane = h("div", { class: "pane" + (animate ? " stepin" : "") });
     root.replaceChildren(h("div", { class: "set" },
-      h("div", { class: "tabs" }, h("h1", { text: "Ustawienia" }),
-        TABS.map(([k, t]) => h("button", { class: Settings.tab === k ? "on" : "", text: t,
+      h("div", { class: "tabs" }, h("h1", { text: App.t("set.title") }),
+        TABS.map((k) => h("button", { class: Settings.tab === k ? "on" : "", text: App.t("set.tab." + k),
           onClick: () => { Settings.tab = k; Settings.render(true); } })),
         h("div", { class: "grow" }),
-        h("button", { class: "wizbtn", text: "Uruchom kreator", onClick: () => App.RecUI.wizard() })),
+        h("button", { class: "wizbtn", text: App.t("set.wizard"), onClick: () => App.RecUI.wizard() })),
       h("div", { class: "setscroll" }, pane)));
     if (Settings.tab === "rec") await App.RecUI.renderTab(pane);
     else if (Settings.tab === "lib") await renderLibraryTab(pane);
@@ -365,78 +364,93 @@
     const folderRow = (d) => {
       const isRec = d === rec;
       return h("div", { class: "frow" },
-        h("button", { class: "radio" + (isRec ? " on" : ""), "aria-label": "Zapisuj tu nowe nagrania", title: isRec ? "Tu zapisują się nowe nagrania" : "Zapisuj tu nowe nagrania",
+        h("button", { class: "radio" + (isRec ? " on" : ""), "aria-label": App.t("lib.recHere"), title: isRec ? App.t("lib.recHereOn") : App.t("lib.recHere"),
           onClick: () => { if (!isRec) setRecDir(d); } }),
         h("span", { class: "mono path" + (isRec ? "" : " dim"), text: d }),
-        isRec ? h("span", { class: "tag lime", text: "NOWE NAGRANIA" }) : h("span", { class: "tag", text: "tylko biblioteka" }),
+        isRec ? h("span", { class: "tag lime", text: App.t("lib.tagNew") }) : h("span", { class: "tag", text: App.t("lib.tagOnly") }),
         isRec
-          ? h("button", { class: "linkbtn", text: "Zmień", onClick: async () => {
+          ? h("button", { class: "linkbtn", text: App.t("common.change"), onClick: async () => {
             const n = await api.pickFolder();
             if (!n) return;
             App.P.libDirs = App.P.libDirs.map((x) => (x === d ? n : x));
             await setRecDir(n);
           } })
-          : h("button", { class: "linkbtn", text: "✕", title: "Usuń z biblioteki", onClick: async () => {
+          : h("button", { class: "linkbtn", text: "✕", title: App.t("lib.removeTip"), onClick: async () => {
             App.P.libDirs = App.P.libDirs.filter((x) => x !== d); await reload();
           } }));
     };
     pane.append(h("div", { class: "setcol" },
-      h("div", null, U.cap("Foldery klipów"),
+      h("div", null, U.cap(App.t("lib.folders")),
         h("div", { class: "card2 pad folders" }, ...dirs.map(folderRow),
-          h("button", { class: "linkbtn", text: "+ Dodaj folder", onClick: async () => {
+          h("button", { class: "linkbtn", text: App.t("lib.add"), onClick: async () => {
             const n = await api.pickFolder();
             if (n && !App.P.libDirs.includes(n)) { App.P.libDirs.push(n); await reload(); }
           } }))),
       h("div", { class: "card2 tgl" },
-        U.trow("Osobny folder dla każdej gry", "Podfolder z nazwą gry", rc.per_game_folders, async (on) => { await App.RecUI.save({ per_game_folders: on }); Settings.render(); }),
-        U.trow("Skanuj podfoldery", "Bez folderów eksportów", s.sub, async (on) => { s.sub = on; await reload(); }),
-        U.trow("Odświeżaj bibliotekę przy starcie", "Wykrywa nowe klipy", s.auto, (on) => { s.auto = on; App.persist(); Settings.render(); })),
-      h("div", null, U.cap("Eksport"),
+        U.trow(App.t("lib.perGame"), App.t("lib.perGameD"), rc.per_game_folders, async (on) => { await App.RecUI.save({ per_game_folders: on }); Settings.render(); }),
+        U.trow(App.t("lib.scan"), App.t("lib.scanD"), s.sub, async (on) => { s.sub = on; await reload(); }),
+        U.trow(App.t("lib.auto"), App.t("lib.autoD"), s.auto, (on) => { s.auto = on; App.persist(); Settings.render(); })),
+      h("div", null, U.cap(App.t("exp.cap")),
         h("div", { class: "card2" },
-          U.srow("Domyślny cel", U.segc([[10, "Discord · 10 MB"], [50, "Boost · 50 MB"], [500, "Nitro · 500 MB"]], s.defTarget, (mb) => { s.defTarget = mb; App.persist(); Settings.render(); })),
-          U.srow("Folder wyjściowy", h("div", { class: "pathrow" },
+          U.srow(App.t("exp.defTarget"), U.segc([[10, "Discord · 10 MB"], [50, "Boost · 50 MB"], [500, "Nitro · 500 MB"]], s.defTarget, (mb) => { s.defTarget = mb; App.persist(); Settings.render(); })),
+          U.srow(App.t("exp.outDir"), h("div", { class: "pathrow" },
             h("span", { class: "mono path", text: App.exportDirFor() }),
-            h("button", { class: "linkbtn", text: "Zmień", onClick: async () => {
+            h("button", { class: "linkbtn", text: App.t("common.change"), onClick: async () => {
               const d = await api.pickFolder();
               if (d) { s.outDir = d; App.persist(); Settings.render(); }
             } }),
-            s.outDir ? h("button", { class: "linkbtn", text: "Domyślny", onClick: () => { s.outDir = ""; App.persist(); Settings.render(); } }) : null)),
-          U.trow("Normalizuj głośność", "−16 LUFS", s.normDef, (on) => { s.normDef = on; App.persist(); Settings.render(); })))));
+            s.outDir ? h("button", { class: "linkbtn", text: App.t("common.default"), onClick: () => { s.outDir = ""; App.persist(); Settings.render(); } }) : null)),
+          U.trow(App.t("exp.norm"), "−16 LUFS", s.normDef, (on) => { s.normDef = on; App.persist(); Settings.render(); })))));
   }
 
   /* Aplikacja: appearance + system. */
   async function renderAppTab(pane) {
     const s = App.P.settings;
     const [tools, size] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0)]);
-    const encoder = ({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync", libx264: "procesor (CPU)" })[tools?.encoder] || "nieznany";
+    const encoder = ({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync", libx264: App.t("enc.cpu") })[tools?.encoder] || App.t("enc.unknown");
+    const cur = App.i18n.current();
+    const langRow = U.srow(App.t("lang.label"), h("div", { class: "pathrow" },
+      h("select", { class: "field", onChange: (e) => App.i18n.setLang(e.target.value) },
+        App.i18n.ORDER.filter((c) => App.locales[c]).map((c) => h("option", { value: c, text: App.locales[c].name, selected: c === cur }))),
+      App.locales[cur].ai ? h("span", { class: "muted", style: { fontSize: "12px", whiteSpace: "nowrap" }, title: App.t("lang.aiTip"), text: App.t("lang.ai") }) : null));
     pane.append(h("div", { class: "setcol" },
-      h("div", null, U.cap("Motyw"), h("div", { class: "themes2" }, THEMES.map(([k, name, bg]) =>
+      h("div", { class: "card2" }, langRow),
+      h("div", null, U.cap(App.t("theme.cap")), h("div", { class: "themes2" }, THEMES.map(([k, bg]) =>
         h("button", { class: "th2" + ((s.theme === "oled" ? "oled" : "ink") === k ? " on" : ""),
           onClick: () => { s.theme = k; App.persist(); App.applyTheme(); Settings.render(); } },
           h("div", { class: "pv2", style: { background: bg } }, h("i", { style: { width: "60%", background: "#1a1d16" } }), h("i", { style: { width: "30%", background: "#c6f432" } })),
-          h("div", { class: "nm", text: name }))))),
+          h("div", { class: "nm", text: App.t("theme." + k) }))))),
       h("div", { class: "card2" },
-        U.srow("Miniatury", U.segc(["S", "M", "L"].map((k) => [k, k]), s.thumb, (k) => { s.thumb = k; App.persist(); Settings.render(); })),
-        U.trow("Animacje interfejsu", "Przejścia i ślady", s.anim, (on) => { s.anim = on; App.persist(); App.applyTheme(); Settings.render(); })),
+        U.srow(App.t("ver.label"), h("div", { class: "pathrow" },
+          h("span", { class: "mono", id: "appVersion", text: "…" }),
+          h("button", { class: "linkbtn", text: App.Update.hasUpdate() ? App.t("ver.install") : App.t("ver.check"),
+            onClick: () => (App.Update.hasUpdate() ? App.Update.install() : App.Update.check(true)) }))),
+        U.trow(App.t("ver.auto"), App.t("ver.autoD"), s.autoUpdate !== false, (on) => { s.autoUpdate = on; App.persist(); Settings.render(); }),
+        U.srow(App.t("app.thumb"), U.segc(["S", "M", "L"].map((k) => [k, k]), s.thumb, (k) => { s.thumb = k; App.persist(); Settings.render(); })),
+        U.trow(App.t("app.anim"), App.t("app.animD"), s.anim, (on) => { s.anim = on; App.persist(); App.applyTheme(); Settings.render(); })),
       h("div", null,
-        advHead("ZAAWANSOWANE", Settings.adv, () => { Settings.adv = !Settings.adv; Settings.render(); }),
+        advHead(App.t("adv.cap"), Settings.adv, () => { Settings.adv = !Settings.adv; Settings.render(); }),
         Settings.adv ? h("div", { class: "card2 rise pad stackrows" },
           h("div", { class: "between" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version}` : "ffmpeg" }),
             h("span", { class: "mono " + (tools?.ffmpeg_found ? "lime" : "err"), style: { fontSize: "12px" },
-              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? "● wbudowany" : "● w systemie") : "● nie znaleziono" })),
-          h("div", { class: "between" }, h("span", { text: "Kodowanie wideo" }),
+              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? App.t("ffmpeg.bundled") : App.t("ffmpeg.system")) : App.t("ffmpeg.missing") })),
+          h("div", { class: "between" }, h("span", { text: App.t("enc.label") }),
             h("span", { class: "mono " + (tools?.encoder && tools.encoder !== "libx264" ? "lime" : "warn"), style: { fontSize: "12px" },
               text: "● " + encoder + (tools?.gpu ? " · " + tools.gpu : "") })),
-          h("div", { class: "between" }, h("span", { text: `Pamięć podręczna · ${App.fmtMB(size)}` }),
-            h("button", { class: "btn", text: "Wyczyść", onClick: async () => {
+          h("div", { class: "between" }, h("span", { text: App.t("cache.label", { size: App.fmtMB(size) }) }),
+            h("button", { class: "btn", text: App.t("cache.clear"), onClick: async () => {
               await api.invoke("clear_cache").catch(() => {});
-              App.toast("Wyczyszczono pamięć podręczną", "ok");
+              App.toast(App.t("cache.cleared"), "ok");
               Settings.render();
             } })),
-          U.trow("Dekodowanie sprzętowe (NVDEC)", "Awaryjnie CPU", s.hw, (on) => { s.hw = on; App.persist(); Settings.render(); }),
-          U.trow("Miniatury w tle", "Tylko widoczne klipy", s.thumbs, (on) => { s.thumbs = on; App.persist(); Settings.render(); }),
-          U.trow("Pamięć podręczna audio", "Szybsze otwieranie klipów", s.cache, (on) => { s.cache = on; App.persist(); Settings.render(); })) : null)));
+          U.trow(App.t("hw.dec"), App.t("hw.decD"), s.hw, (on) => { s.hw = on; App.persist(); Settings.render(); }),
+          U.trow(App.t("bgthumb"), App.t("bgthumbD"), s.thumbs, (on) => { s.thumbs = on; App.persist(); Settings.render(); }),
+          U.trow(App.t("audiocache"), App.t("audiocacheD"), s.cache, (on) => { s.cache = on; App.persist(); Settings.render(); })) : null)));
   }
+
+  // fill the version label once the settings page is on screen
+  const showVersion = () => App.Update.version().then((ver) => { const el = App.$("#appVersion"); if (el && el.textContent !== (ver || "?")) el.textContent = ver || "?"; });   // only on change: writing the text is itself a DOM mutation, so an unconditional write loops forever
+  new MutationObserver(showVersion).observe(document.body, { childList: true, subtree: true });
 
   /* The recording tab and the first-run wizard live in recording.js. */
   

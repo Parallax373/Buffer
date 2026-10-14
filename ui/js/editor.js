@@ -61,7 +61,7 @@
         }).catch(() => {});
       }
     } catch (e) {
-      App.toast(`Nie można otworzyć klipu: ${e}`, "err");
+      App.toast(App.t("ed.openFail", { err: e }), "err");
       E.error = String(e);
       renderAll();
     }
@@ -166,9 +166,9 @@
       lanesWrap: h("div", { class: "tl" }),
       panel: h("div", { class: "expanel" }),
       kb: h("div", { class: "kbpop", hidden: true }, [
-        ["Odtwórz / pauza", "Spacja"], ["Początek / koniec", "I / O"], ["Znacznik", "M"], ["Przybliż / oddal oś", "kółko · + −"],
-        ["Poprzedni / następny znacznik", "J / K"], ["Krok 1 s / 5 s", "← → / Shift"],
-        ["Poprzedni / następny klip", "PgUp / PgDn"], ["Eksportuj", "Ctrl E"], ["Szukaj", "Ctrl K"],
+        [App.t("kb.play"), App.t("kb.space")], [App.t("kb.inout"), "I / O"], [App.t("kb.marker"), "M"], [App.t("kb.zoom"), App.t("kb.wheel")],
+        [App.t("kb.jump"), "J / K"], [App.t("kb.step"), "← → / Shift"],
+        [App.t("kb.clip"), "PgUp / PgDn"], [App.t("kb.export"), "Ctrl E"], [App.t("kb.search"), "Ctrl K"],
       ].map(([l, k]) => h("div", null, h("span", { text: l }), h("kbd", { text: k })))),
     };
     const box = h("div", { class: "box" }, video, ui.crop);
@@ -192,16 +192,16 @@
     Ed.step = step;
     const rename = (ev) => App.editTitle(ev.currentTarget.closest(".edhead").querySelector(".ttl"), E.clip.path, () => renderHead());
     ui.head.replaceChildren(
-      h("button", { class: "nv", onClick: () => step(-1), title: "Poprzedni klip [PgUp]", text: "‹" }),
-      h("button", { class: "nv", onClick: () => step(1), title: "Następny klip [PgDn]", text: "›" }),
-      h("span", { class: "gamechip", title: "Gra", text: App.gameOf(E.clip) }),
-      h("b", { class: "ttl" + (App.customTitle(E.clip) ? "" : " ph"), style: { fontSize: "14px" }, title: "Nazwa klipu — kliknij, aby zmienić",
+      h("button", { class: "nv", onClick: () => step(-1), title: App.t("ed.prev"), text: "‹" }),
+      h("button", { class: "nv", onClick: () => step(1), title: App.t("ed.next"), text: "›" }),
+      h("span", { class: "gamechip", title: App.t("det.game"), text: App.gameOf(E.clip) }),
+      h("b", { class: "ttl" + (App.customTitle(E.clip) ? "" : " ph"), style: { fontSize: "14px" }, title: App.t("det.rename"),
         text: App.customTitle(E.clip) || App.whenOf(E.clip),
         onClick: (ev) => App.editTitle(ev.currentTarget, E.clip.path, () => renderHead()) }),
-      h("button", { class: "ren", title: "Zmień nazwę klipu", text: "✎", onClick: rename }),
+      h("button", { class: "ren", title: App.t("ed.renameBtn"), text: "✎", onClick: rename }),
       h("span", { class: "mono muted", style: { fontSize: "12px" }, text: App.baseName(E.clip.path) }),
       h("span", { class: "sp" }),
-      h("button", { class: "qm", title: "Skróty klawiszowe", text: "?", onClick: () => ui.kb.hidden = !ui.kb.hidden }),
+      h("button", { class: "qm", title: App.t("ed.shortcuts"), text: "?", onClick: () => ui.kb.hidden = !ui.kb.hidden }),
       h("button", { class: "fav" + (App.P.favs[E.clip.path] ? " on" : ""), id: "edFav",
         onClick: () => App.Lib.toggleFav(E.clip.path), text: App.P.favs[E.clip.path] ? "★" : "☆" }));
   }
@@ -216,13 +216,13 @@
       h("button", { class: "play", onClick: toggle, text: E.playing ? "❚❚" : "▶" }),
       h("span", { class: "time", id: "edTime", text: `${App.fmt(video.currentTime)} / ${App.fmt(dur)}` }),
       h("span", { class: "sp" }),
-      h("button", { class: "mk", onClick: setIn }, "Początek ", h("b", { text: "I" })),
-      h("button", { class: "mk", onClick: setOut }, "Koniec ", h("b", { text: "O" })),
-      h("span", { class: "sel", id: "edSel", text: `wybrano ${App.fmtS(E.end - E.start)}` }),
+      h("button", { class: "mk", onClick: setIn }, App.t("ed.in") + " ", h("b", { text: "I" })),
+      h("button", { class: "mk", onClick: setOut }, App.t("ed.out") + " ", h("b", { text: "O" })),
+      h("span", { class: "sel", id: "edSel", text: App.t("ed.selected", { t: App.fmtS(E.end - E.start) }) }),
       h("span", { class: "zoomctl" },
-        h("button", { title: "Oddal oś czasu [−]", text: "−", onClick: () => zoomAt(1 / 1.6, video.currentTime) }),
-        h("button", { title: "Przybliż oś czasu [+]", text: "+", onClick: () => zoomAt(1.6, video.currentTime) }),
-        h("button", { title: "Cały klip [0]", text: "↔", onClick: fitView })));
+        h("button", { title: App.t("ed.zoomOut"), text: "−", onClick: () => zoomAt(1 / 1.6, video.currentTime) }),
+        h("button", { title: App.t("ed.zoomIn"), text: "+", onClick: () => zoomAt(1.6, video.currentTime) }),
+        h("button", { title: App.t("ed.fit"), text: "↔", onClick: fitView })));
   }
 
   function setIn() { if (E?.info) { E.start = Math.min(video.currentTime, E.end - MIN_SEL); layoutSel(); } }
@@ -234,7 +234,7 @@
     const dur = E.info ? E.info.duration : 0;
     const names = E.tracks.length ? E.tracks : ["Game", "Chat", "Mic"].map((n) => ({ name: n, gain: (App.P.gains[n] ?? 100) / 100 }));
     const labels = h("div", { class: "labels" }, h("div", { style: { height: "20px" } }),
-      h("div", { class: "lane-l", style: { color: "var(--muted)", justifyContent: "center", flexDirection: "row", alignItems: "center" } }, "Klip"));
+      h("div", { class: "lane-l", style: { color: "var(--muted)", justifyContent: "center", flexDirection: "row", alignItems: "center" } }, App.t("ed.lane")));
     const area = h("div", { class: "area" });
     ui.area = area;
     const ruler = h("div", { class: "ruler" });
@@ -290,7 +290,7 @@
 
   function renderMarkers() {
     if (!ui.marks) return;
-    const titles = { rec: "Znacznik z nagrania", user: "Twój znacznik (dwuklik usuwa)" };
+    const titles = { rec: App.t("mk.rec"), user: App.t("mk.user") };
     ui.marks.replaceChildren(...allMarkers().map((m) => {
       const el = h("div", { class: "mk " + m.kind, title: `${titles[m.kind]} ${App.fmt(m.t)}`,
         style: { left: `${pct(m.t)}%` }, hidden: pct(m.t) < 0 || pct(m.t) > 100 }, h("i"));
@@ -382,7 +382,7 @@
     ui.hIn.hidden = p0 < -0.3 || p0 > 100.3;
     ui.hOut.hidden = p1 < -0.3 || p1 > 100.3;
     const sel = App.$("#edSel");
-    if (sel) sel.textContent = `wybrano ${App.fmtS(E.end - E.start)}`;
+    if (sel) sel.textContent = App.t("ed.selected", { t: App.fmtS(E.end - E.start) });
     updateEstimate();
     drawLanes();
     paintHead();
@@ -515,29 +515,29 @@
 
     const exporting = S.exporting && S.exporting.source === E.clip.path;
     const items = [
-      h("div", { class: "cap", text: "Eksport" }),
+      h("div", { class: "cap", text: App.t("exp.cap") }),
       h("div", { class: "presets" }, presets.map(([n, mb]) =>
         h("button", { class: E.target === mb ? "on" : "", onClick: () => { E.target = mb; renderPanel(); updateEstimate(); } },
           n, h("br"), h("small", { text: `${mb} MB` })))),
       sum,
       h("div", { class: "opts" },
-        tog("Kadr 16:9", "wide"),
-        E.wide ? h("div", { class: "opt" }, h("span", { text: "Pozycja kadru" }),
+        tog(App.t("ed.crop"), "wide"),
+        E.wide ? h("div", { class: "opt" }, h("span", { text: App.t("ed.cropPos") }),
           h("input", { type: "range", min: 0, max: 100, value: E.pan, style: { width: "130px" },
             onInput: (ev) => { E.pan = +ev.target.value; paintCrop(); } })) : null,
-        tog("Normalizuj (−16 LUFS)", "norm"),
+        tog(App.t("ed.norm"), "norm"),
         h("div", { class: "opt", style: { cursor: "pointer" }, onClick: () => { E.adv = !E.adv; renderPanel(); } },
-          h("span", { text: "Zaawansowane" }), h("span", { class: "muted", text: E.adv ? "▴" : "▾" })),
+          h("span", { text: App.t("adv.cap") }), h("span", { class: "muted", text: E.adv ? "▴" : "▾" })),
         ...(E.adv ? [
-          h("div", { class: "opt" }, h("span", { text: "Rozdzielczość" }),
+          h("div", { class: "opt" }, h("span", { text: App.t("ed.res") }),
             h("select", { class: "field", onChange: (ev) => { E.res = ev.target.value; updateEstimate(); } },
-              [["orig", "oryginał"], ["1080", "1080p"], ["720", "720p"], ["540", "540p"]]
+              [["orig", App.t("ed.resOrig")], ["1080", "1080p"], ["720", "720p"], ["540", "540p"]]
                 .map(([v, t]) => h("option", { value: v, text: t, selected: E.res === v })))),
-          h("div", { class: "opt" }, h("span", { text: "Kodek" }),
+          h("div", { class: "opt" }, h("span", { text: App.t("ed.codec") }),
             h("select", { class: "field", onChange: (ev) => { E.codec = ev.target.value; } },
-              [["auto", "Automatyczny (GPU)"], ["hevc-nvenc", "HEVC NVENC"], ["x264", "H.264 CPU"]]
+              [["auto", App.t("ed.codecAuto")], ["hevc-nvenc", "HEVC NVENC"], ["x264", "H.264 CPU"]]
                 .map(([v, t]) => h("option", { value: v, text: t, selected: E.codec === v })))),
-          h("div", { class: "opt" }, h("span", { text: "Prędkość" }),
+          h("div", { class: "opt" }, h("span", { text: App.t("ed.speed") }),
             seg([["0.5×", 0.5], ["1×", 1], ["1.5×", 1.5], ["2×", 2]], E.speed, (v) => {
               E.speed = v; video.playbackRate = v;
               for (const t of E.tracks) t.el.playbackRate = v;
@@ -548,7 +548,7 @@
 
       E.error ? h("div", { class: "errmsg", text: E.error }) : null,
       h("button", { class: "btn acc", style: { padding: "12px", opacity: exporting ? 0.5 : 1 }, disabled: !!S.exporting || !E.info,
-        onClick: doExport, text: exporting ? "Eksportowanie…" : E.done ? "Eksportuj ponownie" : "Eksportuj" })];
+        onClick: doExport, text: exporting ? App.t("ed.exporting") : E.done ? App.t("ed.again") : App.t("ed.export") })];
     P.replaceChildren(...items.filter(Boolean));   // append(null) would render the text "null"
     updateEstimate();
   }

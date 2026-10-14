@@ -7,6 +7,7 @@
     // First launch on this machine: library = the default clips folder, not a developer-specific path.
     App.P.libDirs = [await App.api.invoke("default_clips_dir").catch(() => "")].filter(Boolean);
   }
+  App.i18n.init();
   App.applyTheme();
   App.renderNav();
 
@@ -26,11 +27,13 @@
   window.addEventListener("focus", () => { if (App.S.view === "lib") App.Lib.load(); });
 
   App.Rec.start();
+  App.Update.start();
   await App.Lib.load();
   App.go("lib");
 
   // First run: walk the user through the settings that matter.
   if (!App.P.settings.onboarded) setTimeout(() => App.RecUI.wizard(), 400);
+  else setTimeout(() => App.i18n.showBanner(), 1200);   // returning users: offer the system language once (new users see it in the wizard)
 
   // If the user asked for recording at login but the recorder is not up (crashed, killed), start it.
   try {
@@ -42,5 +45,5 @@
   } catch { /* recorder binary not present (development layout) */ }
 })().catch((e) => {
   console.error(e);
-  document.body.prepend(Object.assign(document.createElement("pre"), { textContent: `Start nie powiódł się:\n${e && e.stack || e}`, style: "color:#ff6b6b;padding:20px;white-space:pre-wrap" }));
+  document.body.prepend(Object.assign(document.createElement("pre"), { textContent: App.t("boot.failed", { err: e && e.stack || e }), style: "color:#ff6b6b;padding:20px;white-space:pre-wrap" }));
 });
