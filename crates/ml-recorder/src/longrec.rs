@@ -143,7 +143,11 @@ pub fn toggle(shared: &Arc<Shared>) {
         stop_async(shared, None);
     } else {
         match start(shared) {
-            Ok(()) => shared.popup(Event::Game, crate::lang::t("lr.started"), crate::lang::f("lr.started_sub", &[("hk", &shared.cfg.lock().unwrap().record_hotkey)])),
+            Ok(()) => {
+                // read the shortcut first: `popup` takes the config lock itself, so it must not be held here
+                let hk = shared.cfg.lock().unwrap().record_hotkey.clone();
+                shared.popup(Event::Game, crate::lang::t("lr.started"), crate::lang::f("lr.started_sub", &[("hk", &hk)]));
+            }
             Err(e) => shared.popup(Event::SaveFailed, crate::lang::t("lr.start_failed"), e),
         }
     }
