@@ -335,6 +335,19 @@
     h("span", { text: label }), h("span", { text: open ? "▴" : "▾" }));
 
   /* Biblioteka: one folder list (the radio marks where new recordings go), library toggles, export. */
+  /** Replaces one export preset; the default target follows its slot if its old value disappeared. */
+  function setPreset(i, v) {
+    const s = App.P.settings, old = App.presets();
+    if (!Number.isFinite(v) || v < 1 || v > 2000) { Settings.render(); return; }
+    const next = old.slice();
+    next[i] = Math.round(v);
+    const slot = old.indexOf(s.defTarget);
+    s.presets = next;
+    if (!next.includes(s.defTarget)) s.defTarget = next[slot >= 0 ? slot : 0];
+    App.persist();
+    Settings.render();
+  }
+
   async function renderLibraryTab(pane) {
     await App.RecUI.ensureLoaded();
     const rc = App.RecUI.cfg();
@@ -378,7 +391,12 @@
         U.trow(App.t("lib.auto"), App.t("lib.autoD"), s.auto, (on) => { s.auto = on; App.persist(); Settings.render(); })),
       h("div", null, U.cap(App.t("exp.cap")),
         h("div", { class: "card2" },
-          U.srow(App.t("exp.defTarget"), U.segc([[10, "Discord · 10 MB"], [50, "Boost · 50 MB"], [500, "Nitro · 500 MB"]], s.defTarget, (mb) => { s.defTarget = mb; App.persist(); Settings.render(); })),
+          U.srow(App.t("exp.defTarget"), U.segc(App.presets().map((mb) => [mb, App.presetName(mb) ? `${App.presetName(mb)} · ${mb} MB` : `${mb} MB`]), s.defTarget, (mb) => { s.defTarget = mb; App.persist(); Settings.render(); })),
+          U.srow(App.t("set.presets"), h("div", { class: "pathrow" },
+            ...(Settings.presetsOpen ? App.presets().map((mb, i) => h("input", { class: "field monoin", type: "number", min: 1, max: 2000, value: mb,
+              style: { width: "74px" }, onChange: (e) => setPreset(i, +e.target.value) })) : []),
+            h("button", { class: "linkbtn", text: Settings.presetsOpen ? "\u2713" : App.t("set.presetsEdit"),
+              onClick: () => { Settings.presetsOpen = !Settings.presetsOpen; Settings.render(); } }))),
           U.srow(App.t("exp.outDir"), h("div", { class: "pathrow" },
             h("span", { class: "mono path", text: App.exportDirFor() }),
             h("button", { class: "linkbtn", text: App.t("common.change"), onClick: async () => {

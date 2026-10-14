@@ -199,6 +199,9 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "ed.exporting": "エクスポート中…",
   "ed.again": "もう一度エクスポート",
   "ed.export": "エクスポート",
+  "ed.custom": "カスタムサイズ",
+  "set.presets": "サイズのプリセット",
+  "set.presetsEdit": "編集",
   "ed.qualityTip": "クリップを選んだサイズに収めたときの画質の目安です。バーは収まるビットレートを示します（高いほど良好）。クリップを短くするか目標サイズを大きくすると上がります。",
 
   "src.game": "ゲーム音声",

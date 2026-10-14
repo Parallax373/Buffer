@@ -199,6 +199,9 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "ed.exporting": "Exportiere…",
   "ed.again": "Erneut exportieren",
   "ed.export": "Exportieren",
+  "ed.custom": "Eigene Größe",
+  "set.presets": "Größen-Presets",
+  "set.presetsEdit": "Bearbeiten",
   "ed.qualityTip": "Wie gut das Bild wird, wenn der Clip in die gewählte Größe passt. Der Balken zeigt die passende Bitrate (mehr ist besser); ein kürzerer Clip oder ein größeres Ziel erhöht sie.",
 
   "src.game": "Spielton",

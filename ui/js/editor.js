@@ -506,7 +506,7 @@
 
   function renderPanel() {
     const P = ui.panel;
-    const presets = [["Discord", 10], ["Boost", 50], ["Nitro", 500]];
+    const presets = App.presets();
     const seg = (items, cur, on) => h("div", { class: "seg" }, items.map(([label, v]) =>
       h("button", { class: String(cur) === String(v) ? "on" : "", text: label, onClick: () => on(v) })));
     const tog = (label, key, extra) => h("div", { class: "opt", style: { cursor: "pointer" },
@@ -521,11 +521,14 @@
     const exporting = S.exporting && S.exporting.source === E.clip.path;
     const items = [
       h("div", { class: "cap", text: App.t("exp.cap") }),
-      h("div", { class: "presets" }, presets.map(([n, mb]) =>
+      h("div", { class: "presets" }, presets.map((mb) =>
         h("button", { class: E.target === mb ? "on" : "", onClick: () => { E.target = mb; renderPanel(); updateEstimate(); } },
-          n, h("br"), h("small", { text: `${mb} MB` })))),
+          App.presetName(mb) || `${mb} MB`, App.presetName(mb) ? h("br") : null, App.presetName(mb) ? h("small", { text: `${mb} MB` }) : null))),
       sum,
       h("div", { class: "opts" },
+        h("div", { class: "opt", style: { cursor: "pointer" }, onClick: () => { E.custom = !E.custom; renderPanel(); } },
+          h("span", { text: App.t("ed.custom") }), h("span", { class: "muted", text: E.custom ? "\u25B4" : "\u25BE" })),
+        E.custom ? customSize() : null,
         tog(App.t("ed.crop"), "wide"),
         E.wide ? h("div", { class: "opt" }, h("span", { text: App.t("ed.cropPos") }),
           h("input", { type: "range", min: 0, max: 100, value: E.pan, style: { width: "130px" },
@@ -558,6 +561,22 @@
     updateEstimate();
   }
 
+
+  /** One-off export size: a log-scale slider (1 to 2000 MB) and a number field, kept in sync. */
+  function customSize() {
+    const LOG = Math.log(2000);
+    const toPos = (mb) => Math.round((Math.log(Math.max(1, mb)) / LOG) * 1000);
+    const fromPos = (p) => Math.max(1, Math.round(Math.exp((p / 1000) * LOG)));
+    const num = h("input", { class: "field monoin", type: "number", min: 1, max: 2000, step: 1, value: E.target,
+      onChange: (ev) => {
+        E.target = Math.min(2000, Math.max(1, Math.round(+ev.target.value) || E.target));
+        renderPanel(); updateEstimate();
+      } });
+    const slider = h("input", { type: "range", min: 0, max: 1000, value: toPos(E.target), style: { flex: 1, minWidth: "60px" },
+      onInput: (ev) => { E.target = fromPos(+ev.target.value); num.value = E.target; updateEstimate(); },
+      onChange: () => renderPanel() });
+    return h("div", { class: "opt customsz" }, slider, num, h("span", { class: "muted", text: "MB" }));
+  }
 
   function updateEstimate() {
     if (!E || !E.info) return;

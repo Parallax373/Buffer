@@ -94,7 +94,7 @@ const App = {};
     settings: {
       theme: "ink", anim: true, lite: false, thumb: "M",
       sub: true, auto: true, thumbs: true, cache: true, hw: true,
-      normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false,
+      normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false, presets: [10, 50, 500],
     },
     libDirs: ["E:\\Nagrania"],
     favs: {}, titles: {}, markers: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
@@ -252,6 +252,14 @@ const App = {};
     const base = (App.P.libDirs[0] || "E:\\Nagrania").replace(/[\\/]+$/, "");
     return `${base}\\Exported Clips`;
   };
+
+  /** The three export size presets (MB). Saved values are validated so a bad state file can't break the panel. */
+  App.presets = () => {
+    const p = App.P.settings.presets;
+    return Array.isArray(p) && p.length === 3 && p.every((n) => Number.isFinite(n) && n >= 1 && n <= 2000) ? p.map(Math.round) : [10, 50, 500];
+  };
+  /** Well-known destinations get their name; any other size is just shown in MB. */
+  App.presetName = (mb) => ({ 10: "Discord", 50: "Boost", 500: "Nitro" })[mb] || "";
 
   /** Bitrate maths shared by editor panel and batch export; mirrors ml-core's budget. */
   App.kbps = (targetMb, seconds, speed = 1) =>

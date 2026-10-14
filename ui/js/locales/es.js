@@ -199,6 +199,9 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "ed.exporting": "Exportando…",
   "ed.again": "Exportar otra vez",
   "ed.export": "Exportar",
+  "ed.custom": "Tamaño personalizado",
+  "set.presets": "Tamaños rápidos",
+  "set.presetsEdit": "Editar",
   "ed.qualityTip": "Qué calidad tendrá la imagen al ajustar el clip al tamaño elegido. La barra muestra el bitrate disponible (más es mejor); un clip más corto o un objetivo mayor lo aumenta.",
 
   "src.game": "Audio del juego",

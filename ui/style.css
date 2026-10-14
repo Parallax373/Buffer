@@ -723,3 +723,6 @@ body { color: var(--text); }
 #topbar .right > * { flex-shrink: 0; white-space: nowrap; }
 #topbar .search { min-width: 0; flex-shrink: 1; }
 .langchip .go { overflow: visible; }
+
+.customsz { gap: 10px; }
+.customsz input[type=range] { width: auto; }
