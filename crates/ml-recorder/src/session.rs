@@ -4,7 +4,7 @@
 
 use crate::audio::{Sink, FRAME_BYTES, RATE};
 use crate::config::{buffer_dir, log_path, Config, SEGMENT_SECS};
-use crate::overlay::{Kind, Popup};
+use crate::overlay::{Event, Popup};
 use crate::win::{self, Job};
 use std::{
     fs::{self, File, OpenOptions},
@@ -64,14 +64,27 @@ pub struct Shared {
     pub markers: Mutex<Vec<u64>>,
     /// How many times the save hotkey was pressed (the setup wizard uses it to test the shortcut).
     pub hotkey_hits: AtomicU32,
+    /// Video bitrate (kb/s) of the running session, for diagnostics.
+    pub kbps_now: AtomicU32,
+    /// Set when the supervisor gave up on the configured encoder (it survives settings reloads).
+    pub encoder_override: Mutex<Option<String>>,
+    /// The long recording in progress, if any (see longrec.rs).
+    pub long: Mutex<Option<crate::longrec::Long>>,
+    pub long_stopping: AtomicBool,
+    /// A long recording is being remuxed into its MP4.
+    pub finalizing: AtomicBool,
+    /// A restart was asked for during a long recording; it happens once the recording ends.
+    pub restart_pending: AtomicBool,
 }
 
 impl Shared {
-    pub fn popup(&self, kind: Kind, title: impl Into<String>, sub: impl Into<String>) {
-        if !self.cfg.lock().unwrap().popup && kind != Kind::Error {
+    pub fn popup(&self, event: Event, title: impl Into<String>, sub: impl Into<String>) {
+        // errors are always shown; the rest follows the "Buffer active popup" setting
+        if !self.cfg.lock().unwrap().popup && !event.is_error() {
             return;
         }
-        let _ = self.popups.lock().unwrap().send(Popup { title: title.into(), sub: sub.into(), kind });
+        let _ = self.popups.lock().unwrap().send(Popup { event, title: title.into(), sub: sub.into() });
+        crate::overlay::wake();
     }
 }
 
@@ -82,7 +95,7 @@ pub fn log(msg: &str) {
     }
 }
 
-fn segments() -> Vec<PathBuf> {
+pub fn segments() -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = fs::read_dir(buffer_dir())
         .map(|rd| {
             rd.flatten()
@@ -153,7 +166,8 @@ fn feed(mut stream: TcpStream, sink: Arc<Sink>, go: Arc<AtomicBool>, stop: Arc<A
     }
 }
 
-/// Output arguments for the chosen encoder. Segments need a keyframe every SEGMENT_SECS.
+/// Output arguments for the chosen encoder. Segments need a closed keyframe exactly every SEGMENT_SECS,
+/// whatever the encoder's own scene-cut habits are.
 fn encoder_args(encoder: &str, kbps: u32, fps: u32) -> Vec<String> {
     let gop = (fps * SEGMENT_SECS).to_string();
     let rate = [
@@ -170,12 +184,43 @@ fn encoder_args(encoder: &str, kbps: u32, fps: u32) -> Vec<String> {
         "h264_nvenc" => ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "hq", "-rc", "vbr", "-forced-idr", "1", "-no-scenecut", "1"]
             .map(String::from)
             .to_vec(),
-        "h264_amf" => ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "vbr_peak"].map(String::from).to_vec(),
-        "h264_qsv" => ["-c:v", "h264_qsv", "-preset", "medium", "-look_ahead", "0"].map(String::from).to_vec(),
+        "h264_amf" => ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "vbr_peak", "-forced_idr", "1"].map(String::from).to_vec(),
+        "h264_qsv" => ["-c:v", "h264_qsv", "-preset", "medium", "-look_ahead", "0", "-forced_idr", "1"].map(String::from).to_vec(),
         _ => ["-c:v", "libx264", "-preset", "veryfast", "-sc_threshold", "0"].map(String::from).to_vec(),
     };
     v.extend(rate);
+    v.extend(["-force_key_frames".to_string(), format!("expr:gte(t,n_forced*{SEGMENT_SECS})")]);
     v
+}
+
+/// Whether `encoder` can really encode with the arguments the recorder uses (a bare test encode would
+/// not catch an option that one vendor's build rejects).
+fn encoder_usable(encoder: &str, fps: u32) -> bool {
+    let mut cmd = Command::new(ml_core::tools::ffmpeg());
+    cmd.args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i"])
+        .arg(format!("color=c=black:s=1280x720:r={fps},format=nv12"))
+        .args(["-frames:v", "12"])
+        .args(encoder_args(encoder, 6000, fps))
+        .args(["-f", "null", "-"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    ml_core::export::hide_window(&mut cmd);
+    cmd.status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// "auto": the first GPU encoder that works (NVIDIA, AMD, Intel), else the CPU. Decided once per run.
+fn auto_encoder(fps: u32) -> &'static str {
+    static C: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    C.get_or_init(|| {
+        for enc in ["h264_nvenc", "h264_amf", "h264_qsv"] {
+            if encoder_usable(enc, fps) {
+                return enc;
+            }
+            log(&format!("encoder {enc} is not usable here"));
+        }
+        "libx264"
+    })
 }
 
 /// Which monitor to capture: the configured one, or the one the detected game is on.
@@ -193,15 +238,27 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
     fs::create_dir_all(buffer_dir()).map_err(|e| e.to_string())?;
     // A new ffmpeg process restarts MPEG-TS timestamps, so segments of the previous run cannot be
     // joined seamlessly with the new ones.
+
+    // anything still unwritten in the buffer belongs to a long recording before it is deleted below
+    crate::longrec::flush_all(shared);
+    let forced = shared.encoder_override.lock().unwrap().clone();
+    let encoder = match forced {
+        Some(e) => e,
+        None if cfg.encoder == "auto" || cfg.encoder.is_empty() => auto_encoder(cfg.fps).to_string(),
+        None => cfg.encoder.clone(),
+    };
+    // The CPU cannot keep up with a game plus 1440p/60 encoding: cap it to what x264 does comfortably.
+    let (cfg_fps, cfg_width) = if encoder == "libx264" {
+        (cfg.fps.min(30), if cfg.width == 0 || cfg.width > 1920 { 1920 } else { cfg.width })
+    } else {
+        (cfg.fps, cfg.width)
+    };
+    let mut cfg = cfg;
+    cfg.fps = cfg_fps;
+    cfg.width = cfg_width;
     for old in segments() {
         let _ = fs::remove_file(old);
     }
-
-    let encoder = if cfg.encoder == "auto" || cfg.encoder.is_empty() {
-        ml_core::tools::best_h264_encoder().to_string()
-    } else {
-        cfg.encoder.clone()
-    };
     *shared.encoder.lock().unwrap() = encoder.clone();
     let capture = *shared.capture.lock().unwrap();
 
@@ -246,7 +303,15 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
     cmd.args(["-filter_complex"])
         .arg(format!("[0:v]{download}{scale}fps={},format=nv12[v]", cfg.fps));
     cmd.args(["-map", "[v]", "-map", "1:a", "-map", "2:a", "-map", "3:a"]);
-    cmd.args(encoder_args(&encoder, cfg.video_kbps, cfg.fps));
+    // The bitrate follows what is actually captured: frame size, fps and the quality level.
+    let (mon_w, mon_h) = crate::win::monitors().get(monitor as usize).map_or((1920, 1080), |m| (m.width as u32, m.height as u32));
+    let (out_w, out_h) = ml_core::bitrate::output_size(cfg.width, mon_w, mon_h);
+    let kbps = match ml_core::bitrate::Quality::parse(&cfg.quality) {
+        Some(q) => ml_core::bitrate::recording_kbps(out_w, out_h, cfg.fps, q),
+        None => cfg.video_kbps,
+    };
+    shared.kbps_now.store(kbps, Ordering::Relaxed);
+    cmd.args(encoder_args(&encoder, kbps, cfg.fps));
     cmd.args(["-c:a", "aac", "-b:a", "192k", "-ar", "48000"])
         .args(["-max_muxing_queue_size", "4096"])
         .args(["-f", "segment", "-segment_time", &SEGMENT_SECS.to_string(), "-segment_format", "mpegts"])
@@ -328,13 +393,14 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
     }
     let started = Instant::now();
     shared.recording.store(true, Ordering::Relaxed);
-    log(&format!("recording session started ({capture}, {encoder})"));
+    log(&format!("recording session started ({capture}, {encoder}, {out_w}x{out_h}, {kbps} kb/s)"));
 
     let mut last_prune = Instant::now();
     let mut last_progress = Instant::now();
     let mut no_game_since: Option<Instant> = None;
     loop {
-        if shared.cfg.lock().unwrap().game_only {
+        let long = crate::longrec::active(shared);
+        if shared.cfg.lock().unwrap().game_only && !long {
             if shared.active_game.lock().unwrap().is_none() {
                 let since = *no_game_since.get_or_insert_with(Instant::now);
                 if since.elapsed() > Duration::from_secs(10) {
@@ -348,7 +414,11 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
         if !go.load(Ordering::Relaxed) && started.elapsed() > Duration::from_millis(2500) {
             go.store(true, Ordering::Relaxed);
         }
-        if shared.quit.load(Ordering::Relaxed) || shared.restart.swap(false, Ordering::Relaxed) {
+        // a restart would cut the long recording in two: hold it back until that recording ends
+        if long && shared.restart.swap(false, Ordering::Relaxed) {
+            shared.restart_pending.store(true, Ordering::Relaxed);
+        }
+        if shared.quit.load(Ordering::Relaxed) || (!long && shared.restart.swap(false, Ordering::Relaxed)) {
             finish(&mut child, &stop);
             return Ok(());
         }
@@ -357,6 +427,7 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
             shared.recording.store(false, Ordering::Relaxed);
             return Err(format!("ffmpeg exited ({status}); see recorder.log"));
         }
+        crate::longrec::tick(shared);
         if last_prune.elapsed() > Duration::from_secs(5) {
             prune(&cfg);
             last_prune = Instant::now();
@@ -390,7 +461,7 @@ pub fn supervise(shared: Arc<Shared>) {
         // "record only games": wait without capturing until a game is running
         let waiting = {
             let c = shared.cfg.lock().unwrap();
-            c.game_only && shared.active_game.lock().unwrap().is_none()
+            c.game_only && shared.active_game.lock().unwrap().is_none() && !crate::longrec::active(&shared)
         };
         if waiting {
             shared.idle.store(true, Ordering::Relaxed);
@@ -421,9 +492,9 @@ pub fn supervise(shared: Arc<Shared>) {
                             log("falling back to GDI capture");
                         }
                     } else if n == 5 {
-                        let mut cfg = shared.cfg.lock().unwrap();
-                        if cfg.encoder != "libx264" {
-                            cfg.encoder = "libx264".into();
+                        let mut forced = shared.encoder_override.lock().unwrap();
+                        if forced.as_deref() != Some("libx264") {
+                            *forced = Some("libx264".into());
                             log("falling back to the CPU encoder");
                         }
                     }

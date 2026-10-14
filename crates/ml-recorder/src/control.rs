@@ -1,5 +1,5 @@
 //! Tiny line-based control protocol on 127.0.0.1 so the UI (and `buffer-recorder save`) can talk to the
-//! running recorder. Commands: status | save | reload | quit. One JSON line is returned per command.
+//! running recorder. Commands: status | save | record | record-start | record-stop | reload | quit. One JSON line is returned per command.
 
 use crate::config::{Config, CONTROL_PORT};
 use crate::session::{buffered_seconds, save, Shared};
@@ -31,6 +31,7 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
         "recording": shared.recording.load(Ordering::Relaxed),
         "idle": shared.idle.load(Ordering::Relaxed),
         "hotkey_hits": shared.hotkey_hits.load(Ordering::Relaxed),
+        "kbps": shared.kbps_now.load(Ordering::Relaxed),
         "game": shared.active_game.lock().unwrap().as_ref().map(|g| g.name.clone()),
         "post_roll_s": cfg.post_roll_seconds,
         "monitor": shared.monitor_now.load(Ordering::Relaxed),
@@ -46,6 +47,13 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
         "encoder": *shared.encoder.lock().unwrap(),
         "capture": *shared.capture.lock().unwrap(),
         "sources": sources,
+        "record_hotkey": cfg.record_hotkey,
+        "long": {
+            "active": crate::longrec::active(shared),
+            "elapsed_s": crate::longrec::elapsed_secs(shared),
+            "mb": crate::longrec::bytes(shared) / 1_000_000,
+            "finalizing": shared.finalizing.load(Ordering::Relaxed),
+        },
     })
 }
 
@@ -62,8 +70,21 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
                 }
                 Err(e) => json!({ "ok": false, "error": e }),
             },
+            "record" | "record-start" | "record-stop" => {
+                let on = crate::longrec::active(shared);
+                match line.trim() {
+                    "record-start" if on => {}
+                    "record-stop" if !on => {}
+                    _ => crate::longrec::toggle(shared),
+                }
+                json!({ "ok": true })
+            }
             "reload" => {
                 let cfg = Config::load();
+                // choosing an encoder by hand overrides an earlier automatic fallback
+                if cfg.encoder != shared.cfg.lock().unwrap().encoder {
+                    *shared.encoder_override.lock().unwrap() = None;
+                }
                 shared.sinks[0].set_cfg(cfg.game.clone());
                 shared.sinks[1].set_cfg(cfg.chat.clone());
                 shared.sinks[2].set_cfg(cfg.mic.clone());

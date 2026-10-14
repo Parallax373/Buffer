@@ -24,6 +24,18 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
+/// Free bytes on the drive that holds `dir` (None if it cannot be asked).
+pub fn free_bytes(dir: &Path) -> Option<u64> {
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let mut probe = dir;
+    while !probe.exists() {
+        probe = probe.parent()?;
+    }
+    let mut free = 0u64;
+    let ok = unsafe { GetDiskFreeSpaceExW(wide(&probe.to_string_lossy()).as_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut()) };
+    (ok != 0).then_some(free)
+}
+
 /// Returns false when another instance already holds the named mutex.
 /// The handle is intentionally leaked: it must live as long as the process.
 pub fn claim_single_instance(name: &str) -> bool {
@@ -110,6 +122,8 @@ pub fn register_hotkey(spec: &str) -> Result<(), String> {
 }
 
 pub fn register_hotkey_id(spec: &str, id: i32) -> Result<(), String> {
+    // a binding may also hold a mouse button or a gamepad chord; those are polled by input.rs
+    let Some(spec) = crate::input::keyboard_part(spec) else { return Ok(()) };
     let (mods, vk) = parse_hotkey(spec).ok_or_else(|| format!("invalid hotkey '{spec}'"))?;
     unsafe {
         if RegisterHotKey(std::ptr::null_mut(), id, mods, vk) == 0 {
@@ -119,17 +133,28 @@ pub fn register_hotkey_id(spec: &str, id: i32) -> Result<(), String> {
     Ok(())
 }
 
-/// Runs this thread's message loop. `on_hotkey` fires per press, `on_tick` every ~500 ms.
-/// Dispatching messages also services the tray icon's hidden window.
-pub fn pump_messages(mut on_hotkey: impl FnMut(usize), mut on_tick: impl FnMut()) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{DispatchMessageW, SetTimer, TranslateMessage, WM_TIMER};
+/// What the message loop reports to its owner.
+pub enum Pump {
+    /// A registered global hotkey fired (the id given to `register_hotkey_id`).
+    Hotkey(usize),
+    /// A thread timer fired; the owner tells its own timers apart by id.
+    Timer(usize),
+    /// Another thread posted a wake-up (a popup is waiting).
+    Wake,
+}
+
+/// Runs this thread's message loop. A 500 ms timer drives the owner's periodic work; dispatching messages
+/// also services the tray icon's hidden window.
+pub fn pump_messages(mut f: impl FnMut(Pump)) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DispatchMessageW, SetTimer, TranslateMessage, WM_APP, WM_TIMER};
     unsafe {
-        SetTimer(std::ptr::null_mut(), 1, 500, None);
+        SetTimer(std::ptr::null_mut(), 0, 500, None);
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             match msg.message {
-                WM_HOTKEY => on_hotkey(msg.wParam as usize),
-                WM_TIMER => on_tick(),
+                WM_HOTKEY => f(Pump::Hotkey(msg.wParam as usize)),
+                WM_TIMER => f(Pump::Timer(msg.wParam as usize)),
+                WM_APP => f(Pump::Wake),
                 _ => {}
             }
             TranslateMessage(&msg);
@@ -225,21 +250,48 @@ pub fn make_dpi_aware() {
     }
 }
 
-/// (width, height, is_primary) of every attached monitor, in enumeration order.
-pub fn monitors() -> Vec<(i32, i32, bool)> {
+/// One attached monitor, in the order used by the capture index and the "monitor" setting.
+#[derive(Debug, Clone)]
+pub struct MonitorInfo {
+    pub left: i32,
+    pub top: i32,
+    pub width: i32,
+    pub height: i32,
+    pub primary: bool,
+    /// The panel's own name (from its EDID, e.g. "PHL 34M2C8600"); may be generic or empty.
+    pub name: String,
+}
+
+pub fn monitors() -> Vec<MonitorInfo> {
     use windows_sys::Win32::Foundation::{BOOL, LPARAM};
-    use windows_sys::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
+    use windows_sys::Win32::Graphics::Gdi::{
+        EnumDisplayDevicesW, EnumDisplayMonitors, GetMonitorInfoW, DISPLAY_DEVICEW, HDC, HMONITOR, MONITORINFOEXW,
+    };
+    fn text(w: &[u16]) -> String {
+        let n = w.iter().position(|c| *c == 0).unwrap_or(w.len());
+        String::from_utf16_lossy(&w[..n])
+    }
     unsafe extern "system" fn cb(mon: HMONITOR, _dc: HDC, _r: *mut RECT, data: LPARAM) -> BOOL {
-        let out = &mut *(data as *mut Vec<(i32, i32, bool)>);
-        let mut mi: MONITORINFO = std::mem::zeroed();
-        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if GetMonitorInfoW(mon, &mut mi) != 0 {
-            let r = mi.rcMonitor;
-            out.push((r.right - r.left, r.bottom - r.top, mi.dwFlags & 1 != 0));
+        let out = &mut *(data as *mut Vec<MonitorInfo>);
+        let mut mi: MONITORINFOEXW = std::mem::zeroed();
+        mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if GetMonitorInfoW(mon, &mut mi as *mut _ as *mut _) != 0 {
+            let r = mi.monitorInfo.rcMonitor;
+            let mut dd: DISPLAY_DEVICEW = std::mem::zeroed();
+            dd.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+            let name = if EnumDisplayDevicesW(mi.szDevice.as_ptr(), 0, &mut dd, 0) != 0 { text(&dd.DeviceString) } else { String::new() };
+            out.push(MonitorInfo {
+                left: r.left,
+                top: r.top,
+                width: r.right - r.left,
+                height: r.bottom - r.top,
+                primary: mi.monitorInfo.dwFlags & 1 != 0,
+                name,
+            });
         }
         1
     }
-    let mut v: Vec<(i32, i32, bool)> = Vec::new();
+    let mut v: Vec<MonitorInfo> = Vec::new();
     unsafe {
         EnumDisplayMonitors(std::ptr::null_mut(), std::ptr::null(), Some(cb), &mut v as *mut _ as LPARAM);
     }

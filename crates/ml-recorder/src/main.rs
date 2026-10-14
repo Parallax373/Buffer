@@ -2,6 +2,9 @@
 
 mod audio;
 mod config;
+mod identify;
+mod input;
+mod longrec;
 mod control;
 mod overlay;
 mod pick;
@@ -109,11 +112,17 @@ fn levels_json(args: Vec<String>) {
 
 /// Monitors in enumeration order (index = the "monitor" setting), with their resolution.
 fn monitors_json() {
-    println!("{}", serde_json::json!(win::monitors()
-        .into_iter()
-        .enumerate()
-        .map(|(i, (w, h, primary))| serde_json::json!({ "index": i, "width": w, "height": h, "primary": primary }))
-        .collect::<Vec<_>>()));
+    println!(
+        "{}",
+        serde_json::json!(win::monitors()
+            .into_iter()
+            .enumerate()
+            .map(|(i, m)| serde_json::json!({
+                "index": i, "width": m.width, "height": m.height, "primary": m.primary,
+                "left": m.left, "top": m.top, "name": m.name,
+            }))
+            .collect::<Vec<_>>())
+    );
 }
 
 fn autostart_enabled() -> bool {
@@ -165,7 +174,17 @@ fn run() {
         flash: Mutex::new(None),
         markers: Mutex::new(Vec::new()),
         hotkey_hits: AtomicU32::new(0),
+        kbps_now: AtomicU32::new(0),
+        encoder_override: Mutex::new(None),
+        long: Mutex::new(None),
+        long_stopping: AtomicBool::new(false),
+        finalizing: AtomicBool::new(false),
+        restart_pending: AtomicBool::new(false),
     });
+    {
+        let cfg = cfg.clone();
+        std::thread::spawn(move || longrec::recover_orphans(&cfg));
+    }
     tray::apply_app_sources(&shared);
     log(&format!("recorder starting (ffmpeg: {})", ml_core::tools::ffmpeg().display()));
 
@@ -190,6 +209,8 @@ fn run() {
     while !shared.quit.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(200));
     }
+    // closing the recorder must not lose a long recording in progress
+    let _ = longrec::stop(&shared);
     stop_capture.store(true, Ordering::Relaxed);
     let _ = handle.join();
     log("recorder stopped");
@@ -227,15 +248,16 @@ fn main() {
                 "devices" => list_devices(),
                 "devices-json" => devices_json(),
                 "monitors-json" => monitors_json(),
+                "identify" => identify::run(),
                 "levels" => levels_json(std::env::args().skip(2).collect()),
                 "autostart-status" => println!("{}", if autostart_enabled() { "enabled" } else { "disabled" }),
-                "status" | "save" | "reload" | "quit" => match control::send(other) {
+                "status" | "save" | "reload" | "quit" | "record" | "record-start" | "record-stop" => match control::send(other) {
                     Ok(r) => println!("{r}"),
                     Err(e) => println!("{e}"),
                 },
                 "install-autostart" => autostart(true),
                 "uninstall-autostart" => autostart(false),
-                _ => println!("usage: buffer-recorder [run|devices|status|save|reload|quit|install-autostart|uninstall-autostart]"),
+                _ => println!("usage: buffer-recorder [run|devices|status|save|record|reload|quit|install-autostart|uninstall-autostart]"),
             }
         }
     }

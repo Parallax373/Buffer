@@ -1,3 +1,4 @@
+pub mod bitrate;
 pub mod export;
 pub mod paths;
 pub mod probe;

@@ -1,53 +1,129 @@
-//! A small always-on-top, click-through, non-activating popup ("Buffer active", "Clip saved").
-//! Everything runs on the tray thread's message loop; other threads queue a `Popup` on a channel.
-//! Note: like any overlay it cannot appear above a game in *exclusive* fullscreen (borderless is fine).
+//! Event popup "2a Signal": a small always-on-top, click-through, non-activating card in the top-right
+//! corner with the animated logo, an accent strip, and a lifetime bar. Spec: 2a-signal-spec.md.
+//!
+//! Everything runs on the tray thread's message loop: other threads queue a `Popup` on a channel and
+//! call `wake()`. While a popup is visible a 16 ms timer redraws it (~60 fps) into a memory bitmap that is
+//! blitted to the window; the window slides/fades through its layered alpha and `SetWindowPos`.
+//! Like any overlay it cannot appear above a game in *exclusive* fullscreen (borderless is fine).
 
-use std::sync::Mutex;
+use std::{
+    f64::consts::PI,
+    sync::atomic::{AtomicU32, Ordering},
+    time::Instant,
+};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect,
-    SelectObject, SetBkMode, SetTextColor, SetWindowRgn, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER,
-    PAINTSTRUCT, TRANSPARENT,
+    BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DeleteDC,
+    DeleteObject, DrawTextW, EndPaint, FillRect, GetDC, GetStockObject, ReleaseDC, RoundRect, SelectObject, SetBkMode,
+    SetTextColor, SetWindowRgn, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HBITMAP, HDC, NULL_PEN,
+    PAINTSTRUCT, SRCCOPY, TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetSystemMetrics, RegisterClassW, SetLayeredWindowAttributes,
-    SetWindowPos, ShowWindow, CS_HREDRAW, CS_VREDRAW, HWND_TOPMOST, LWA_ALPHA, SM_CXSCREEN,
-    SWP_NOACTIVATE, SW_SHOWNOACTIVATE, WM_ERASEBKGND, WM_PAINT, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetSystemMetrics, KillTimer, PostThreadMessageW, RegisterClassW,
+    SetLayeredWindowAttributes, SetTimer, SetWindowPos, ShowWindow, CS_HREDRAW, CS_VREDRAW, HWND_TOPMOST, LWA_ALPHA,
+    SM_CXSCREEN, SWP_NOACTIVATE, SWP_NOSIZE, SW_SHOWNOACTIVATE, WM_APP, WM_ERASEBKGND, WM_PAINT, WNDCLASSW, WS_EX_LAYERED,
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Info,
-    Ok,
-    Warn,
-    Error,
+/// What happened. It decides the accent colour, the logo's behaviour and how long the card stays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Event {
+    /// A game came to the foreground and everything is recording.
+    Game,
+    /// A game came to the foreground but a sound source is down (the last bar blinks).
+    GameWarn,
+    /// The save shortcut was pressed; the clip is saved after `roll_ms` (the card counts down).
+    PostRoll { roll_ms: u64 },
+    Saved,
+    Marker,
+    SaveFailed,
+    RecordingDown,
+}
+
+impl Event {
+    pub fn is_error(self) -> bool {
+        matches!(self, Event::SaveFailed | Event::RecordingDown)
+    }
+
+    fn accent(self) -> (u8, u8, u8) {
+        match self {
+            Event::GameWarn => (0xff, 0xb4, 0x54),
+            Event::SaveFailed | Event::RecordingDown => (0xff, 0x5d, 0x5d),
+            _ => (0xc6, 0xf4, 0x32),
+        }
+    }
+
+    fn total_ms(self) -> f64 {
+        match self {
+            Event::PostRoll { roll_ms } => roll_ms as f64 + 300.0 + 4000.0,
+            Event::SaveFailed | Event::RecordingDown => 6500.0,
+            _ => 4000.0,
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct Popup {
+    pub event: Event,
     pub title: String,
     pub sub: String,
-    pub kind: Kind,
 }
 
-static CURRENT: Mutex<Option<Popup>> = Mutex::new(None);
+/* ───────── animation helpers (spec) ───────── */
+
+fn cl(x: f64) -> f64 {
+    x.clamp(0.0, 1.0)
+}
+fn eo(x: f64) -> f64 {
+    1.0 - (1.0 - cl(x)).powi(3)
+}
+fn eb(x: f64) -> f64 {
+    let x = cl(x);
+    1.0 + 2.70158 * (x - 1.0).powi(3) + 1.70158 * (x - 1.0).powi(2)
+}
+fn decay(e: f64, len: f64) -> f64 {
+    if (0.0..len).contains(&e) {
+        1.0 - e / len
+    } else {
+        0.0
+    }
+}
+
+const BG: (u8, u8, u8) = (0x18, 0x1a, 0x1f);
+const TRACK: (u8, u8, u8) = (0x26, 0x29, 0x31);
+
+fn mix(a: (u8, u8, u8), b: (u8, u8, u8), t: f64) -> u32 {
+    let t = cl(t);
+    let f = |x: u8, y: u8| (x as f64 + (y as f64 - x as f64) * t).round() as u32;
+    f(a.0, b.0) | (f(a.1, b.1) << 8) | (f(a.2, b.2) << 16)
+}
+
+const fn rgb(c: (u8, u8, u8)) -> u32 {
+    (c.0 as u32) | ((c.1 as u32) << 8) | ((c.2 as u32) << 16)
+}
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
-const fn rgb(r: u8, g: u8, b: u8) -> u32 {
-    (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+/* ───────── window plumbing ───────── */
+
+static TRAY_THREAD: AtomicU32 = AtomicU32::new(0);
+
+/// Call once on the thread that runs the message loop.
+pub fn bind_thread() {
+    TRAY_THREAD.store(unsafe { GetCurrentThreadId() }, Ordering::Relaxed);
 }
 
-fn accent(kind: Kind) -> u32 {
-    match kind {
-        Kind::Info => rgb(0xc6, 0xf4, 0x32),
-        Kind::Ok => rgb(0xc6, 0xf4, 0x32),
-        Kind::Warn => rgb(0xff, 0xb4, 0x54),
-        Kind::Error => rgb(0xff, 0x5d, 0x5d),
+/// Wakes the message loop so a queued popup shows immediately instead of at the next tick.
+pub fn wake() {
+    let tid = TRAY_THREAD.load(Ordering::Relaxed);
+    if tid != 0 {
+        unsafe {
+            PostThreadMessageW(tid, WM_APP, 0, 0);
+        }
     }
 }
 
@@ -55,62 +131,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     match msg {
         WM_ERASEBKGND => 1,
         WM_PAINT => {
+            // The frame timer repaints within 16 ms; just validate the update region.
             let mut ps: PAINTSTRUCT = std::mem::zeroed();
-            let hdc = BeginPaint(hwnd, &mut ps);
-            let popup = CURRENT.lock().unwrap().clone();
-            if let Some(p) = popup {
-                let mut rc: RECT = std::mem::zeroed();
-                windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect(hwnd, &mut rc);
-                let bg = CreateSolidBrush(rgb(0x18, 0x1a, 0x1f));
-                FillRect(hdc, &rc, bg);
-                DeleteObject(bg);
-                let bar = CreateSolidBrush(accent(p.kind));
-                let strip = RECT { left: 0, top: 0, right: 6, bottom: rc.bottom };
-                FillRect(hdc, &strip, bar);
-                DeleteObject(bar);
-
-                SetBkMode(hdc, TRANSPARENT as i32);
-                let height = rc.bottom - rc.top;
-                let mk = |px: i32, weight: i32| {
-                    CreateFontW(-px, 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 5, 0, wide("Segoe UI").as_ptr())
-                };
-                let scale = height as f32 / 78.0;
-                let f1 = mk((19.0 * scale) as i32, 700);
-                let f2 = mk((14.0 * scale) as i32, 400);
-
-                // logo mark: scan-line triangle in the accent colour
-                let mark = CreateSolidBrush(accent(p.kind));
-                let faded = CreateSolidBrush(rgb(0x4a, 0x56, 0x2a));
-                let n = 7;
-                let bh = (4.0 * scale).max(2.0) as i32;
-                let gap = (2.0 * scale).max(1.0) as i32;
-                let total = n * bh + (n - 1) * gap;
-                let top0 = (height - total) / 2;
-                let x0 = (22.0 * scale) as i32;
-                for i in 0..n {
-                    let w = ((6 + (3 - (i - 3_i32).abs()) * 5) as f32 * scale * 1.1) as i32;
-                    let y = top0 + i * (bh + gap);
-                    let tail = RECT { left: x0 - (8.0 * scale) as i32, top: y, right: x0, bottom: y + bh };
-                    FillRect(hdc, &tail, faded);
-                    let bar = RECT { left: x0, top: y, right: x0 + w, bottom: y + bh };
-                    FillRect(hdc, &bar, mark);
-                }
-                DeleteObject(mark);
-                DeleteObject(faded);
-
-                let pad = (84.0 * scale) as i32;
-                let mut r1 = RECT { left: pad, top: (10.0 * scale) as i32, right: rc.right - pad, bottom: (42.0 * scale) as i32 };
-                let old = SelectObject(hdc, f1);
-                SetTextColor(hdc, rgb(0xe8, 0xea, 0xee));
-                DrawTextW(hdc, wide(&p.title).as_ptr(), -1, &mut r1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-                let mut r2 = RECT { left: pad, top: (42.0 * scale) as i32, right: rc.right - pad, bottom: (68.0 * scale) as i32 };
-                SelectObject(hdc, f2);
-                SetTextColor(hdc, rgb(0x8b, 0x91, 0x9c));
-                DrawTextW(hdc, wide(&p.sub).as_ptr(), -1, &mut r2, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-                SelectObject(hdc, old);
-                DeleteObject(f1);
-                DeleteObject(f2);
-            }
+            BeginPaint(hwnd, &mut ps);
             EndPaint(hwnd, &ps);
             0
         }
@@ -118,10 +141,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
 }
 
-/// Owns the popup window. Create and use it on the thread that runs the message loop.
+struct Active {
+    popup: Popup,
+    t0: Instant,
+    total_ms: f64,
+    /// Where the lifetime bar starts counting down (0, or the moment of the post-roll → saved morph).
+    bar_start_ms: f64,
+    /// Set when a post-roll card turned into the "saved" card: ms since `t0`.
+    morph_at: Option<f64>,
+}
+
+/// Owns the popup window. Create and use it on the message-loop thread only.
 pub struct Overlay {
     hwnd: HWND,
-    hide_at: Option<std::time::Instant>,
+    mem: HDC,
+    bmp: HBITMAP,
+    size: (i32, i32),
+    dpi: f64,
+    timer: usize,
+    active: Option<Active>,
 }
 
 impl Overlay {
@@ -142,56 +180,254 @@ impl Overlay {
                 lpszClassName: class.as_ptr(),
             };
             RegisterClassW(&wc);
-            Overlay { hwnd: std::ptr::null_mut(), hide_at: None }
         }
+        Overlay { hwnd: std::ptr::null_mut(), mem: std::ptr::null_mut(), bmp: std::ptr::null_mut(), size: (0, 0), dpi: 1.0, timer: 0, active: None }
     }
 
-    pub fn show(&mut self, popup: Popup, millis: u64) {
+    pub fn is_anim_timer(&self, id: usize) -> bool {
+        self.timer != 0 && self.timer == id
+    }
+
+    /// Queues a popup. A saved-card arriving while the post-roll card is up morphs it instead of replacing it.
+    pub fn push(&mut self, popup: Popup) {
+        if let Some(a) = &mut self.active {
+            let e = a.t0.elapsed().as_secs_f64() * 1000.0;
+            let counting = matches!(a.popup.event, Event::PostRoll { .. }) && a.morph_at.is_none();
+            if counting {
+                match popup.event {
+                    Event::Saved => {
+                        a.popup = popup;
+                        a.morph_at = Some(e);
+                        a.bar_start_ms = e;
+                        a.total_ms = e + 4000.0;
+                        return;
+                    }
+                    // Failures replace the countdown; anything else waits its turn out of the way.
+                    Event::SaveFailed | Event::RecordingDown => {}
+                    _ => return,
+                }
+            }
+        }
+        self.start(popup);
+    }
+
+    fn start(&mut self, popup: Popup) {
+        unsafe {
+            self.dpi = (windows_sys::Win32::UI::HiDpi::GetDpiForSystem().max(96) as f64) / 96.0;
+            let (w, h) = ((400.0 * self.dpi) as i32, (78.0 * self.dpi) as i32);
+            if self.hwnd.is_null() || self.size != (w, h) {
+                self.destroy_window();
+                let hinst = GetModuleHandleW(std::ptr::null());
+                let hwnd = CreateWindowExW(
+                    WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
+                    wide("BufferOverlay").as_ptr(),
+                    wide("Buffer").as_ptr(),
+                    WS_POPUP,
+                    -10_000, 0, w, h,
+                    std::ptr::null_mut(), std::ptr::null_mut(), hinst, std::ptr::null(),
+                );
+                if hwnd.is_null() {
+                    return;
+                }
+                SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
+                SetWindowRgn(hwnd, CreateRoundRectRgn(0, 0, w + 1, h + 1, (16.0 * self.dpi) as i32, (16.0 * self.dpi) as i32), 1);
+                let screen = GetDC(std::ptr::null_mut());
+                self.mem = CreateCompatibleDC(screen);
+                self.bmp = CreateCompatibleBitmap(screen, w, h);
+                ReleaseDC(std::ptr::null_mut(), screen);
+                SelectObject(self.mem, self.bmp);
+                self.hwnd = hwnd;
+                self.size = (w, h);
+                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+        }
+        let total = popup.event.total_ms();
+        self.active = Some(Active { popup, t0: Instant::now(), total_ms: total, bar_start_ms: 0.0, morph_at: None });
+        if self.timer == 0 {
+            self.timer = unsafe { SetTimer(std::ptr::null_mut(), 0, 16, None) };
+        }
+        self.frame();
+    }
+
+    fn destroy_window(&mut self) {
         unsafe {
             if !self.hwnd.is_null() {
                 DestroyWindow(self.hwnd);
                 self.hwnd = std::ptr::null_mut();
             }
-            let dpi = windows_sys::Win32::UI::HiDpi::GetDpiForSystem().max(96) as f32 / 96.0;
-            let (w, h) = ((400.0 * dpi) as i32, (78.0 * dpi) as i32);
-            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-            let x = screen_w - w - (24.0 * dpi) as i32;
-            let y = (24.0 * dpi) as i32;
-            *CURRENT.lock().unwrap() = Some(popup);
-
-            let hinst = GetModuleHandleW(std::ptr::null());
-            let hwnd = CreateWindowExW(
-                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
-                wide("BufferOverlay").as_ptr(),
-                wide("Buffer").as_ptr(),
-                WS_POPUP,
-                x, y, w, h,
-                std::ptr::null_mut(), std::ptr::null_mut(), hinst, std::ptr::null(),
-            );
-            if hwnd.is_null() {
-                return;
+            if !self.mem.is_null() {
+                DeleteDC(self.mem);
+                self.mem = std::ptr::null_mut();
             }
-            SetLayeredWindowAttributes(hwnd, 0, 238, LWA_ALPHA);
-            SetWindowRgn(hwnd, CreateRoundRectRgn(0, 0, w + 1, h + 1, (16.0 * dpi) as i32, (16.0 * dpi) as i32), 1);
-            SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
-            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            self.hwnd = hwnd;
-            self.hide_at = Some(std::time::Instant::now() + std::time::Duration::from_millis(millis));
+            if !self.bmp.is_null() {
+                DeleteObject(self.bmp);
+                self.bmp = std::ptr::null_mut();
+            }
         }
     }
 
-    /// Call from the periodic tick: closes the popup once its time is up.
-    pub fn tick(&mut self) {
-        if let Some(t) = self.hide_at {
-            if std::time::Instant::now() >= t {
-                unsafe {
-                    if !self.hwnd.is_null() {
-                        DestroyWindow(self.hwnd);
-                        self.hwnd = std::ptr::null_mut();
-                    }
-                }
-                self.hide_at = None;
+    fn close(&mut self) {
+        self.active = None;
+        unsafe {
+            if self.timer != 0 {
+                KillTimer(std::ptr::null_mut(), self.timer);
+                self.timer = 0;
             }
         }
+        self.destroy_window();
+    }
+
+    /// One animation frame: draw, position and fade the window; closes it when the clock runs out.
+    pub fn frame(&mut self) {
+        let Some(a) = &self.active else { return };
+        let e = a.t0.elapsed().as_secs_f64() * 1000.0;
+        if e >= a.total_ms || self.hwnd.is_null() {
+            self.close();
+            return;
+        }
+        let (w, h) = self.size;
+        let s = self.dpi;
+        self.draw(a, e, w, h, s);
+
+        let enter = eb(e / 420.0);
+        let exit = eo((e - (a.total_ms - 320.0)) / 320.0);
+        let mut off = (1.0 - enter) * 440.0 + exit * 40.0;
+        if a.popup.event.is_error() {
+            off += (e / 22.0).sin() * 7.0 * decay(e - 380.0, 520.0);
+        }
+        let alpha = (cl(e / 200.0) * (1.0 - exit) * 0.96 * 255.0).round() as u8;
+        unsafe {
+            let x = GetSystemMetrics(SM_CXSCREEN) - w - (24.0 * s) as i32 + (off * s) as i32;
+            SetLayeredWindowAttributes(self.hwnd, 0, alpha, LWA_ALPHA);
+            SetWindowPos(self.hwnd, HWND_TOPMOST, x, (24.0 * s) as i32, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE);
+            let dc = GetDC(self.hwnd);
+            BitBlt(dc, 0, 0, w, h, self.mem, 0, 0, SRCCOPY);
+            ReleaseDC(self.hwnd, dc);
+        }
+    }
+
+    fn draw(&self, a: &Active, e: f64, w: i32, h: i32, s: f64) {
+        let ev = a.popup.event;
+        let accent = ev.accent();
+        let local = e - a.morph_at.unwrap_or(0.0);
+        let glow = decay(local, 700.0);
+        let counting = matches!(ev, Event::PostRoll { .. }) && a.morph_at.is_none();
+        let px = |v: f64| (v * s).round() as i32;
+        unsafe {
+            let dc = self.mem;
+            // card background, tinted by the glow
+            let bg = CreateSolidBrush(mix(BG, accent, 0.16 * glow));
+            FillRect(dc, &RECT { left: 0, top: 0, right: w, bottom: h }, bg);
+            DeleteObject(bg);
+            // accent strip
+            let strip_brush = CreateSolidBrush(rgb(accent));
+            FillRect(dc, &RECT { left: 0, top: 0, right: px(6.0 + 4.0 * glow), bottom: h }, strip_brush);
+            DeleteObject(strip_brush);
+
+            // logo: 11 scan-line bars
+            const N: usize = 11;
+            let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+            for i in 0..N {
+                let dist = (i as i32 - 5).abs() as f64;
+                let base = ((8.0 + (5.0 - dist) * 5.4) * 1.1).floor();
+                let mut wd = base * eo((e - 120.0 - i as f64 * 45.0) / 260.0);
+                let k = eo((e - 500.0) / 900.0);
+                let wave = 0.5 + 0.5 * (e / 700.0 - i as f64 * 0.55).sin();
+                wd += 9.0 * k * wave * (0.4 + 0.6 * (1.0 - dist / 5.0));
+                let mut alpha = 1.0;
+                match ev {
+                    Event::Marker => alpha = 0.35 + 0.65 * (cl((e - 450.0) / 900.0) * 2.0 * PI).cos().abs(),
+                    Event::GameWarn if i == N - 1 => alpha = if ((e / 380.0).floor() as i64) % 2 == 0 { 1.0 } else { 0.25 },
+                    Event::PostRoll { roll_ms } if counting => {
+                        let lit = cl(1.0 - e / roll_ms.max(1) as f64) * N as f64;
+                        let top = lit.ceil() as usize;
+                        alpha = if i < top { 1.0 } else { 0.18 };
+                        if top > 0 && i == top - 1 {
+                            let f = lit - lit.floor();
+                            alpha = if f == 0.0 { 1.0 } else { 0.45 + 0.55 * f };
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(m) = a.morph_at {
+                    let sm = cl((e - m - i as f64 * 40.0) / 200.0);
+                    alpha = 0.18 + 0.82 * sm;
+                    wd *= 1.0 + 0.5 * (PI * sm).sin();
+                }
+                let y = 13.0 + i as f64 * 5.0;
+                let tail = CreateSolidBrush(mix(BG, accent, 0.30 * alpha));
+                let old = SelectObject(dc, tail);
+                RoundRect(dc, px(14.0), px(y), px(22.0), px(y + 3.0), px(3.0), px(3.0));
+                SelectObject(dc, old);
+                DeleteObject(tail);
+                let bar = CreateSolidBrush(mix(BG, accent, alpha));
+                let old = SelectObject(dc, bar);
+                RoundRect(dc, px(22.0), px(y), px(22.0 + wd.max(0.0)) + 1, px(y + 3.0), px(3.0), px(3.0));
+                SelectObject(dc, old);
+                DeleteObject(bar);
+            }
+            SelectObject(dc, old_pen);
+
+            // lifetime bar, 2 px at the bottom
+            let pct = match ev {
+                Event::PostRoll { roll_ms } if counting => cl(1.0 - e / roll_ms.max(1) as f64),
+                _ => cl(1.0 - (e - a.bar_start_ms) / (a.total_ms - a.bar_start_ms).max(1.0)),
+            };
+            let (x0, y0) = (px(6.0), h - px(2.0));
+            let track = CreateSolidBrush(rgb(TRACK));
+            FillRect(dc, &RECT { left: x0, top: y0, right: w, bottom: h }, track);
+            DeleteObject(track);
+            let fill = CreateSolidBrush(rgb(accent));
+            FillRect(dc, &RECT { left: x0, top: y0, right: x0 + ((w - x0) as f64 * pct) as i32, bottom: h }, fill);
+            DeleteObject(fill);
+
+            // text
+            SetBkMode(dc, TRANSPARENT as i32);
+            let title_scale = if counting { 1.0 + 0.06 * decay(e % 1000.0, 220.0) } else { 1.0 };
+            let title = match ev {
+                Event::PostRoll { roll_ms } if counting => {
+                    let n = ((roll_ms as f64 / 1000.0) - e / 1000.0).ceil().max(1.0) as u64;
+                    format!("Zapisuję klip za {n} s")
+                }
+                _ => a.popup.title.clone(),
+            };
+            let mk = |size: f64, weight: i32| CreateFontW(-((size * s).round() as i32), 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 5, 0, wide("Segoe UI").as_ptr());
+            let f1 = mk(19.0 * title_scale, 700);
+            let f2 = mk(14.0, 400);
+            let pad = px(84.0);
+            let mut r1 = RECT { left: pad, top: px(8.0), right: w - px(18.0), bottom: px(42.0) };
+            let old = SelectObject(dc, f1);
+            SetTextColor(dc, rgb((0xe8, 0xea, 0xee)));
+            DrawTextW(dc, wide(&title).as_ptr(), -1, &mut r1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            let mut r2 = RECT { left: pad, top: px(42.0), right: w - px(18.0), bottom: px(68.0) };
+            SelectObject(dc, f2);
+            SetTextColor(dc, rgb((0x8b, 0x91, 0x9c)));
+            DrawTextW(dc, wide(&a.popup.sub).as_ptr(), -1, &mut r2, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            SelectObject(dc, old);
+            DeleteObject(f1);
+            DeleteObject(f2);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn easing_helpers_match_the_spec() {
+        assert_eq!(eo(0.0), 0.0);
+        assert_eq!(eo(1.0), 1.0);
+        assert!(eb(1.0) == 1.0);
+        assert!((0..100).any(|i| eb(i as f64 / 100.0) > 1.0), "ease-out-back overshoots");
+        assert_eq!(decay(100.0, 200.0), 0.5);
+        assert_eq!(decay(250.0, 200.0), 0.0);
+    }
+
+    #[test]
+    fn lifetimes_follow_the_table() {
+        assert_eq!(Event::Game.total_ms(), 4000.0);
+        assert_eq!(Event::SaveFailed.total_ms(), 6500.0);
+        assert_eq!(Event::PostRoll { roll_ms: 15_000 }.total_ms(), 19_300.0);
     }
 }

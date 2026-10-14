@@ -1,7 +1,7 @@
 //! Tray icon (always-visible recorder state), the global save hotkey, the "Buffer active" popup and
 //! game detection. They share one thread because they all need that thread's Win32 message loop.
 
-use crate::overlay::{Kind, Overlay, Popup};
+use crate::overlay::{self, Event, Overlay, Popup};
 use crate::audio::AppSource;
 use crate::session::ActiveGame;
 use crate::{session, win};
@@ -35,6 +35,8 @@ enum State {
     Saved,
     /// Saving failed: red logo + X.
     SaveFailed,
+    /// A long recording is running: lime logo + red dot.
+    LongRec,
 }
 
 /// Programs that are never treated as games even when they cover the whole screen.
@@ -47,7 +49,7 @@ pub const NEVER_GAMES: &[&str] = &[
 
 fn colour(state: State) -> (u8, u8, u8) {
     match state {
-        State::Recording | State::Saving | State::Saved => (0xc6, 0xf4, 0x32),
+        State::Recording | State::Saving | State::Saved | State::LongRec => (0xc6, 0xf4, 0x32),
         State::Problem => (0xff, 0xb4, 0x54),
         State::Stopped | State::SaveFailed => (0xff, 0x5d, 0x5d),
         State::Idle | State::Starting => (0x8b, 0x91, 0x9c),
@@ -100,7 +102,7 @@ fn icon_rgba(state: State) -> Vec<u8> {
     };
     // Outline so a badge reads on any taskbar colour. Healthy recording has no badge at all:
     // a red dot looked like an error, so "all good" is simply the clean lime logo.
-    let badge = matches!(state, State::Problem | State::Stopped | State::SaveFailed | State::Idle);
+    let badge = matches!(state, State::Problem | State::Stopped | State::SaveFailed | State::Idle | State::LongRec);
     if badge {
         disc(&mut put, 8.2, dark);
     }
@@ -129,6 +131,7 @@ fn icon_rgba(state: State) -> Vec<u8> {
                 }
             }
         }
+        State::LongRec => disc(&mut put, 6.2, [0xff, 0x3b, 0x3b, 255]),
         State::Idle => {
             disc(&mut put, 6.2, [0x8b, 0x91, 0x9c, 255]);
             for dy in -3..=3 {
@@ -169,6 +172,12 @@ fn state_of(shared: &session::Shared) -> (State, String) {
             return (State::Saving, format!("Buffer — zapis klipu za {left} s (skrót ponownie = od razu)"));
         }
     }
+    if shared.finalizing.load(Ordering::Relaxed) {
+        return (State::Saving, "Buffer — kończę zapis nagrania…".to_string());
+    }
+    if let Some(secs) = crate::longrec::elapsed_secs(shared) {
+        return (State::LongRec, format!("Buffer — nagrywa całość · {}", clock(secs)));
+    }
     if shared.idle.load(Ordering::Relaxed) {
         return (State::Idle, "Buffer — czeka na grę (nagrywa tylko gry)".to_string());
     }
@@ -195,6 +204,14 @@ fn state_of(shared: &session::Shared) -> (State, String) {
         State::Recording,
         format!("Buffer — nagrywa · bufor {}/{} s{game}", session::buffered_seconds().min(cfg.buffer_seconds), cfg.buffer_seconds),
     )
+}
+
+fn clock(secs: u64) -> String {
+    if secs >= 3600 {
+        format!("{}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60)
+    } else {
+        format!("{}:{:02}", secs / 60, secs % 60)
+    }
 }
 
 fn open_editor() {
@@ -230,7 +247,7 @@ fn hotkey_save(shared: &Arc<session::Shared>) {
         shared.post_roll_skip.store(true, Ordering::Relaxed);
         return;
     }
-    shared.popup(Kind::Info, format!("Zapisuję klip za {roll} s"), "Naciśnij skrót ponownie, aby zapisać od razu");
+    shared.popup(Event::PostRoll { roll_ms: roll as u64 * 1000 }, format!("Zapisuję klip za {roll} s"), "Naciśnij skrót ponownie, aby zapisać od razu");
     *shared.post_roll_until.lock().unwrap() = Some(std::time::Instant::now() + std::time::Duration::from_secs(roll as u64));
     let s = shared.clone();
     thread::spawn(move || {
@@ -253,12 +270,12 @@ fn save_async(shared: &Arc<session::Shared>) {
         Ok(path) => {
             win::beep();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            s.popup(Kind::Ok, "Zapisano klip", name);
+            s.popup(Event::Saved, "Zapisano klip", name);
         }
         Err(e) => {
             session::log(&format!("save failed: {e}"));
             *s.last_error.lock().unwrap() = format!("save failed: {e}");
-            s.popup(Kind::Error, "Nie udało się zapisać klipu", e);
+            s.popup(Event::SaveFailed, "Nie udało się zapisać klipu", e);
         }
     });
 }
@@ -273,11 +290,11 @@ fn announce_game(shared: &session::Shared, game: &str) {
         format!("{} s", cfg.buffer_seconds)
     };
     if !shared.recording.load(Ordering::Relaxed) {
-        shared.popup(Kind::Error, format!("{game}: nagrywanie nie działa"), "Otwórz Buffer → Ustawienia → Nagrywanie");
+        shared.popup(Event::RecordingDown, format!("{game}: nagrywanie nie działa"), "Otwórz Buffer → Ustawienia → Nagrywanie");
     } else if down.is_empty() {
-        shared.popup(Kind::Ok, "Buffer aktywny", format!("{} — zapisz ostatnie {len} · {game}", cfg.hotkey));
+        shared.popup(Event::Game, "Buffer aktywny", format!("{} — zapisz ostatnie {len} · {game}", cfg.hotkey));
     } else {
-        shared.popup(Kind::Warn, "Buffer aktywny, ale uwaga", format!("Nie działa: {} · {} zapisuje klip", down.join(", "), cfg.hotkey));
+        shared.popup(Event::GameWarn, "Buffer aktywny, ale uwaga", format!("Nie działa: {} · {} zapisuje klip", down.join(", "), cfg.hotkey));
     }
 }
 
@@ -285,9 +302,10 @@ fn announce_game(shared: &session::Shared, game: &str) {
 pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>) {
     let menu = Menu::new();
     let save_i = MenuItem::new("Zapisz klip teraz", true, None);
+    let rec_i = MenuItem::new("Nagrywaj całość", true, None);
     let open_i = MenuItem::new("Otwórz edytor", true, None);
-    let quit_i = MenuItem::new("Zakończ nagrywanie", true, None);
-    let _ = menu.append_items(&[&save_i, &open_i, &PredefinedMenuItem::separator(), &quit_i]);
+    let quit_i = MenuItem::new("Zamknij Buffer", true, None);
+    let _ = menu.append_items(&[&save_i, &rec_i, &open_i, &PredefinedMenuItem::separator(), &quit_i]);
 
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
@@ -309,6 +327,14 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
         }
     }
 
+    if let Some(hk) = Some(shared.cfg.lock().unwrap().record_hotkey.clone()).filter(|h| !h.is_empty()) {
+        if let Err(e) = win::register_hotkey_id(&hk, crate::input::RECORD as i32) {
+            session::log(&e);
+        }
+    }
+    crate::input::spawn(shared.clone(), unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() });
+
+    overlay::bind_thread();
     let mut overlay = Overlay::new();
     let mut shown: Option<State> = None;
     let mut notified: HashSet<u32> = HashSet::new();
@@ -317,9 +343,11 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
 
     let hk_shared = shared.clone();
     let tick_shared = shared.clone();
-    win::pump_messages(
-        |id| {
-            if id == 2 {
+    win::pump_messages(|ev| match ev {
+        win::Pump::Hotkey(id) => {
+            if id == crate::input::RECORD {
+                crate::longrec::toggle(&hk_shared);
+            } else if id == 2 {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_millis() as u64);
@@ -331,18 +359,22 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
                     m.drain(..cut);
                 }
                 drop(m);
-                hk_shared.popup(Kind::Info, "Znacznik dodany", "Zobaczysz go jako ◆ na osi czasu w edytorze");
+                hk_shared.popup(Event::Marker, "Znacznik dodany", "Zobaczysz go jako ◆ na osi czasu w edytorze");
             } else {
                 hk_shared.hotkey_hits.fetch_add(1, Ordering::Relaxed);
                 hotkey_save(&hk_shared);
             }
-        },
-        || {
-            tick += 1;
-            overlay.tick();
+        }
+        win::Pump::Wake => {
             while let Ok(p) = popups.try_recv() {
-                let ms = if p.kind == Kind::Error { 6500 } else { 4000 };
-                overlay.show(p, ms);
+                overlay.push(p);
+            }
+        }
+        win::Pump::Timer(id) if overlay.is_anim_timer(id) => overlay.frame(),
+        win::Pump::Timer(_) => {
+            tick += 1;
+            while let Ok(p) = popups.try_recv() {
+                overlay.push(p);
             }
             // Left click opens the app; the context menu belongs to the right button.
             while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
@@ -353,6 +385,8 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
             while let Ok(ev) = MenuEvent::receiver().try_recv() {
                 if ev.id == *save_i.id() {
                     save_async(&tick_shared);
+                } else if ev.id == *rec_i.id() {
+                    crate::longrec::toggle(&tick_shared);
                 } else if ev.id == *open_i.id() {
                     open_editor();
                 } else if ev.id == *quit_i.id() {
@@ -361,6 +395,10 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
             }
             if let Some(tray) = &tray {
                 let (state, tip) = state_of(&tick_shared);
+                let _ = rec_i.set_text(match crate::longrec::elapsed_secs(&tick_shared) {
+                    Some(s) => format!("Zatrzymaj nagrywanie ({})", clock(s)),
+                    None => "Nagrywaj całość".to_string(),
+                });
                 let _ = tray.set_tooltip(Some(tip));
                 if shown != Some(state) {
                     let _ = tray.set_icon(Some(icon(state)));
@@ -422,8 +460,8 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
                 }
             }
             let _ = tick;
-        },
-    );
+        }
+    });
 }
 
 #[cfg(test)]
@@ -432,7 +470,7 @@ mod tests {
 
     #[test]
     fn every_state_has_a_valid_icon() {
-        for s in [State::Recording, State::Problem, State::Stopped, State::Idle, State::Starting, State::Saving, State::Saved, State::SaveFailed] {
+        for s in [State::Recording, State::Problem, State::Stopped, State::Idle, State::Starting, State::Saving, State::Saved, State::SaveFailed, State::LongRec] {
             assert_eq!(icon_rgba(s).len(), 32 * 32 * 4);
             let _ = icon(s);
         }
@@ -442,7 +480,7 @@ mod tests {
     #[test]
     fn dump_icons() {
         let Ok(path) = std::env::var("ICON_DUMP") else { return };
-        let states = [State::Recording, State::Problem, State::Stopped, State::Idle, State::Starting, State::Saving, State::Saved, State::SaveFailed];
+        let states = [State::Recording, State::Problem, State::Stopped, State::Idle, State::Starting, State::Saving, State::Saved, State::SaveFailed, State::LongRec];
         let mut out = Vec::new();
         for y in 0..32 {
             for s in states {

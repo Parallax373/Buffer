@@ -44,7 +44,10 @@ pub struct Config {
     pub fps: u32,
     /// Output width in pixels (height keeps the aspect ratio). 0 = native resolution.
     pub width: u32,
+    /// Legacy absolute bitrate; only used when `quality` is empty (a custom value set by hand).
     pub video_kbps: u32,
+    /// "low" | "std" | "high": the bitrate is derived from resolution, fps and this level (ml-core::bitrate).
+    pub quality: String,
     /// Which monitor to capture (0 = primary).
     pub monitor: u32,
     /// "auto" picks NVENC, then AMF, then QuickSync, then CPU. Or force one of h264_nvenc / h264_amf / h264_qsv / libx264.
@@ -52,10 +55,13 @@ pub struct Config {
     /// Shifts audio against video, in milliseconds (positive = audio later). Tune by ear if lips and
     /// voice drift apart on this machine; saved clips are not touched, only new recordings.
     pub audio_offset_ms: i32,
-    /// e.g. "Alt+Q". Changing it requires restarting the recorder.
+    /// Bindings are comma-separated: a keyboard combo ("Alt+Q"), a mouse button ("Mouse4", "Ctrl+Mouse5")
+    /// and/or a gamepad chord ("Pad:View+RB"). Keyboard combos need a recorder restart; mouse and pad apply at once.
     pub hotkey: String,
     /// Drops a marker (shown as a diamond on the editor timeline) at this moment of the recording.
     pub marker_hotkey: String,
+    /// Starts / stops a long recording (the whole session, not just the last minutes).
+    pub record_hotkey: String,
     pub game: SourceCfg,
     pub chat: SourceCfg,
     pub mic: SourceCfg,
@@ -82,11 +88,13 @@ impl Default for Config {
             fps: 30,
             width: 1920,
             video_kbps: 14_000,
+            quality: "std".into(),
             monitor: 0,
             encoder: "auto".into(),
             audio_offset_ms: 0,
             hotkey: "Alt+Q".into(),
             marker_hotkey: "Alt+M".into(),
+            record_hotkey: "Alt+R".into(),
             game: SourceCfg::default(),
             chat: SourceCfg::default(),
             mic: SourceCfg::default(),
@@ -131,7 +139,11 @@ impl Config {
     pub fn load() -> Config {
         let path = config_path();
         match std::fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
+            Ok(bytes) => {
+                let mut v: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+                migrate_quality(&mut v);
+                serde_json::from_value(v).unwrap_or_default()
+            }
             Err(_) => {
                 let cfg = Config::default();
                 let _ = std::fs::create_dir_all(data_dir());
@@ -139,5 +151,40 @@ impl Config {
                 cfg
             }
         }
+    }
+}
+
+/// Configs written before the quality levels existed stored an absolute bitrate. Keep their meaning:
+/// 8 / 14 / 30 Mb/s become low / std / high, anything else stays a custom absolute value.
+fn migrate_quality(v: &mut serde_json::Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    if obj.contains_key("quality") {
+        return;
+    }
+    if let Some(kbps) = obj.get("video_kbps").and_then(|k| k.as_u64()) {
+        let q = match kbps {
+            8_000 => "low",
+            14_000 => "std",
+            30_000 => "high",
+            _ => "",
+        };
+        obj.insert("quality".into(), serde_json::Value::String(q.into()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_bitrates_map_to_levels() {
+        for (kbps, want) in [(8000, "low"), (14000, "std"), (30000, "high"), (21000, "")] {
+            let mut v = serde_json::json!({ "video_kbps": kbps });
+            migrate_quality(&mut v);
+            assert_eq!(v["quality"], want);
+        }
+        let mut v = serde_json::json!({ "video_kbps": 30000, "quality": "low" });
+        migrate_quality(&mut v);
+        assert_eq!(v["quality"], "low", "an explicit level is never overwritten");
     }
 }
