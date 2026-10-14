@@ -114,8 +114,9 @@
         chip.replaceChildren(label, bars);
         chip._live = { label, bars };
       }
-      chip._live.label.textContent = `⇪ ${Math.round(ex.pct)}%`;
-      [...chip._live.bars.children].forEach((b, i) => { b.style.opacity = ex.pct / 100 * 8 > i ? 1 : 0.15; });
+      const shown = ex.shown ?? ex.pct;
+      chip._live.label.textContent = `⇪ ${Math.round(shown)}%`;
+      [...chip._live.bars.children].forEach((b, i) => { b.style.opacity = 0.15 + 0.85 * fill(shown, 8, i); });
     } else if (S.lastDone && Date.now() - S.lastDone.at < 7000) {
       chip.replaceChildren(`✓ ${S.lastDone.size} MiB`);
     } else {
@@ -247,12 +248,29 @@
     App.Lib.clearSel();
   };
 
+  /** How full bar `i` of `n` is at `pct`: 0..1, so the leading bar fills gradually instead of switching on. */
+  const fill = (pct, n, i) => Math.max(0, Math.min(1, (pct / 100) * n - i));
+
+  /* The encoder reports progress in steps; showing them directly looks jerky. Each report only moves a target and
+     this loop eases what is on screen towards it (it stops by itself once it has arrived). */
+  let smoothRaf = 0;
+  function smoothTick() {
+    smoothRaf = 0;
+    const ex = S.exporting;
+    if (!ex) return;
+    const from = ex.shown ?? 0;
+    const gap = ex.pct - from;
+    ex.shown = Math.abs(gap) < 0.04 ? ex.pct : from + gap * 0.1;
+    paintChip();
+    updatePop();
+    App.Ed.onProgress(ex.shown);
+    if (ex.shown !== ex.pct) smoothRaf = requestAnimationFrame(smoothTick);
+  }
+
   api.listen("export-progress", (e) => {
     if (!S.exporting) return;
     S.exporting.pct = e.payload * 100;
-    App.Ed.onProgress(S.exporting.pct);
-    paintChip();
-    updatePop();
+    if (!smoothRaf) smoothRaf = requestAnimationFrame(smoothTick);
   });
 
   Exports.togglePop = () => { popOpen ? closePop() : Exports.openPop(true); };
@@ -299,11 +317,12 @@
   function updatePop() {
     const ex = S.exporting;
     if (!popLive || !ex || !popLive.pct.isConnected) return;
-    const p = ex.pct;
+    const p = ex.shown ?? ex.pct;
     popLive.pct.textContent = `${Math.round(p)}%`;
-    popLive.bars.forEach((b, i) => { b.style.opacity = p / 100 * 30 > i ? 0.35 + 0.65 * (i / 30) : 0.12; });
+    popLive.bars.forEach((b, i) => { b.style.opacity = 0.12 + (0.35 + 0.65 * (i / 30) - 0.12) * fill(p, 30, i); });
+    const real = ex.pct;
     const elapsed = (Date.now() - ex.startedAt) / 1000;
-    const eta = p > 3 ? Math.max(0, Math.round((elapsed * (100 - p)) / p)) : null;
+    const eta = real > 3 ? Math.max(0, Math.round((elapsed * (100 - real)) / real)) : null;
     popLive.eta.textContent = eta == null ? App.t("exp.calc") : `≈ ${eta} s`;
   }
 
@@ -316,12 +335,12 @@
     const recent = App.P.exports.filter((e) => !done || e.id !== S.lastDone.id).slice(0, 2);
     const parts = [];
     if (ex) {
-      const p = ex.pct;
+      const p = ex.shown ?? ex.pct;
       const elapsed = (Date.now() - ex.startedAt) / 1000;
       const eta = p > 3 ? Math.max(0, Math.round((elapsed * (100 - p)) / p)) : null;
       const pctEl = h("span", { class: "mono lime", text: `${Math.round(p)}%` });
       const barEls = Array.from({ length: 30 }, (_, i) =>
-        h("i", { style: { opacity: p / 100 * 30 > i ? 0.35 + 0.65 * (i / 30) : 0.12 } }));
+        h("i", { style: { opacity: 0.12 + (0.35 + 0.65 * (i / 30) - 0.12) * fill(p, 30, i) } }));
       const etaEl = h("span", { text: eta == null ? App.t("exp.calc") : `≈ ${eta} s` });
       popLive = { pct: pctEl, bars: barEls, eta: etaEl };
       parts.push(h("div", null,

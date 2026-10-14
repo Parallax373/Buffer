@@ -761,3 +761,6 @@ body { color: var(--text); }
 .ghead .gc { font: 11px "JetBrains Mono", monospace; opacity: .7; }
 .ghead .gar { margin-left: auto; font-size: 10px; }
 .ghead:hover { color: var(--text); }
+
+/* export progress: bars change opacity smoothly, and the editor bar eases its width */
+.scan i, .expchip .bars i { transition: opacity .12s linear; }

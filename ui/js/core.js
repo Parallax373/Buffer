@@ -94,7 +94,7 @@ const App = {};
     settings: {
       theme: "ink", anim: true, lite: false, thumb: "M",
       sub: true, auto: true, thumbs: true, cache: true, hw: true,
-      normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false, presets: [10, 50, 500],
+      normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false, presets: [10, 50, 500], autoCleanDays: 7,
     },
     libDirs: ["E:\\Nagrania"],
     favs: {}, titles: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
