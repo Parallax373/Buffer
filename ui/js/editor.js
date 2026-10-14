@@ -57,7 +57,11 @@
       renderAll();
       for (const t of E.tracks) {
         api.invoke("waveform", { path, index: t.index }).then((w) => {
-          if (token === loadToken) { t.wave = w; drawLanes(); renderMarkers(); }
+          if (token !== loadToken) return;
+          t.wave = w;
+          // a silent track (nothing on it) gets no lane; the file keeps it, so exports are unchanged
+          const empty = !w.some((v) => v > 1);
+          if (empty !== !!t.empty) { t.empty = empty; renderLanes(); } else { drawLanes(); renderMarkers(); }
         }).catch(() => {});
       }
     } catch (e) {
@@ -232,7 +236,8 @@
 
   function renderLanes() {
     const dur = E.info ? E.info.duration : 0;
-    const names = E.tracks.length ? E.tracks : ["Game", "Chat", "Mic"].map((n) => ({ name: n, gain: (App.P.gains[n] ?? 100) / 100 }));
+    const shown = E.tracks.filter((t) => !t.empty);
+    const names = E.tracks.length ? (shown.length ? shown : E.tracks) : ["Game", "Chat", "Mic"].map((n) => ({ name: n, gain: (App.P.gains[n] ?? 100) / 100 }));
     const labels = h("div", { class: "labels" }, h("div", { style: { height: "20px" } }),
       h("div", { class: "lane-l", style: { color: "var(--muted)", justifyContent: "center", flexDirection: "row", alignItems: "center" } }, App.t("ed.lane")));
     const area = h("div", { class: "area" });
