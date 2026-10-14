@@ -507,6 +507,22 @@ async fn recorder_devices() -> Result<serde_json::Value, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Peak level (0..1) per endpoint id / "@default:*" token, for the live meters in the audio settings.
+#[tauri::command]
+async fn recorder_levels(ids: Vec<String>) -> Result<serde_json::Value, String> {
+    if ids.is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut args: Vec<&str> = vec!["levels"];
+        args.extend(ids.iter().map(|s| s.as_str()));
+        let raw = recorder_cli(&args)?;
+        serde_json::from_str(&raw).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn recorder_monitors() -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -564,6 +580,7 @@ fn main() {
             set_recorder_config,
             recorder_devices,
             recorder_monitors,
+            recorder_levels,
             default_clips_dir,
             recorder_autostart,
         ])

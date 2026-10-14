@@ -63,8 +63,11 @@
   };
 
   function makeTrack(name, file, index) {
-    const el = new Audio(api.src(file));
+    const el = new Audio();
+    // Without CORS mode WebAudio mutes cross-origin media: the preview would be silent.
+    el.crossOrigin = "anonymous";
     el.preload = "auto";
+    el.src = api.src(file);
     const node = ctx.createGain();
     ctx.createMediaElementSource(el).connect(node).connect(ctx.destination);
     const gain = (App.P.gains[name] ?? 100) / 100;
@@ -169,19 +172,30 @@
 
   const toggle = () => (video.paused ? play() : stop());
 
+  /** The rail lists every clip of the current library view; thumbnails load lazily while scrolling. */
+  let railObserver = null;
   function renderRail() {
-    const list = App.Lib.visible();
-    const i = Math.max(0, list.findIndex((c) => c.path === E.clip.path));
-    const from = Math.max(0, Math.min(i - 4, list.length - 10));
-    const items = list.slice(from, from + 10);
+    const list = App.Lib.visible().slice(0, 400);
+    railObserver?.disconnect();
+    const items = list.map((c) => {
+      const tn = h("div", { class: "tn" + (c.path === E.clip.path ? " on" : ""), title: App.gameOf(c),
+        onClick: () => Ed.open(c.path) });
+      tn.dataset.path = c.path;
+      return tn;
+    });
     ui.rail.replaceChildren(
       h("button", { class: "back", title: "Biblioteka", onClick: () => App.go("lib"), text: "▦" }),
-      ...items.map((c) => {
-        const tn = h("div", { class: "tn" + (c.path === E.clip.path ? " on" : ""), title: App.gameOf(c),
-          onClick: () => Ed.open(c.path) });
-        App.Lib.thumbUrl(c.path).then((u) => { if (u) tn.style.backgroundImage = `url("${u}")`; });
-        return tn;
-      }));
+      h("div", { class: "tns" }, items));
+    railObserver = new IntersectionObserver((entries) => {
+      for (const en of entries) {
+        if (!en.isIntersecting) continue;
+        const tn = en.target;
+        railObserver.unobserve(tn);
+        App.Lib.thumbUrl(tn.dataset.path).then((u) => { if (u) tn.style.backgroundImage = `url("${u}")`; });
+      }
+    }, { root: ui.rail.querySelector(".tns"), rootMargin: "120px" });
+    items.forEach((tn) => railObserver.observe(tn));
+    ui.rail.querySelector(".tn.on")?.scrollIntoView({ block: "center" });
   }
 
   function renderHead() {

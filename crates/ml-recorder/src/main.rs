@@ -68,7 +68,40 @@ fn devices_json() {
             }
         }
     }
-    println!("{}", serde_json::json!({ "render": render, "capture": capture }));
+    let id_of = |dir: Direction, role: wasapi::Role| {
+        DeviceEnumerator::new()
+            .ok()
+            .and_then(|en| en.get_default_device_for_role(&dir, &role).ok())
+            .and_then(|d| d.get_id().ok())
+            .unwrap_or_default()
+    };
+    println!(
+        "{}",
+        serde_json::json!({
+            "render": render,
+            "capture": capture,
+            "default": {
+                "render": id_of(Direction::Render, wasapi::Role::Console),
+                "communications": id_of(Direction::Render, wasapi::Role::Communications),
+                "capture": id_of(Direction::Capture, wasapi::Role::Console),
+            },
+        })
+    );
+}
+
+/// Peak level of the given endpoints (ids or "@default:*" tokens), measured in parallel for ~350 ms.
+fn levels_json(tokens: Vec<String>) {
+    let handles: Vec<_> = tokens
+        .into_iter()
+        .map(|t| std::thread::spawn(move || (t.clone(), audio::measure_peak(&t, 350))))
+        .collect();
+    let mut map = serde_json::Map::new();
+    for h in handles {
+        if let Ok((t, p)) = h.join() {
+            map.insert(t, serde_json::json!(p));
+        }
+    }
+    println!("{}", serde_json::Value::Object(map));
 }
 
 /// Monitors in enumeration order (index = the "monitor" setting), with their resolution.
@@ -181,6 +214,7 @@ fn main() {
                 "devices" => list_devices(),
                 "devices-json" => devices_json(),
                 "monitors-json" => monitors_json(),
+                "levels" => levels_json(std::env::args().skip(2).collect()),
                 "autostart-status" => println!("{}", if autostart_enabled() { "enabled" } else { "disabled" }),
                 "status" | "save" | "reload" | "quit" => match control::send(other) {
                     Ok(r) => println!("{r}"),

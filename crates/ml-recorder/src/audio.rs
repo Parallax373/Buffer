@@ -1,7 +1,7 @@
 //! WASAPI capture of one audio source (loopback of a playback device, or a microphone).
 //! The recorder owns capture so it can meter levels and notice device loss itself.
 
-use crate::config::SourceCfg;
+use crate::config::{DeviceRef, SourceCfg};
 use crate::pick::{self, Endpoint, Role};
 use std::{
     collections::VecDeque,
@@ -14,6 +14,8 @@ use std::{
 };
 use wasapi::{DeviceEnumerator, Direction, Role as WinRole, SampleType, StreamMode, WaveFormat};
 
+/// Config value meaning "whichever device Windows currently uses" (speakers, headset, ...).
+pub const FOLLOW_DEFAULT: &str = "@default";
 pub const RATE: u32 = 48_000;
 /// Bytes per frame of the interleaved stereo f32 stream sent to ffmpeg.
 pub const FRAME_BYTES: usize = 8;
@@ -111,14 +113,85 @@ fn auto_guess(en: &DeviceEnumerator, sink: &Sink, list: &[Endpoint]) -> Option<E
     Some(Endpoint { id: d.get_id().ok()?, name: d.get_friendlyname().ok()? })
 }
 
+fn default_endpoint(en: &DeviceEnumerator, dir: &Direction, communications: bool) -> Option<Endpoint> {
+    let role = if communications { WinRole::Communications } else { WinRole::Console };
+    let d = en.get_default_device_for_role(dir, &role).ok()?;
+    Some(Endpoint { id: d.get_id().ok()?, name: d.get_friendlyname().ok()? })
+}
+
+/// Replaces the "follow the Windows default" marker with the device that is the default right now.
+/// If Windows has no default, the marker becomes an id that matches nothing (the source waits).
+fn materialize(cfg: &SourceCfg, en: &DeviceEnumerator, sink: &Sink) -> SourceCfg {
+    let dir = sink.direction();
+    let fix = |r: &Option<DeviceRef>| {
+        r.as_ref().map(|d| {
+            if d.id == FOLLOW_DEFAULT {
+                match default_endpoint(en, &dir, sink.name == "Chat") {
+                    Some(e) => DeviceRef { id: e.id, name: e.name },
+                    None => DeviceRef { id: "@none".into(), name: String::new() },
+                }
+            } else {
+                d.clone()
+            }
+        })
+    };
+    SourceCfg { primary: fix(&cfg.primary), secondary: fix(&cfg.secondary) }
+}
+
+/// Peak level (0..1) of one endpoint over `ms` milliseconds, for the settings meters. A playback device is
+/// measured by loopback. Accepts "@default:render" / "@default:comm" / "@default:capture".
+pub fn measure_peak(token: &str, ms: u64) -> f32 {
+    let _ = wasapi::initialize_mta();
+    let Ok(en) = DeviceEnumerator::new() else { return 0.0 };
+    let id = match token {
+        "@default:render" => default_endpoint(&en, &Direction::Render, false).map(|e| e.id),
+        "@default:comm" => default_endpoint(&en, &Direction::Render, true).map(|e| e.id),
+        "@default:capture" => default_endpoint(&en, &Direction::Capture, false).map(|e| e.id),
+        other => Some(other.to_string()),
+    };
+    let Some(id) = id else { return 0.0 };
+    let Ok(device) = en.get_device(&id) else { return 0.0 };
+    let Ok(mut client) = device.get_iaudioclient() else { return 0.0 };
+    let fmt = WaveFormat::new(32, 32, &SampleType::Float, RATE as usize, 2, None);
+    let Ok((_, period)) = client.get_device_period() else { return 0.0 };
+    let mode = StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: period.max(200_000) };
+    if client.initialize_client(&fmt, &Direction::Capture, &mode).is_err() {
+        return 0.0;
+    }
+    let (Ok(event), Ok(capture)) = (client.set_get_eventhandle(), client.get_audiocaptureclient()) else {
+        return 0.0;
+    };
+    if client.start_stream().is_err() {
+        return 0.0;
+    }
+    let mut scratch: VecDeque<u8> = VecDeque::new();
+    let mut peak = 0f32;
+    let deadline = Instant::now() + Duration::from_millis(ms);
+    while Instant::now() < deadline {
+        let _ = event.wait_for_event(20);
+        if capture.read_from_device_to_deque(&mut scratch).is_err() {
+            break;
+        }
+        let bytes: Vec<u8> = scratch.drain(..).collect();
+        for s in bytes.chunks_exact(4) {
+            peak = peak.max(f32::from_le_bytes([s[0], s[1], s[2], s[3]]).abs());
+        }
+    }
+    let _ = client.stop_stream();
+    peak.min(1.0)
+}
+
 fn capture_once(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let generation = sink.generation.load(Ordering::Relaxed);
     let en = DeviceEnumerator::new().map_err(|e| e.to_string())?;
     let dir = sink.direction();
     let list = list_endpoints(&en, &dir);
-    let cfg = sink.cfg.lock().unwrap().clone();
+    let raw_cfg = sink.cfg.lock().unwrap().clone();
+    let cfg = materialize(&raw_cfg, &en, sink);
     let guess = auto_guess(&en, sink, &list);
     let (role, chosen) = pick::resolve(&cfg, &list, guess.as_ref());
+    let follows_default =
+        role == Role::Primary && raw_cfg.primary.as_ref().is_some_and(|d| d.id == FOLLOW_DEFAULT);
     let Some(chosen) = chosen else {
         *sink.role.lock().unwrap() = Role::Waiting.label();
         let wanted = cfg.primary.as_ref().map(|d| d.name.clone()).unwrap_or_default();
@@ -127,7 +200,7 @@ fn capture_once(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
 
     let device = en.get_device(&chosen.id).map_err(|e| e.to_string())?;
     *sink.device_name.lock().unwrap() = chosen.name.clone();
-    *sink.role.lock().unwrap() = role.label();
+    *sink.role.lock().unwrap() = if follows_default { "default" } else { role.label() };
 
     let mut client = device.get_iaudioclient().map_err(|e| e.to_string())?;
     let fmt = WaveFormat::new(32, 32, &SampleType::Float, RATE as usize, 2, None);
@@ -152,7 +225,8 @@ fn capture_once(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
             last_check = Instant::now();
             let now = list_endpoints(&en, &dir);
             let guess = auto_guess(&en, sink, &now);
-            let (r, e) = pick::resolve(&sink.cfg.lock().unwrap().clone(), &now, guess.as_ref());
+            let live_cfg = materialize(&sink.cfg.lock().unwrap().clone(), &en, sink);
+            let (r, e) = pick::resolve(&live_cfg, &now, guess.as_ref());
             if r != role || e.map(|e| e.id) != Some(chosen.id.clone()) {
                 let _ = client.stop_stream();
                 return Err("reconfigured".into());

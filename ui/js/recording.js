@@ -3,8 +3,13 @@
 
 App.RecUI = (function () {
   const { h, S, api } = App;
-  const SRC = [["game", "Game", "Gra", "render"], ["chat", "Chat", "Czat", "render"], ["mic", "Mic", "Mikrofon", "capture"]];
-  const ROLE = { primary: "główne", secondary: "zapasowe", auto: "automatycznie", waiting: "czeka na urządzenie" };
+  const FOLLOW = "@default";            // "whatever Windows currently uses" (speakers, headset…)
+  const SRC = [
+    ["game", "Game", "Dźwięk gry", "render", "Skąd nagrywać dźwięk z komputera (gry, muzyka, filmy)."],
+    ["chat", "Chat", "Czat głosowy", "render", "Rozmówcy z Discorda, Teamspeaka itp. — osobna ścieżka, żeby dało się ją wyciszyć."],
+    ["mic", "Mic", "Mikrofon", "capture", "Twój głos. Dostaje własną ścieżkę z osobną głośnością."],
+  ];
+  const ROLE = { primary: "główne", secondary: "zapasowe", auto: "automatycznie", waiting: "czeka na urządzenie", default: "domyślne Windows" };
   const BASE = {
     output_dir: "", per_game_folders: false, buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, monitor: 0,
     encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", popup: true, extra_games: [], ignore_apps: [],
@@ -12,28 +17,36 @@ App.RecUI = (function () {
   };
 
   let cfg = { ...BASE };
-  let devices = { render: [], capture: [] };
+  let devices = { render: [], capture: [], default: {} };
   let monitors = [];
   let autostart = false;
+  let tools = null;
+  let meterTimer = 0;
 
   const cap = (t) => h("div", { class: "cap", text: t });
+  const nameOf = (list, id) => (list.find((d) => d.id === id) || {}).name || "";
 
   async function load() {
-    const [c, d, m, a, dir] = await Promise.all([
+    const [c, d, m, a, dir, t] = await Promise.all([
       api.invoke("recorder_config").catch(() => ({})),
-      api.invoke("recorder_devices").catch(() => ({ render: [], capture: [] })),
+      api.invoke("recorder_devices").catch(() => ({ render: [], capture: [], default: {} })),
       api.invoke("recorder_monitors").catch(() => []),
       api.invoke("recorder_autostart", { enable: null }).catch(() => false),
       api.invoke("default_clips_dir").catch(() => ""),
+      api.invoke("tools_status").catch(() => null),
     ]);
     cfg = { ...BASE, output_dir: dir, ...c };
     for (const [k] of SRC) cfg[k] = { primary: null, secondary: null, ...(c[k] || {}) };
-    devices = d; monitors = m; autostart = a;
+    devices = { render: [], capture: [], default: {}, ...d };
+    monitors = m; autostart = a; tools = t;
   }
 
   async function save(patch, hint = "") {
     cfg = { ...cfg, ...patch };
-    await api.invoke("set_recorder_config", { config: cfg });
+    // an empty "backup" placeholder (shown but never filled in) must not be persisted
+    const clean = JSON.parse(JSON.stringify(cfg));
+    for (const [k] of SRC) if (clean[k].secondary && !clean[k].secondary.id) clean[k].secondary = null;
+    await api.invoke("set_recorder_config", { config: clean });
     if (S.recorder) {
       await api.invoke("recorder_cmd", { cmd: "reload" }).catch(() => {});
       if (hint) App.toast(hint);
@@ -41,36 +54,159 @@ App.RecUI = (function () {
     App.Rec.refresh();
   }
 
-  const refOf = (list, id) => {
-    const d = list.find((x) => x.id === id);
-    return d ? { id: d.id, name: d.name } : null;
-  };
+  /* ───── audio sources ───── */
 
-  /** <select> of endpoints. A configured device that is currently unplugged stays visible and selected. */
-  function deviceSelect(list, cur, onPick, noneLabel) {
-    const present = cur && list.some((d) => d.id === cur.id || d.name.toLowerCase() === cur.name.toLowerCase());
-    const match = cur && list.find((d) => d.id === cur.id || d.name.toLowerCase() === cur.name.toLowerCase());
-    const opts = [h("option", { value: "", text: noneLabel, selected: !cur })];
-    if (cur && !present) opts.push(h("option", { value: cur.id, text: `${cur.name} (odłączone)`, selected: true }));
+  const defaultFor = (kind, key) =>
+    kind === "capture" ? devices.default.capture : key === "chat" ? devices.default.communications : devices.default.render;
+
+  /** Select of devices; `allowNone` adds an empty choice (used for the optional backup device). */
+  function deviceSelect(key, kind, cur, onPick, allowNone) {
+    const list = kind === "render" ? devices.render : devices.capture;
+    const defName = nameOf(list, defaultFor(kind, key));
+    const real = cur && cur.id && cur.id !== FOLLOW;
+    const match = real && list.find((d) => d.id === cur.id || d.name.toLowerCase() === (cur.name || "").toLowerCase());
+    const opts = [];
+    if (allowNone) opts.push(h("option", { value: "", text: "— wybierz urządzenie —", selected: !cur || !cur.id }));
+    opts.push(h("option", { value: FOLLOW, selected: !!cur && cur.id === FOLLOW,
+      text: `Domyślne urządzenie Windows${defName ? ` (teraz: ${defName})` : ""} — podąża za zmianą` }));
+    if (real && !match) opts.push(h("option", { value: cur.id, text: `${cur.name} (odłączone)`, selected: true }));
     for (const d of list) opts.push(h("option", { value: d.id, text: d.name, selected: !!match && match.id === d.id }));
-    return h("select", { class: "field", onChange: (e) => onPick(e.target.value ? (refOf(list, e.target.value) || cur) : null) }, opts);
+    return h("select", { class: "field", onChange: (e) => {
+      const v = e.target.value;
+      if (!v) return onPick(null);
+      if (v === FOLLOW) return onPick({ id: FOLLOW, name: "Domyślne urządzenie Windows" });
+      const d = list.find((x) => x.id === v);
+      onPick(d ? { id: d.id, name: d.name } : cur);
+    } }, opts);
   }
 
-  function sourcesBox(onChange) {
-    return h("div", { class: "stack", id: "recSources" }, SRC.map(([key, name, label, kind]) => {
-      const list = kind === "render" ? devices.render : devices.capture;
-      return h("div", { class: "src", "data-src": name },
-        h("div", { class: "nm", text: label }),
-        h("div", { class: "meter" }, h("div")),
-        h("div", { class: "st", text: "—" }),
-        h("div", { class: "pair" },
-          h("label", null, h("span", { class: "muted", text: "Główne" }),
-            deviceSelect(list, cfg[key].primary, (v) => { cfg[key] = { ...cfg[key], primary: v }; onChange(key); }, "— nie ustawiono —")),
-          h("label", null, h("span", { class: "muted", text: "Zapasowe (gdy główne odłączone)" }),
-            deviceSelect(list, cfg[key].secondary, (v) => { cfg[key] = { ...cfg[key], secondary: v }; onChange(key); }, "— brak —"))),
-        h("div", { class: "hint2 muted", text: "Po odłączeniu głównego nagrywanie przechodzi na zapasowe; gdy główne wróci, wraca na nie. Ustawienia nigdy nie są zmieniane automatycznie." }));
-    }));
+  /** One card per audio source: main device, live level, optional (hidden by default) backup device. */
+  function sourceCards(onChange) {
+    const wrap = h("div", { class: "stack", id: "recSources" });
+    const draw = () => {
+      wrap.replaceChildren(...SRC.map(([key, name, label, kind, desc]) => {
+        const c = cfg[key];
+        const showBackup = !!c.secondary;
+        return h("div", { class: "src", "data-src": name },
+          h("div", { class: "nm", text: label }),
+          h("div", { class: "meter" }, h("div")),
+          h("div", { class: "st", text: "—" }),
+          h("div", { class: "desc muted", text: desc }),
+          h("label", { class: "main" }, h("span", { class: "muted", text: "Źródło" }),
+            deviceSelect(key, kind, c.primary, (v) => { cfg[key] = { ...cfg[key], primary: v }; onChange(key); draw(); }, false)),
+          showBackup
+            ? h("label", { class: "main" },
+              h("span", { class: "muted", text: "Zapasowe — włączy się, gdy główne zostanie odłączone" }),
+              h("div", { class: "pathrow" },
+                deviceSelect(key, kind, c.secondary, (v) => { cfg[key] = { ...cfg[key], secondary: v }; onChange(key); draw(); }, true),
+                h("button", { class: "btn ghost", text: "Usuń", onClick: () => { cfg[key] = { ...cfg[key], secondary: null }; onChange(key); draw(); } })))
+            : h("button", { class: "linkbtn", text: "+ Dodaj urządzenie zapasowe", onClick: () => {
+              cfg[key] = { ...cfg[key], secondary: { id: "", name: "" } };   // placeholder until a device is picked
+              draw();
+            } }));
+      }));
+      pollMeters();
+    };
+    draw();
+    return wrap;
   }
+
+  /** Live level of each configured source (works with or without the recorder running). */
+  function pollMeters() {
+    clearInterval(meterTimer);
+    const tick = async () => {
+      const rows = [...document.querySelectorAll("#recSources .src")];
+      if (!rows.length) { clearInterval(meterTimer); return; }
+      const ids = SRC.map(([key, , , kind]) => {
+        const p = cfg[key].primary;
+        if (!p || !p.id) return "";
+        if (p.id !== FOLLOW) return p.id;
+        return kind === "capture" ? "@default:capture" : key === "chat" ? "@default:comm" : "@default:render";
+      });
+      const levels = await api.invoke("recorder_levels", { ids: ids.filter(Boolean) }).catch(() => ({}));
+      for (const row of rows) {
+        const i = SRC.findIndex((s) => s[1] === row.dataset.src);
+        const lv = levels[ids[i]] ?? 0;
+        const bar = row.querySelector(".meter div");
+        if (bar) bar.style.width = `${Math.min(100, lv * 140)}%`;
+      }
+    };
+    meterTimer = setInterval(tick, 700);
+    tick();
+  }
+
+  /* ───── video quality with live estimates ───── */
+
+  const RES = [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, "Natywna"]];
+  const QUAL = [[8000, "Oszczędna"], [14000, "Standard"], [30000, "Wysoka"]];
+  const LEN = [[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]];
+
+  const seg = (items, cur, on) => h("div", { class: "seg wrap" }, items.map(([v, t]) =>
+    h("button", { class: String(cur) === String(v) ? "on" : "", text: t, onClick: () => on(v) })));
+
+  function outputSize(c) {
+    const mon = monitors.find((m) => m.index === c.monitor) || monitors[0] || { width: 1920, height: 1080 };
+    const w = c.width > 0 ? Math.min(c.width, mon.width) : mon.width;
+    return [w, Math.round((mon.height * w) / mon.width / 2) * 2];
+  }
+
+  function estimates(c) {
+    const [w, hgt] = outputSize(c);
+    const audioKbps = 3 * 192;
+    const clipMb = ((c.video_kbps + audioKbps) * c.buffer_seconds) / 8000;
+    const diskMb = clipMb * (1 + 8 / c.buffer_seconds);                  // plus the segments being written
+    const ramMb = 200 + 170 * ((w * hgt * c.fps) / (1920 * 804 * 30));   // calibrated on one measurement (367 MB @ 1080p30)
+    return { w, hgt, clipMb, diskMb, ramMb };
+  }
+
+  const fmtMb = (mb) => (mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`);
+
+  function meterBar(label, value, scaleMax, ticks, val, text) {
+    return h("div", { class: "est" },
+      h("div", { class: "top" }, h("span", { text: label }), h("b", { text: value })),
+      h("div", { class: "bar" }, h("i", { style: { width: `${Math.min(100, (val / scaleMax) * 100)}%` } }),
+        ...ticks.map(([at, t]) => h("u", { style: { left: `${(at / scaleMax) * 100}%` }, title: t }))),
+      h("div", { class: "note muted", text }));
+  }
+
+  /** Controls on the left, what they will cost on the right. `onChange(patch)` persists. */
+  function qualityBlock(c, onChange) {
+    const root = h("div", { class: "qual" });
+    const draw = () => {
+      const e = estimates(c);
+      const fits = e.clipMb <= 10 ? "mieści się w Discordzie (10 MB)"
+        : e.clipMb <= 50 ? "mieści się w Discordzie z boostem (50 MB)"
+          : e.clipMb <= 500 ? "mieści się w Discordzie z Nitro (500 MB)"
+            : "większy niż limity Discorda — przy eksporcie zostanie zmniejszony";
+      const hw = tools && tools.encoder && tools.encoder !== "libx264";
+      const set = (patch) => { Object.assign(c, patch); onChange(patch); draw(); };
+      const customQ = !QUAL.some(([v]) => v === c.video_kbps);
+      root.replaceChildren(
+        h("div", { class: "controls" },
+          h("div", null, cap("Rozdzielczość"), seg(RES, c.width, (v) => set({ width: +v }))),
+          h("div", null, cap("Klatki na sekundę"), seg([[30, "30 fps"], [60, "60 fps"]], c.fps, (v) => set({ fps: +v }))),
+          h("div", null, cap("Jakość obrazu"),
+            seg([...QUAL, ...(customQ ? [[c.video_kbps, `${c.video_kbps / 1000} Mb/s`]] : [])], c.video_kbps, (v) => set({ video_kbps: +v }))),
+          h("div", null, cap("Długość zapisywanego klipu"), seg(LEN, c.buffer_seconds, (v) => set({ buffer_seconds: +v }))),
+          monitors.length > 1
+            ? h("div", null, cap("Który ekran nagrywać"),
+              seg(monitors.map((m) => [m.index, `${m.index + 1}: ${m.width}×${m.height}${m.primary ? " ★" : ""}`]), c.monitor, (v) => set({ monitor: +v })))
+            : null),
+        h("div", { class: "estimates" },
+          h("div", { class: "cap", text: "Co to zajmie" }),
+          meterBar("Jeden klip", fmtMb(e.clipMb), 500, [[10, "Discord 10 MB"], [50, "Discord 50 MB"]], e.clipMb, fits),
+          meterBar("Bufor na dysku", fmtMb(e.diskMb), 1000, [], e.diskMb, "tymczasowy, ciągle nadpisywany — nie rośnie"),
+          meterBar("Pamięć RAM", `≈ ${fmtMb(e.ramMb)}`, 2000, [], e.ramMb, "szacunek dla procesu nagrywającego"),
+          h("div", { class: "est" },
+            h("div", { class: "top" }, h("span", { text: "Obciążenie" }), h("b", { text: hw ? "GPU (koder sprzętowy)" : "procesor (CPU)" })),
+            h("div", { class: "note muted", text: hw ? "Nagrywanie praktycznie nie obciąża gry." : "Brak kodera sprzętowego — przy wyższej jakości może spadać FPS w grze." })),
+          h("div", { class: "note muted", text: `Obraz zapisywany w ${e.w}×${e.hgt} px, ${c.fps} fps. 10 klipów ≈ ${fmtMb(e.clipMb * 10)}.` })));
+    };
+    draw();
+    return root;
+  }
+
+  /* ───── hotkey field ───── */
 
   const hotkeyInput = (value, onSet) => h("input", { class: "field", value, readOnly: true,
     placeholder: "Kliknij i naciśnij skrót",
@@ -86,18 +222,6 @@ App.RecUI = (function () {
       onSet(combo);
     } });
 
-  const pick = (cur, list, on) => h("select", { class: "field", onChange: (e) => on(e.target.value) },
-    list.map(([v, t]) => h("option", { value: v, text: t, selected: String(cur) === String(v) })));
-
-  const monitorList = () => monitors.length
-    ? monitors.map((m) => [m.index, `${m.index + 1}: ${m.width}×${m.height}${m.primary ? " (główny)" : ""}`])
-    : [[0, "Główny"]];
-
-  const clipSize = () => {
-    const mb = (cfg.video_kbps * cfg.buffer_seconds) / 8000;
-    return mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-  };
-
   /* ───── settings tab ───── */
 
   async function renderTab(body) {
@@ -106,6 +230,7 @@ App.RecUI = (function () {
       h("div", null, h("div", { class: "tt", text: title }), h("div", { class: "ds", text: desc })),
       h("span", { class: "toggle lg" + (on ? " on" : "") }));
     const rerender = () => App.Settings.render();
+    const persistSources = () => save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic });
 
     body.append(
       h("div", { class: "sec" }, cap("Stan"),
@@ -124,22 +249,15 @@ App.RecUI = (function () {
             setTimeout(App.Rec.refresh, 1500);
           } }),
           h("button", { class: "btn ghost", text: "Uruchom kreator ustawień", onClick: () => wizard() }))),
-      h("div", { class: "sec" }, cap("Źródła dźwięku"), sourcesBox(async () => { await save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic }); })),
-      h("div", { class: "sec" }, cap("Jakość nagrywania"), h("div", { class: "twocol" },
-        h("div", null, cap("Długość klipu"), pick(cfg.buffer_seconds, [[30, "30 s"], [60, "1 min"], [120, "2 min"], [180, "3 min"], [300, "5 min"]],
-          (v) => save({ buffer_seconds: +v }).then(rerender))),
-        h("div", null, cap("Klatki na sekundę"), pick(cfg.fps, [[24, "24 fps"], [30, "30 fps"], [60, "60 fps"], [120, "120 fps"]], (v) => save({ fps: +v }))),
-        h("div", null, cap("Rozdzielczość (szerokość)"), pick(cfg.width, [[0, "natywna"], [3840, "3840 px (4K)"], [2560, "2560 px (1440p)"], [1920, "1920 px (1080p)"], [1280, "1280 px (720p)"]],
-          (v) => save({ width: +v }))),
-        h("div", null, cap("Bitrate wideo"), pick(cfg.video_kbps, [[8000, "8 Mb/s"], [14000, "14 Mb/s"], [20000, "20 Mb/s"], [30000, "30 Mb/s"], [45000, "45 Mb/s"], [60000, "60 Mb/s"]],
-          (v) => save({ video_kbps: +v }).then(rerender))),
-        h("div", null, cap("Monitor"), pick(cfg.monitor, monitorList(), (v) => save({ monitor: +v }))),
-        h("div", null, cap("Przesunięcie dźwięku (ms)"),
+      h("div", { class: "sec" }, cap("Źródła dźwięku"), sourceCards(persistSources)),
+      h("div", { class: "sec" }, cap("Jakość nagrywania"),
+        qualityBlock(cfg, (patch) => save(patch)),
+        h("div", { style: { marginTop: "14px", maxWidth: "260px" } }, cap("Przesunięcie dźwięku (ms)"),
           h("input", { class: "field", type: "number", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms, style: { width: "100%" },
             title: "Dodatnie opóźnia dźwięk względem obrazu. Dostrój, jeśli głos nie pasuje do ust.",
             onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) }))),
-      h("div", { class: "muted", style: { marginTop: "10px" }, text: `Jeden klip ≈ ${clipSize()}. Koder: ${S.recorder?.encoder || "automatyczny"}${S.recorder?.capture === "gdigrab" ? " · przechwytywanie awaryjne (GDI)" : ""}.` })),
-      h("div", { class: "sec" }, cap("Skrót zapisu klipu"), hotkeyInput(cfg.hotkey, (c) => save({ hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania"))),
+      h("div", { class: "sec" }, cap("Skrót zapisu klipu"),
+        hotkeyInput(cfg.hotkey, (c) => save({ hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania"))),
       h("div", { class: "sec" }, cap("Folder zapisu"), h("div", { class: "pathrow" },
         h("input", { class: "field", value: cfg.output_dir, readOnly: true }),
         h("button", { class: "btn", text: "Zmień", onClick: async () => {
@@ -162,7 +280,7 @@ App.RecUI = (function () {
     paint();
   }
 
-  /** Updates the live parts (state line, meters, active device per source) without rebuilding the tab. */
+  /** Updates the live parts (state line, active device per source) without rebuilding the tab. */
   function paint() {
     const r = S.recorder;
     const st = App.$("#recState");
@@ -179,9 +297,8 @@ App.RecUI = (function () {
     if (tgl) tgl.textContent = r ? "Zatrzymaj nagrywanie" : "Uruchom nagrywanie";
     const sv = App.$("#recSave");
     if (sv) sv.disabled = !r || !r.recording;
-    for (const row of document.querySelectorAll("#recSources .src, .wiz .src")) {
+    for (const row of document.querySelectorAll("#recSources .src")) {
       const src = r && r.sources.find((s) => s.name === row.dataset.src);
-      row.querySelector(".meter div").style.width = `${Math.min(100, (src ? src.level : 0) * 140)}%`;
       const stEl = row.querySelector(".st");
       stEl.textContent = !src ? "—"
         : src.live ? `działa · ${ROLE[src.role] || src.role}`
@@ -197,40 +314,34 @@ App.RecUI = (function () {
 
   async function wizard() {
     await load();
-    const tools = await api.invoke("tools_status").catch(() => null);
-    // Sensible first guesses; nothing is saved until the end.
-    const guess = (list, hint) => list.find((d) => d.name.toLowerCase().includes(hint)) || null;
-    const active = (name) => S.recorder?.sources.find((s) => s.name === name);
-    const first = (list, name, hint) => {
-      if (cfg[name].primary) return cfg[name].primary;
-      const a = active(name);
-      const byActive = a && a.device && list.find((d) => d.name === a.device);
-      const g = byActive || (hint && guess(list, hint)) || list[0];
-      return g ? { id: g.id, name: g.name } : null;
-    };
     const w = {
       step: 0,
       dir: App.P.libDirs[0] && !App.fresh ? App.P.libDirs[0] : cfg.output_dir,
       cfg: JSON.parse(JSON.stringify(cfg)),
       autostart: true,
     };
-    w.cfg.game.primary = first(devices.render, "game", "game");
-    w.cfg.chat.primary = first(devices.render, "chat", "chat");
-    w.cfg.mic.primary = first(devices.capture, "mic", "");
+    // First choices: follow the Windows default output (speakers OR headset, whichever is in use),
+    // a dedicated "chat" endpoint if the hardware has one, and the default microphone.
+    const hasChat = devices.render.find((d) => /chat|czat|communic/i.test(d.name));
+    const follow = { id: FOLLOW, name: "Domyślne urządzenie Windows" };
+    if (!w.cfg.game.primary) w.cfg.game.primary = follow;
+    if (!w.cfg.chat.primary) w.cfg.chat.primary = hasChat ? { id: hasChat.id, name: hasChat.name } : follow;
+    if (!w.cfg.mic.primary) w.cfg.mic.primary = follow;
 
     const overlay = h("div", { class: "wiz" });
     document.body.append(overlay);
-    const close = () => overlay.remove();
+    const close = () => { clearInterval(meterTimer); overlay.remove(); };
 
     const render = () => {
       const c = w.cfg;
+      clearInterval(meterTimer);
       let body;
       switch (w.step) {
         case 0:
           body = [
             h("div", { style: { display: "flex", alignItems: "center", gap: "14px" } }, App.logo(64),
               h("h2", { text: "Witaj w Buffer" })),
-            h("p", { class: "muted", text: "Kilka szybkich pytań i nagrywanie działa samo w tle — nagrywa ostatnie minuty, a Ty zapisujesz klip jednym skrótem." }),
+            h("p", { class: "muted", text: "Kilka szybkich pytań i nagrywanie działa samo w tle — Buffer pamięta ostatnie minuty, a Ty zapisujesz klip jednym skrótem." }),
             h("div", { class: "stack" },
               h("div", { class: "statusbox" }, h("span", { text: "Nagrywanie i eksport (ffmpeg)" }),
                 h("span", { style: { color: tools?.ffmpeg_found ? "var(--ok)" : "var(--err)" },
@@ -252,34 +363,15 @@ App.RecUI = (function () {
           ];
           break;
         case 2:
+          cfg = { ...cfg, game: c.game, chat: c.chat, mic: c.mic };   // the shared meter code reads `cfg`
           body = [
-            h("h2", { text: "Źródła dźwięku" }),
-            h("p", { class: "muted", text: "Każde źródło trafia do osobnej ścieżki klipu, więc w edytorze ustawisz głośność gry, czatu i mikrofonu osobno. Zapasowe urządzenie włączy się samo, gdy główne zostanie odłączone." }),
-            h("div", { class: "stack", id: "wizSources" }, SRC.map(([key, name, label, kind]) => {
-              const list = kind === "render" ? devices.render : devices.capture;
-              return h("div", { class: "src", "data-src": name },
-                h("div", { class: "nm", text: label }),
-                h("div", { class: "meter" }, h("div")),
-                h("div", { class: "st", text: "—" }),
-                h("div", { class: "pair" },
-                  h("label", null, h("span", { class: "muted", text: "Główne" }),
-                    deviceSelect(list, c[key].primary, (v) => { c[key].primary = v; }, "— nie ustawiono —")),
-                  h("label", null, h("span", { class: "muted", text: "Zapasowe" }),
-                    deviceSelect(list, c[key].secondary, (v) => { c[key].secondary = v; }, "— brak —"))));
-            })),
-            h("p", { class: "muted", text: S.recorder ? "Paski pokazują poziom na żywo z aktualnie nagrywanych urządzeń." : "Nic nie jest nagrywane, dopóki nie zakończysz kreatora. Poziomy na żywo zobaczysz potem w Ustawieniach → Nagrywanie." }),
+            h("h2", { text: "Skąd nagrywać dźwięk?" }),
+            h("p", { class: "muted", text: "Domyślnie Buffer nagrywa to, czego akurat używasz w Windows (głośniki albo słuchawki) i sam przełącza się po zmianie. Każde źródło trafia na osobną ścieżkę klipu. Paski pokazują poziom na żywo." }),
+            sourceCards(() => { c.game = cfg.game; c.chat = cfg.chat; c.mic = cfg.mic; }),
           ];
           break;
         case 3:
-          body = [
-            h("h2", { text: "Jakość obrazu" }),
-            h("div", { class: "twocol" },
-              h("div", null, cap("Klatki na sekundę"), pick(c.fps, [[30, "30 fps (zalecane)"], [60, "60 fps"]], (v) => { c.fps = +v; })),
-              h("div", null, cap("Rozdzielczość"), pick(c.width, [[0, "natywna"], [2560, "1440p"], [1920, "1080p (zalecane)"], [1280, "720p"]], (v) => { c.width = +v; })),
-              h("div", null, cap("Bitrate"), pick(c.video_kbps, [[8000, "8 Mb/s (małe pliki)"], [14000, "14 Mb/s (zalecane)"], [30000, "30 Mb/s (najlepsza jakość)"]], (v) => { c.video_kbps = +v; })),
-              h("div", null, cap("Długość klipu"), pick(c.buffer_seconds, [[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]], (v) => { c.buffer_seconds = +v; })),
-              h("div", null, cap("Monitor"), pick(c.monitor, monitorList(), (v) => { c.monitor = +v; }))),
-          ];
+          body = [h("h2", { text: "Jakość obrazu" }), qualityBlock(c, () => {})];
           break;
         case 4:
           body = [
@@ -296,18 +388,20 @@ App.RecUI = (function () {
               h("span", { class: "toggle lg" + (w.autostart ? " on" : "") })),
           ];
           break;
-        default:
+        default: {
+          const e = estimates(c);
           body = [
             h("h2", { text: "Wszystko gotowe" }),
             h("div", { class: "stack" },
               h("div", { class: "statusbox" }, h("span", { text: "Folder" }), h("span", { class: "mono", text: w.dir })),
               h("div", { class: "statusbox" }, h("span", { text: "Skrót zapisu" }), h("span", { class: "mono", text: c.hotkey })),
-              h("div", { class: "statusbox" }, h("span", { text: "Jakość" }),
-                h("span", { class: "mono", text: `${c.width || "natywna"}${c.width ? " px" : ""} · ${c.fps} fps · ${c.video_kbps / 1000} Mb/s · ${c.buffer_seconds} s` })),
+              h("div", { class: "statusbox" }, h("span", { text: "Obraz" }),
+                h("span", { class: "mono", text: `${e.w}×${e.hgt} · ${c.fps} fps · klip ${c.buffer_seconds} s ≈ ${fmtMb(e.clipMb)}` })),
               h("div", { class: "statusbox" }, h("span", { text: "Dźwięk" }),
-                h("span", { class: "mono", text: SRC.map(([k, n]) => `${n}: ${c[k].primary ? "ok" : "brak"}`).join(" · ") }))),
+                h("span", { class: "mono", text: SRC.map(([k, n]) => `${n}: ${c[k].primary ? (c[k].primary.id === FOLLOW ? "domyślne" : "ok") : "brak"}`).join(" · ") }))),
             h("p", { class: "muted", text: "Wszystko zmienisz później w Ustawieniach." }),
           ];
+        }
       }
 
       const last = w.step === STEPS.length - 1;
@@ -315,19 +409,20 @@ App.RecUI = (function () {
         h("div", { class: "wizsteps" }, STEPS.map((t, i) => h("span", { class: "s" + (i === w.step ? " on" : i < w.step ? " ok" : "") }, t))),
         h("div", { class: "wizbody" }, body),
         h("div", { class: "wizfoot" },
-          h("button", { class: "btn ghost", text: "Użyj ustawień domyślnych", title: "Automatycznie wybrane urządzenia, folder Wideo/Buffer, skrót Alt+Q", onClick: async () => { await finish(); } }),
+          h("button", { class: "btn ghost", text: "Użyj ustawień domyślnych",
+            title: "Domyślne urządzenia Windows, folder Wideo/Buffer, skrót Alt+Q", onClick: async () => { await finish(); } }),
           h("span", { style: { flex: 1 } }),
           w.step > 0 ? h("button", { class: "btn", text: "Wstecz", onClick: () => { w.step--; render(); } }) : null,
           h("button", { class: "btn acc", text: last ? "Zakończ i włącz nagrywanie" : "Dalej", onClick: async () => {
             if (!last) { w.step++; render(); return; }
             await finish();
           } }))));
-      paint();
     };
 
     async function finish() {
       const c = w.cfg;
       c.output_dir = w.dir;
+      for (const [k] of SRC) if (c[k].secondary && !c[k].secondary.id) c[k].secondary = null;
       cfg = { ...cfg, ...c };
       await api.invoke("set_recorder_config", { config: cfg });
       App.P.libDirs = [w.dir];

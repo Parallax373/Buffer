@@ -11,7 +11,7 @@ use std::{
 };
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
-    Icon, TrayIconBuilder,
+    Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -128,6 +128,7 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
 
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
+        .with_menu_on_left_click(false)
         .with_tooltip("Buffer")
         .with_icon(icon(State::Warn))
         .build()
@@ -155,6 +156,12 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
             while let Ok(p) = popups.try_recv() {
                 let ms = if p.kind == Kind::Error { 6500 } else { 4000 };
                 overlay.show(p, ms);
+            }
+            // Left click opens the app; the context menu belongs to the right button.
+            while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
+                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
+                    open_editor();
+                }
             }
             while let Ok(ev) = MenuEvent::receiver().try_recv() {
                 if ev.id == *save_i.id() {
