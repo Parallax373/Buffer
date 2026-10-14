@@ -105,10 +105,17 @@
 
   function paintChip() {
     const ex = S.exporting;
+    if (!ex) chip._live = null;
     chip.className = "expchip" + (ex ? " busy" : S.lastDone && Date.now() - S.lastDone.at < 7000 ? " done" : "");
     if (ex) {
-      chip.replaceChildren(`⇪ ${Math.round(ex.pct)}%`, h("span", { class: "bars" },
-        Array.from({ length: 8 }, (_, i) => h("i", { style: { opacity: ex.pct / 100 * 8 > i ? 1 : 0.15 } }))));
+      if (!chip._live) {
+        const label = document.createTextNode("");
+        const bars = h("span", { class: "bars" }, Array.from({ length: 8 }, () => h("i")));
+        chip.replaceChildren(label, bars);
+        chip._live = { label, bars };
+      }
+      chip._live.label.textContent = `⇪ ${Math.round(ex.pct)}%`;
+      [...chip._live.bars.children].forEach((b, i) => { b.style.opacity = ex.pct / 100 * 8 > i ? 1 : 0.15; });
     } else if (S.lastDone && Date.now() - S.lastDone.at < 7000) {
       chip.replaceChildren(`✓ ${S.lastDone.size} MiB`);
     } else {
@@ -223,7 +230,7 @@
     S.exporting.pct = e.payload * 100;
     App.Ed.onProgress(S.exporting.pct);
     paintChip();
-    renderPop();
+    updatePop();
   });
 
   Exports.togglePop = () => { popOpen ? closePop() : Exports.openPop(true); };
@@ -249,13 +256,37 @@
     return el;
   };
 
+  // one delegated listener: pressing anywhere on an export card (not on a button) starts the drag-out
+  for (const id of ["#pop", "#drawer"]) {
+    App.$(id).addEventListener("pointerdown", (ev) => {
+      const card = ev.target.closest("[data-path]");
+      if (!card || ev.button !== 0 || ev.target.closest("button, .linkbtn")) return;
+      ev.preventDefault();
+      api.startDrag(card.dataset.path).catch((err) => App.toast(App.t("exp.dragFail", { err }), "err"));
+    });
+  }
+
   function thumbBox(path, cls) {
     const el = h("div", { class: cls });
     App.Lib.thumbUrl(path).then((u) => { if (u) el.style.backgroundImage = `url("${u}")`; });
     return el;
   }
 
+  let popLive = null;   // the nodes that change while an export runs
+  /** Progress tick: patch numbers and bars in place (rebuilding the popover on every tick made it flash). */
+  function updatePop() {
+    const ex = S.exporting;
+    if (!popLive || !ex || !popLive.pct.isConnected) return;
+    const p = ex.pct;
+    popLive.pct.textContent = `${Math.round(p)}%`;
+    popLive.bars.forEach((b, i) => { b.style.opacity = p / 100 * 30 > i ? 0.35 + 0.65 * (i / 30) : 0.12; });
+    const elapsed = (Date.now() - ex.startedAt) / 1000;
+    const eta = p > 3 ? Math.max(0, Math.round((elapsed * (100 - p)) / p)) : null;
+    popLive.eta.textContent = eta == null ? App.t("exp.calc") : `≈ ${eta} s`;
+  }
+
   function renderPop() {
+    popLive = null;
     const host = App.$("#pop");
     if (!popOpen) { host.replaceChildren(); renderDrawer(); return; }
     const ex = S.exporting;
@@ -266,21 +297,25 @@
       const p = ex.pct;
       const elapsed = (Date.now() - ex.startedAt) / 1000;
       const eta = p > 3 ? Math.max(0, Math.round((elapsed * (100 - p)) / p)) : null;
+      const pctEl = h("span", { class: "mono lime", text: `${Math.round(p)}%` });
+      const barEls = Array.from({ length: 30 }, (_, i) =>
+        h("i", { style: { opacity: p / 100 * 30 > i ? 0.35 + 0.65 * (i / 30) : 0.12 } }));
+      const etaEl = h("span", { text: eta == null ? App.t("exp.calc") : `≈ ${eta} s` });
+      popLive = { pct: pctEl, bars: barEls, eta: etaEl };
       parts.push(h("div", null,
-        h("div", { class: "pr1" }, h("b", { text: `${ex.name} · ${ex.target} MB` }), h("span", { class: "mono lime", text: `${Math.round(p)}%` })),
-        h("div", { class: "scan" }, Array.from({ length: 30 }, (_, i) =>
-          h("i", { style: { opacity: p / 100 * 30 > i ? 0.35 + 0.65 * (i / 30) : 0.12 } }))),
-        h("div", { class: "pr3 mono muted" }, h("span", { text: eta == null ? App.t("exp.calc") : `≈ ${eta} s` }),
+        h("div", { class: "pr1" }, h("b", { text: `${ex.name} · ${ex.target} MB` }), pctEl),
+        h("div", { class: "scan" }, barEls),
+        h("div", { class: "pr3 mono muted" }, etaEl,
           h("button", { class: "linkbtn", text: App.t("common.cancel"), onClick: Exports.cancel }))));
     }
     if (done) {
-      parts.push(h("div", { class: "donecard" },
+      parts.push(h("div", { class: "donecard", "data-path": done.path },
         h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: done.name }),
           h("div", { class: "mono lime", text: App.t("exp.done", { secs: done.secs, size: done.size }) })),
         dragHandle(done.path, "big", "⇪ " + App.t("exp.dragBig"))));
     }
     for (const e of recent) {
-      parts.push(h("div", { class: "prow" }, thumbBox(e.path, "tn"),
+      parts.push(h("div", { class: "prow", "data-path": e.path }, thumbBox(e.path, "tn"),
         h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: e.name }),
           h("div", { class: "mono muted", text: `${e.size} MiB · ${ago(e.created)}` })),
         dragHandle(e.path, "lime", "⇪")));
@@ -300,7 +335,7 @@
     host.replaceChildren(h("div", { class: "scrim", onClick: close },
       h("aside", { class: "drawer", onClick: (e) => e.stopPropagation() },
         h("div", { class: "dhead" }, h("b", { text: App.t("exp.historyTitle") }), h("button", { class: "linkbtn", text: "✕", onClick: close })),
-        ...(App.P.exports.length ? App.P.exports.map((e) => h("div", { class: "drow" }, thumbBox(e.path, "tn"),
+        ...(App.P.exports.length ? App.P.exports.map((e) => h("div", { class: "drow", "data-path": e.path }, thumbBox(e.path, "tn"),
           h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: e.name }),
             h("div", { class: "mono muted", text: `${e.size} MiB · ${ago(e.created)}` })),
           h("div", { class: "acts" },

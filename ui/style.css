@@ -750,3 +750,6 @@ body { color: var(--text); }
 #topbar .mini i:nth-child(7) { animation-delay: 0.390s, 2.810s; }
 :root[data-anim="off"] #topbar .mini i { animation: none; }
 @media (prefers-reduced-motion: reduce) { #topbar .mini i { animation: none; } }
+
+.popover .donecard[data-path], .popover .prow[data-path], #drawer .drow[data-path] { cursor: grab; }
+.popover .donecard[data-path]:hover, .popover .prow[data-path]:hover, #drawer .drow[data-path]:hover { background: #ffffff08; }
