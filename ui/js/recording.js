@@ -538,7 +538,7 @@ App.RecUI = (function () {
     // while the recorder is idle its sources are not connected, so the names it reports are from the last
     // session; show the Windows default as it is right now (EarTrumpet and friends switch it at any time)
     const liveRec = !!(r && r.recording);
-    if (!liveRec && Date.now() - defaultsAt > 2500) {
+    if (Date.now() - defaultsAt > 2500) {   // also while recording: the dropdown below shows the default too
       defaultsAt = Date.now();
       api.invoke("recorder_devices").then((d) => {
         if (d && d.default) { devices = { ...devices, ...d }; paint(); }
@@ -549,6 +549,15 @@ App.RecUI = (function () {
     for (const row of document.querySelectorAll("#recSources .aitem")) {
       const src = r && r.sources.find((s) => s.name === row.dataset.src);
       const dev = row.querySelector(".dev");
+      // the open dropdown's "Windows default device (now: ...)" entry follows the default as well
+      const pick = SRC.find((x) => x[1] === row.dataset.src);
+      const followOpt = pick && row.querySelector('select option[value="' + FOLLOW + '"]');
+      if (followOpt) {
+        const list = pick[3] === "render" ? devices.render : devices.capture;
+        const defName = nameOf(list, defaultFor(pick[3], pick[0]));
+        const text = App.t("dev.default") + (defName ? " " + App.t("dev.now", { name: defName }) : "");
+        if (followOpt.textContent !== text) followOpt.textContent = text;
+      }
       if (dev && !liveRec) {
         const def = SRC.find((s) => s[1] === row.dataset.src);
         if (def) {
