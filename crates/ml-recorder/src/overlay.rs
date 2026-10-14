@@ -37,7 +37,6 @@ pub enum Event {
     /// The save shortcut was pressed; the clip is saved after `roll_ms` (the card counts down).
     PostRoll { roll_ms: u64 },
     Saved,
-    Marker,
     SaveFailed,
     RecordingDown,
 }
@@ -337,7 +336,6 @@ impl Overlay {
                 wd += 9.0 * k * wave * (0.4 + 0.6 * (1.0 - dist / 5.0));
                 let mut alpha = 1.0;
                 match ev {
-                    Event::Marker => alpha = 0.35 + 0.65 * (cl((e - 450.0) / 900.0) * 2.0 * PI).cos().abs(),
                     Event::GameWarn if i == N - 1 => alpha = if ((e / 380.0).floor() as i64) % 2 == 0 { 1.0 } else { 0.25 },
                     Event::PostRoll { roll_ms } if counting => {
                         let lit = cl(1.0 - e / roll_ms.max(1) as f64) * N as f64;

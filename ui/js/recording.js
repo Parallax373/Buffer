@@ -15,7 +15,7 @@ App.RecUI = (function () {
   const BASE = {
     output_dir: "", per_game_folders: true, post_roll_seconds: 15, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, quality: "std", monitor: 0,
-    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", marker_hotkey: "Alt+M", record_hotkey: "Alt+R", popup: true, extra_games: [], ignore_apps: [],
+    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", popup: true, extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
   };
   const RES = () => [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, App.t("res.native")]];
@@ -288,6 +288,12 @@ App.RecUI = (function () {
       U.srow(App.t("v.fps"), U.segc(FPS, c.fps, (v) => set({ fps: +v }))),
       U.srow(App.t("v.quality"), U.segc([...QUAL(), ...(customQ ? [["", App.t("v.custom", { n: c.video_kbps / 1000 })]] : [])], c.quality || "", (v) => { if (v) set({ quality: v }); })),
       U.srow(App.t("v.len"), U.segc(LEN(), c.buffer_seconds, (v) => set({ buffer_seconds: +v }))),
+      (() => {
+        // belongs with the video settings: how long the clip keeps recording after the shortcut
+        const r = U.srow(App.t("key.roll"), U.segc(POST_ROLL(), c.post_roll_seconds, (v) => set({ post_roll_seconds: +v })));
+        r.title = App.t("key.rollTip");
+        return r;
+      })(),
     ];
     if (monitors.length) {
       rows.push(U.srow(App.t("v.screen"), h("div", { class: "screenrow" },
@@ -425,13 +431,9 @@ App.RecUI = (function () {
       return U.srow(label, h("div", { class: "pathrow" }, field, clear));
     };
     const drawKeys = () => {
-      const roll = U.srow(App.t("key.roll"), U.segc(POST_ROLL(), cfg.post_roll_seconds, (v) => { save({ post_roll_seconds: +v }); drawKeys(); }));
-      roll.title = App.t("key.rollTip");
       keysBox.replaceChildren(
         keyRow(App.t("key.save"), "hotkey", cfg.hotkey),
-        keyRow(App.t("key.marker"), "marker_hotkey", cfg.marker_hotkey ?? "Alt+M"),
-        keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey),
-        roll);
+$1);
     };
     drawKeys();
 
@@ -509,8 +511,9 @@ App.RecUI = (function () {
     toggleBtn.textContent = r ? App.t("st.stop") : App.t("st.start");
     if (sumLoadEl && sumLoadEl.isConnected) {
       // measured while recording; before that, the estimate from the encoder in use
-      if (r && r.cpu_pct != null && r.recording) {
-        sumLoadEl.textContent = `CPU ${Math.round(r.cpu_pct)}%` + (r.gpu_pct != null ? ` · GPU ${Math.round(r.gpu_pct)}%` : "");
+      if (r && r.cpu_pct != null) {
+        const pc = (v) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+        sumLoadEl.textContent = `CPU ${pc(r.cpu_pct)}%` + (r.gpu_pct != null ? ` · GPU ${pc(r.gpu_pct)}%` : "");
       } else sumLoadEl.textContent = hw() ? "GPU" : "CPU";
     }
     const diag = App.$("#recDiag");

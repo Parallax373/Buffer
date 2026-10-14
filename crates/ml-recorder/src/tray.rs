@@ -306,7 +306,32 @@ fn announce_game(shared: &session::Shared, game: &str) {
 }
 
 /// Never returns while the recorder runs.
-pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>) {
+/// Registers the save and record-everything shortcuts, replacing the previous ones when the settings changed.
+fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String)) {
+    let (save, rec) = {
+        let c = shared.cfg.lock().unwrap();
+        (c.hotkey.trim().to_string(), c.record_hotkey.trim().to_string())
+    };
+    if *current == (save.clone(), rec.clone()) {
+        return;
+    }
+    win::unregister_hotkey_id(1);
+    win::unregister_hotkey_id(crate::input::RECORD as i32);
+    if !save.is_empty() {
+        if let Err(e) = win::register_hotkey(&save) {
+            session::log(&e);
+            *shared.last_error.lock().unwrap() = e;
+        }
+    }
+    if !rec.is_empty() {
+        if let Err(e) = win::register_hotkey_id(&rec, crate::input::RECORD as i32) {
+            session::log(&e);
+        }
+    }
+    *current = (save, rec);
+}
+
+pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup>) {
     let menu = Menu::new();
     let save_i = MenuItem::new(crate::lang::t("menu.save"), true, None);
     let rec_i = MenuItem::new(crate::lang::t("menu.record"), true, None);
@@ -323,25 +348,9 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
         .map_err(|e| session::log(&format!("tray unavailable: {e}")))
         .ok();
 
-    // an empty save shortcut means "none": clips are then saved from the tray menu or the app
-    if !hotkey.trim().is_empty() {
-        if let Err(e) = win::register_hotkey(&hotkey) {
-            session::log(&e);
-            *shared.last_error.lock().unwrap() = e;
-        }
-    }
-    let marker_hotkey = shared.cfg.lock().unwrap().marker_hotkey.clone();
-    if !marker_hotkey.is_empty() {
-        if let Err(e) = win::register_hotkey_id(&marker_hotkey, 2) {
-            session::log(&e);
-        }
-    }
-
-    if let Some(hk) = Some(shared.cfg.lock().unwrap().record_hotkey.clone()).filter(|h| !h.is_empty()) {
-        if let Err(e) = win::register_hotkey_id(&hk, crate::input::RECORD as i32) {
-            session::log(&e);
-        }
-    }
+    // keyboard shortcuts are (re)registered whenever the settings change; an empty one means "none"
+    let mut registered = (String::new(), String::new());
+    apply_hotkeys(&shared, &mut registered);
     crate::input::spawn(shared.clone(), unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() });
 
     overlay::bind_thread();
@@ -357,19 +366,6 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
         win::Pump::Hotkey(id) => {
             if id == crate::input::RECORD {
                 crate::longrec::toggle(&hk_shared);
-            } else if id == 2 {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64);
-                let mut m = hk_shared.markers.lock().unwrap();
-                m.push(now);
-                let keep = 400;
-                if m.len() > keep {
-                    let cut = m.len() - keep;
-                    m.drain(..cut);
-                }
-                drop(m);
-                hk_shared.popup(Event::Marker, crate::lang::t("pop.marker"), crate::lang::t("pop.marker_sub"));
             } else {
                 hk_shared.hotkey_hits.fetch_add(1, Ordering::Relaxed);
                 hotkey_save(&hk_shared);
@@ -383,6 +379,7 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
         win::Pump::Timer(id) if overlay.is_anim_timer(id) => overlay.frame(),
         win::Pump::Timer(_) => {
             tick += 1;
+            apply_hotkeys(&tick_shared, &mut registered);
             while let Ok(p) = popups.try_recv() {
                 overlay.push(p);
             }

@@ -1,7 +1,7 @@
 //! Mouse-button and gamepad bindings. `RegisterHotKey` only knows keyboard keys, so these are polled on
 //! their own thread (never a low-level hook: a hook that stalls would freeze the mouse system-wide) and
 //! delivered to the tray thread as ordinary `WM_HOTKEY` messages. Everything downstream (post-roll,
-//! markers, the setup wizard's shortcut test) therefore treats them exactly like a key press.
+//! the setup wizard's shortcut test) therefore treats them exactly like a key press.
 
 use crate::session::Shared;
 use std::{
@@ -15,7 +15,6 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_HOTKEY}
 
 /// Ids of the actions, as carried in `WM_HOTKEY`'s wParam.
 pub const SAVE: usize = 1;
-pub const MARKER: usize = 2;
 pub const RECORD: usize = 3;
 
 const MOD_CTRL: u8 = 1;
@@ -171,7 +170,7 @@ pub fn spawn(shared: Arc<Shared>, tray_thread: u32) {
         while !shared.quit.load(Ordering::Relaxed) {
             if refreshed.elapsed() > Duration::from_millis(500) {
                 let c = shared.cfg.lock().unwrap();
-                let next = vec![(SAVE, parse(&c.hotkey)), (MARKER, parse(&c.marker_hotkey)), (RECORD, parse(&c.record_hotkey))];
+                let next = vec![(SAVE, parse(&c.hotkey)), (RECORD, parse(&c.record_hotkey))];
                 drop(c);
                 if next != bindings {
                     was = next.iter().map(|(_, t)| vec![true; t.len()]).collect(); // a held button must not fire on rebind

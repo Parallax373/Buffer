@@ -29,7 +29,7 @@
     E = {
       clip, info: null, start: 0, end: 0, tracks: [], playing: false,
       target: App.P.settings.defTarget, wide: false, pan: 50, norm: App.P.settings.normDef,
-      speed: 1, codec: "auto", res: "orig", done: null, adv: false, rec: [], v0: 0, v1: 0,
+      speed: 1, codec: "auto", res: "orig", done: null, adv: false, v0: 0, v1: 0,
     };
     App.markSeen(path);
     App.go("ed");          // needs E to be set: go() falls back to the library when no clip is open
@@ -47,9 +47,6 @@
       E.end = info.duration;
       E.v0 = 0;
       E.v1 = info.duration;
-      api.invoke("clip_markers", { path }).then((m) => {
-        if (token === loadToken) { E.rec = m; renderMarkers(); }
-      }).catch(() => {});
       video.src = api.src(path);
       video.load();
       if (!ctx) ctx = new AudioContext();
@@ -61,7 +58,7 @@
           t.wave = w;
           // a silent track (nothing on it) gets no lane; the file keeps it, so exports are unchanged
           const empty = !w.some((v) => v > 1);
-          if (empty !== !!t.empty) { t.empty = empty; renderLanes(); } else { drawLanes(); renderMarkers(); }
+          if (empty !== !!t.empty) { t.empty = empty; renderLanes(); } else { drawLanes(); }
         }).catch(() => {});
       }
     } catch (e) {
@@ -170,8 +167,8 @@
       lanesWrap: h("div", { class: "tl" }),
       panel: h("div", { class: "expanel" }),
       kb: h("div", { class: "kbpop", hidden: true }, [
-        [App.t("kb.play"), App.t("kb.space")], [App.t("kb.inout"), "I / O"], [App.t("kb.marker"), "M"], [App.t("kb.zoom"), App.t("kb.wheel")],
-        [App.t("kb.jump"), "J / K"], [App.t("kb.step"), "← → / Shift"],
+        [App.t("kb.play"), App.t("kb.space")], [App.t("kb.inout"), "I / O"], [App.t("kb.zoom"), App.t("kb.wheel")],
+        [App.t("kb.step"), "← → / Shift"],
         [App.t("kb.clip"), "PgUp / PgDn"], [App.t("kb.export"), "Ctrl E"], [App.t("kb.search"), "Ctrl K"],
       ].map(([l, k]) => h("div", null, h("span", { text: l }), h("kbd", { text: k })))),
     };
@@ -243,9 +240,8 @@
     const area = h("div", { class: "area" });
     ui.area = area;
     const ruler = h("div", { class: "ruler" });
-    ui.marks = h("div", { class: "marks" });
     ui.ticks = h("div", { class: "ticks" });
-    ruler.append(ui.ticks, ui.marks);
+    ruler.append(ui.ticks);
     area.append(ruler, h("div", { class: "lane" }));
     ui.canvases = [];
     for (const t of names) {
@@ -280,48 +276,7 @@
     renderTicks();
     ui.lanesWrap.replaceChildren(labels, area);
     layoutSel();
-    renderMarkers();
     requestAnimationFrame(drawLanes);
-  }
-
-  /* markers: diamonds, marked while recording (hotkey) or by you (M) */
-
-  function allMarkers() {
-    if (!E?.info) return [];
-    const mine = App.P.markers[E.clip.path] || [];
-    return [...(E.rec || []).map((t) => ({ t, kind: "rec" })), ...mine.map((t) => ({ t, kind: "user" }))]
-      .sort((a, b) => a.t - b.t);
-  }
-
-  function renderMarkers() {
-    if (!ui.marks) return;
-    const titles = { rec: App.t("mk.rec"), user: App.t("mk.user") };
-    ui.marks.replaceChildren(...allMarkers().map((m) => {
-      const el = h("div", { class: "mk " + m.kind, title: `${titles[m.kind]} ${App.fmt(m.t)}`,
-        style: { left: `${pct(m.t)}%` }, hidden: pct(m.t) < 0 || pct(m.t) > 100 }, h("i"));
-      el.addEventListener("pointerdown", (ev) => { ev.stopPropagation(); seek(m.t); });
-      if (m.kind === "user") el.addEventListener("dblclick", (ev) => {
-        ev.stopPropagation();
-        const list = App.P.markers[E.clip.path] || [];
-        App.P.markers[E.clip.path] = list.filter((t) => Math.abs(t - m.t) > 0.01);
-        App.persist(); renderMarkers();
-      });
-      return el;
-    }));
-  }
-
-  function addMarker() {
-    if (!E?.info) return;
-    const list = App.P.markers[E.clip.path] || (App.P.markers[E.clip.path] = []);
-    list.push(+video.currentTime.toFixed(2));
-    App.persist(); renderMarkers();
-  }
-
-  function jumpMarker(dir) {
-    const now = video.currentTime;
-    const ts = allMarkers().map((m) => m.t);
-    const next = dir > 0 ? ts.find((t) => t > now + 0.25) : [...ts].reverse().find((t) => t < now - 0.25);
-    if (next != null) seek(next);
   }
 
   /* The timeline shows the window [v0, v1] of the clip; everything is positioned relative to it. */
@@ -333,7 +288,6 @@
   function applyView() {
     layoutSel();
     renderTicks();
-    renderMarkers();
     paintPan();
   }
 
@@ -626,9 +580,6 @@
       case "+": case "=": zoomAt(1.6, video.currentTime); return true;
       case "-": case "_": zoomAt(1 / 1.6, video.currentTime); return true;
       case "0": fitView(); return true;
-      case "m": case "M": addMarker(); return true;
-      case "j": case "J": jumpMarker(-1); return true;
-      case "k": case "K": jumpMarker(1); return true;
       case "PageDown": Ed.step?.(1); return true;
       case "PageUp": Ed.step?.(-1); return true;
       case "e": case "E": if (ev.ctrlKey) { doExport(); return true; } return false;

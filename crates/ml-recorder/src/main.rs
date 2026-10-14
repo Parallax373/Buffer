@@ -175,7 +175,6 @@ fn run() {
         post_roll_skip: AtomicBool::new(false),
         post_roll_until: Mutex::new(None),
         flash: Mutex::new(None),
-        markers: Mutex::new(Vec::new()),
         hotkey_hits: AtomicU32::new(0),
         kbps_now: AtomicU32::new(0),
         cpu_x10: AtomicU32::new(0),

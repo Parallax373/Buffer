@@ -58,8 +58,6 @@ pub struct Config {
     /// Bindings are comma-separated: a keyboard combo ("Alt+Q"), a mouse button ("Mouse4", "Ctrl+Mouse5")
     /// and/or a gamepad chord ("Pad:View+RB"). Keyboard combos need a recorder restart; mouse and pad apply at once.
     pub hotkey: String,
-    /// Drops a marker (shown as a diamond on the editor timeline) at this moment of the recording.
-    pub marker_hotkey: String,
     /// UI language code written by the app (en, pl, de, es, fr, uk, tr, ja, zh); used for tray and popup text.
     pub lang: String,
     /// Starts / stops a long recording (the whole session, not just the last minutes).
@@ -95,7 +93,6 @@ impl Default for Config {
             encoder: "auto".into(),
             audio_offset_ms: 0,
             hotkey: "Alt+Q".into(),
-            marker_hotkey: "Alt+M".into(),
             lang: "en".into(),
             record_hotkey: "Alt+R".into(),
             game: SourceCfg::default(),

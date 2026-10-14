@@ -392,10 +392,11 @@
         U.trow(App.t("lib.auto"), App.t("lib.autoD"), s.auto, (on) => { s.auto = on; App.persist(); Settings.render(); })),
       h("div", null, U.cap(App.t("exp.cap")),
         h("div", { class: "card2" },
-          U.srow(App.t("exp.defTarget"), U.segc(App.presets().map((mb) => [mb, App.presetName(mb) ? `${App.presetName(mb)} · ${mb} MB` : `${mb} MB`]), s.defTarget, (mb) => { s.defTarget = mb; App.persist(); Settings.render(); })),
-          U.srow(App.t("set.presets"), h("div", { class: "pathrow" },
-            ...(Settings.presetsOpen ? App.presets().map((mb, i) => h("input", { class: "field monoin", type: "number", min: 1, max: 2000, value: mb,
-              style: { width: "74px" }, onChange: (e) => setPreset(i, +e.target.value) })) : []),
+          U.srow(App.t("exp.defTarget"), h("div", { class: "pathrow" },
+            Settings.presetsOpen
+              ? h("div", { class: "pathrow" }, ...App.presets().map((mb, i) => h("input", { class: "field monoin", type: "number", min: 1, max: 2000, value: mb,
+                style: { width: "74px" }, title: "MB", onChange: (e) => setPreset(i, +e.target.value) })), h("span", { class: "muted", text: "MB" }))
+              : U.segc(App.presets().map((mb) => [mb, App.presetName(mb) ? `${App.presetName(mb)} · ${mb} MB` : `${mb} MB`]), s.defTarget, (mb) => { s.defTarget = mb; App.persist(); Settings.render(); }),
             h("button", { class: "linkbtn", text: Settings.presetsOpen ? "\u2713" : App.t("set.presetsEdit"),
               onClick: () => { Settings.presetsOpen = !Settings.presetsOpen; Settings.render(); } }))),
           U.srow(App.t("exp.outDir"), h("div", { class: "pathrow" },

@@ -573,18 +573,6 @@ fn default_clips_dir() -> String {
     home.join("Videos").join("Buffer").to_string_lossy().into_owned()
 }
 
-/// Moments the user marked while recording (marker hotkey), in seconds from the clip start.
-#[tauri::command]
-fn clip_markers(path: String) -> Vec<f64> {
-    let Some(name) = Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()) else {
-        return Vec::new();
-    };
-    fs::read(data_dir().join("markers").join(format!("{name}.json")))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
-}
-
 #[derive(Serialize)]
 struct FoundFolder {
     path: String,
@@ -696,7 +684,6 @@ fn main() {
             identify_monitors,
             recorder_levels,
             cancel_export,
-            clip_markers,
             detect_clip_folders,
             default_clips_dir,
             recorder_autostart,

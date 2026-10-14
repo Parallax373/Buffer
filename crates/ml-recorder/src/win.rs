@@ -126,6 +126,13 @@ pub fn register_hotkey(spec: &str) -> Result<(), String> {
     register_hotkey_id(spec, 1)
 }
 
+/// Releases a shortcut registered with `register_hotkey_id` (must run on the thread that registered it).
+pub fn unregister_hotkey_id(id: i32) {
+    unsafe {
+        windows_sys::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(std::ptr::null_mut(), id);
+    }
+}
+
 pub fn register_hotkey_id(spec: &str, id: i32) -> Result<(), String> {
     // a binding may also hold a mouse button or a gamepad chord; those are polled by input.rs
     let Some(spec) = crate::input::keyboard_part(spec) else { return Ok(()) };
