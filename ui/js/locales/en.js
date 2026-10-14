@@ -15,6 +15,8 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "common.delete": "Delete",
   "common.cancel": "Cancel",
   "common.dismiss": "Dismiss",
+  "hk.clear": "Clear shortcut",
+  "st.bufferNoKey": "buffer {cur} / {target}",
   "common.default": "Default",
 
   "rec.pill.off": "REC off",

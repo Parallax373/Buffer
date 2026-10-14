@@ -15,6 +15,8 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "common.delete": "Usuń",
   "common.cancel": "Anuluj",
   "common.dismiss": "Zamknij",
+  "hk.clear": "Usuń skrót",
+  "st.bufferNoKey": "bufor {cur} / {target}",
   "common.default": "Domyślny",
 
   "rec.pill.off": "REC wył.",

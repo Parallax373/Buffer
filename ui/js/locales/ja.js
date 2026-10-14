@@ -15,6 +15,8 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "common.delete": "削除",
   "common.cancel": "キャンセル",
   "common.dismiss": "閉じる",
+  "hk.clear": "ショートカットを削除",
+  "st.bufferNoKey": "バッファ {cur} / {target}",
   "common.default": "既定",
 
   "rec.pill.off": "REC オフ",

@@ -15,6 +15,8 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "common.delete": "Supprimer",
   "common.cancel": "Annuler",
   "common.dismiss": "Fermer",
+  "hk.clear": "Retirer le raccourci",
+  "st.bufferNoKey": "tampon {cur} / {target}",
   "common.default": "Par défaut",
 
   "rec.pill.off": "REC off",

@@ -290,9 +290,9 @@ fn announce_game(shared: &session::Shared, game: &str) {
     if !shared.recording.load(Ordering::Relaxed) {
         shared.popup(Event::RecordingDown, crate::lang::f("pop.down", &[("game", &game)]), crate::lang::t("pop.down_sub"));
     } else if down.is_empty() {
-        shared.popup(Event::Game, crate::lang::t("pop.active"), crate::lang::f("pop.active_sub", &[("hk", &cfg.hotkey), ("len", &len), ("game", &game)]));
+        shared.popup(Event::Game, crate::lang::t("pop.active"), if cfg.hotkey.trim().is_empty() { game.to_string() } else { crate::lang::f("pop.active_sub", &[("hk", &cfg.hotkey), ("len", &len), ("game", &game)]) });
     } else {
-        shared.popup(Event::GameWarn, crate::lang::t("pop.warn"), crate::lang::f("pop.warn_sub", &[("list", &down.join(", ")), ("hk", &cfg.hotkey)]));
+        shared.popup(Event::GameWarn, crate::lang::t("pop.warn"), if cfg.hotkey.trim().is_empty() { crate::lang::f("pop.warn_nokey", &[("list", &down.join(", "))]) } else { crate::lang::f("pop.warn_sub", &[("list", &down.join(", ")), ("hk", &cfg.hotkey)]) });
     }
 }
 
@@ -314,9 +314,12 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
         .map_err(|e| session::log(&format!("tray unavailable: {e}")))
         .ok();
 
-    if let Err(e) = win::register_hotkey(&hotkey) {
-        session::log(&e);
-        *shared.last_error.lock().unwrap() = e;
+    // an empty save shortcut means "none": clips are then saved from the tray menu or the app
+    if !hotkey.trim().is_empty() {
+        if let Err(e) = win::register_hotkey(&hotkey) {
+            session::log(&e);
+            *shared.last_error.lock().unwrap() = e;
+        }
     }
     let marker_hotkey = shared.cfg.lock().unwrap().marker_hotkey.clone();
     if !marker_hotkey.is_empty() {

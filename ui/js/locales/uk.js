@@ -15,6 +15,8 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "common.delete": "Видалити",
   "common.cancel": "Скасувати",
   "common.dismiss": "Закрити",
+  "hk.clear": "Прибрати скорочення",
+  "st.bufferNoKey": "буфер {cur} / {target}",
   "common.default": "Типово",
 
   "rec.pill.off": "REC вимкнено",

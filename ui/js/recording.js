@@ -125,7 +125,7 @@ App.RecUI = (function () {
         e.preventDefault();
         if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
         if (e.key === "Delete" || e.key === "Backspace") {
-          cur = fallback || "";
+          cur = "";
           input.value = bindText(cur);
           onSet(cur, true);
           return;
@@ -274,7 +274,11 @@ App.RecUI = (function () {
   }
 
   const ENCODERS = () => [["auto", App.t("enc.auto")], ["h264_nvenc", "NVIDIA"], ["h264_amf", "AMD"], ["h264_qsv", "Intel"], ["libx264", App.t("enc.cpu")]];
-  const hw = () => !!(tools && tools.encoder && tools.encoder !== "libx264");
+  /** Will the video be encoded on the GPU? Honors the encoder picked in Settings, else the detected one. */
+  const hw = () => {
+    const e = cfg.encoder && cfg.encoder !== "auto" ? cfg.encoder : tools && tools.encoder;
+    return !!(e && e !== "libx264");
+  };
 
   /** The five video rows; `set(patch)` applies a change. Used by Settings and by the wizard's "Dostosuj". */
   function videoRows(c, set) {
@@ -411,13 +415,20 @@ App.RecUI = (function () {
 
     // SKRÓTY
     const keysBox = h("div", { class: "card2" });
+    /** One shortcut row: the capture field plus a clear button once something is set ("no shortcut" is allowed). */
+    const keyRow = (label, key, value) => {
+      const field = hotkeyField(value, (c, kb) => { save({ [key]: c }, kb ? App.t("key.restart") : ""); drawKeys(); });
+      const clear = value ? h("button", { class: "linkbtn", text: "\u2715", title: App.t("hk.clear"),
+        onClick: () => { save({ [key]: "" }); drawKeys(); } }) : null;
+      return U.srow(label, h("div", { class: "pathrow" }, field, clear));
+    };
     const drawKeys = () => {
       const roll = U.srow(App.t("key.roll"), U.segc(POST_ROLL(), cfg.post_roll_seconds, (v) => { save({ post_roll_seconds: +v }); drawKeys(); }));
       roll.title = App.t("key.rollTip");
       keysBox.replaceChildren(
-        U.srow(App.t("key.save"), hotkeyField(cfg.hotkey, (c, kb) => save({ hotkey: c }, kb ? App.t("key.restart") : ""), "Alt+Q")),
-        U.srow(App.t("key.marker"), hotkeyField(cfg.marker_hotkey || "Alt+M", (c, kb) => save({ marker_hotkey: c }, kb ? App.t("key.restart") : ""), "Alt+M")),
-        U.srow(App.t("key.record"), hotkeyField(cfg.record_hotkey, (c, kb) => save({ record_hotkey: c }, kb ? App.t("key.restart") : ""))),
+        keyRow(App.t("key.save"), "hotkey", cfg.hotkey),
+        keyRow(App.t("key.marker"), "marker_hotkey", cfg.marker_hotkey ?? "Alt+M"),
+        keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey),
         roll);
     };
     drawKeys();
@@ -445,7 +456,7 @@ App.RecUI = (function () {
           U.srow(App.t("adv.offset"), h("input", { class: "field monoin", type: "number", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms,
             title: App.t("adv.offsetTip"),
             onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) })),
-          U.srow(App.t("adv.encoder"), h("select", { class: "field", title: App.t("adv.encoderTip"), onChange: (e) => save({ encoder: e.target.value }) },
+          U.srow(App.t("adv.encoder"), h("select", { class: "field", title: App.t("adv.encoderTip"), onChange: (e) => { save({ encoder: e.target.value }); sum.update(cfg); } },
             ENCODERS().map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.encoder || "auto") === v })))),
           U.srow(App.t("adv.games"), h("input", { class: "field", placeholder: App.t("adv.gamesPh"),
             title: App.t("adv.gamesTip"),
@@ -485,7 +496,8 @@ App.RecUI = (function () {
     else if (down.length) { state = "warn"; t = App.t("st.warn"); l = App.t("st.down", { list: down.join(", ") }); }
     if (lg) { state = "on"; t = App.t("long.on"); l = `${clock(lg.elapsed_s || 0)} · ${lg.mb} MB`; }
     else if (r && r.long && r.long.finalizing) t = App.t("long.fin");
-    if (r && !l) l = App.t("st.buffer", { cur: fmtBuf(r.buffer_s), target: fmtBuf(r.buffer_target_s), hk: String(r.hotkey).replaceAll("+", " + ") });
+    if (r && !l) l = r.hotkey ? App.t("st.buffer", { cur: fmtBuf(r.buffer_s), target: fmtBuf(r.buffer_target_s), hk: String(r.hotkey).replaceAll("+", " + ") })
+      : App.t("st.bufferNoKey", { cur: fmtBuf(r.buffer_s), target: fmtBuf(r.buffer_target_s) });
     dot.className = `sdot ${state}`;
     title.textContent = t;
     line.textContent = l;

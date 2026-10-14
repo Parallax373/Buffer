@@ -15,6 +15,8 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "common.delete": "删除",
   "common.cancel": "取消",
   "common.dismiss": "关闭",
+  "hk.clear": "清除快捷键",
+  "st.bufferNoKey": "缓冲 {cur} / {target}",
   "common.default": "默认",
 
   "rec.pill.off": "录制已关闭",

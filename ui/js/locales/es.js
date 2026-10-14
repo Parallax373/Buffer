@@ -15,6 +15,8 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "common.delete": "Eliminar",
   "common.cancel": "Cancelar",
   "common.dismiss": "Cerrar",
+  "hk.clear": "Quitar atajo",
+  "st.bufferNoKey": "búfer {cur} / {target}",
   "common.default": "Predeterminado",
 
   "rec.pill.off": "REC apagado",

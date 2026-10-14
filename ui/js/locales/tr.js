@@ -15,6 +15,8 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "common.delete": "Sil",
   "common.cancel": "İptal",
   "common.dismiss": "Kapat",
+  "hk.clear": "Kısayolu kaldır",
+  "st.bufferNoKey": "arabellek {cur} / {target}",
   "common.default": "Varsayılan",
 
   "rec.pill.off": "REC kapalı",
