@@ -387,7 +387,7 @@ impl Overlay {
             let title = match ev {
                 Event::PostRoll { roll_ms } if counting => {
                     let n = ((roll_ms as f64 / 1000.0) - e / 1000.0).ceil().max(1.0) as u64;
-                    format!("Zapisuję klip za {n} s")
+                    crate::lang::f("pop.postroll", &[("n", &n)])
                 }
                 _ => a.popup.title.clone(),
             };

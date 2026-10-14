@@ -56,7 +56,7 @@ pub fn start(shared: &Arc<Shared>) -> Result<(), String> {
     let cfg: Config = shared.cfg.lock().unwrap().clone();
     let mut slot = shared.long.lock().unwrap();
     if slot.is_some() {
-        return Err("nagrywanie już trwa".into());
+        return Err(crate::lang::t("err.busy"));
     }
     let game = current_game_name(&cfg);
     let mut dir = PathBuf::from(&cfg.output_dir);
@@ -65,7 +65,7 @@ pub fn start(shared: &Arc<Shared>) -> Result<(), String> {
     }
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     if win::free_bytes(&dir).is_some_and(|f| f < MIN_FREE) {
-        return Err("za mało miejsca na dysku".into());
+        return Err(crate::lang::t("err.space"));
     }
     *slot = Some(Long {
         started: Instant::now(),
@@ -118,7 +118,7 @@ pub fn tick(shared: &Arc<Shared>) {
     if problem.is_none() && l.last_disk_check.elapsed() > Duration::from_secs(10) {
         l.last_disk_check = Instant::now();
         if win::free_bytes(&l.dir).is_some_and(|f| f < MIN_FREE) {
-            problem = Some("dysk jest prawie pełny".into());
+            problem = Some(crate::lang::t("err.disk_full"));
         }
     }
     drop(guard);
@@ -143,8 +143,8 @@ pub fn toggle(shared: &Arc<Shared>) {
         stop_async(shared, None);
     } else {
         match start(shared) {
-            Ok(()) => shared.popup(Event::Game, "Nagrywanie rozpoczęte", format!("{} kończy", shared.cfg.lock().unwrap().record_hotkey)),
-            Err(e) => shared.popup(Event::SaveFailed, "Nie udało się rozpocząć nagrywania", e),
+            Ok(()) => shared.popup(Event::Game, crate::lang::t("lr.started"), crate::lang::f("lr.started_sub", &[("hk", &shared.cfg.lock().unwrap().record_hotkey)])),
+            Err(e) => shared.popup(Event::SaveFailed, crate::lang::t("lr.start_failed"), e),
         }
     }
 }
@@ -161,13 +161,13 @@ pub fn stop_async(shared: &Arc<Shared>, reason: Option<String>) {
             Ok(Some(path)) => {
                 win::beep();
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                s.popup(Event::Saved, reason.map_or("Zapisano nagranie".to_string(), |r| format!("Zatrzymano: {r}")), name);
+                s.popup(Event::Saved, reason.map_or(crate::lang::t("lr.saved"), |r| crate::lang::f("lr.stopped", &[("r", &r)])), name);
             }
             Ok(None) => {}
             Err(e) => {
                 log(&format!("long recording failed: {e}"));
                 *s.last_error.lock().unwrap() = format!("long recording failed: {e}");
-                s.popup(Event::SaveFailed, "Nie udało się zapisać nagrania", e);
+                s.popup(Event::SaveFailed, crate::lang::t("lr.save_failed"), e);
             }
         }
     });

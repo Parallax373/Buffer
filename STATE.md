@@ -69,4 +69,4 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
   dismissible bar for returning users (`settings.langHint` = handled). Switching saves state and reloads the window.
 - All catalogs except `pl` are AI-translated; Settings → App → Language shows a small "AI-translated" note for them (`ai: true`).
 - Add a key to `en.js` first, then every locale; `node scripts/check-i18n.js` checks key/placeholder/plural parity.
-- Not translated yet: the recorder's tray menu, popups and overlay (`crates/ml-recorder`, still Polish) and Rust error text shown in toasts.
+- The recorder (tray menu, tooltip, popups, overlay) uses `crates/ml-recorder/src/lang.rs` (same 9 languages); the app writes `lang` into recorder.json on boot and on language switch.

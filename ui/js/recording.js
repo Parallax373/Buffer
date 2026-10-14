@@ -708,6 +708,7 @@ App.RecUI = (function () {
     async function persist() {
       const c = JSON.parse(JSON.stringify(w.cfg));
       c.output_dir = w.dir;
+      c.lang = App.i18n.current();
       for (const [k] of SRC) if (c[k].secondary && !c[k].secondary.id) c[k].secondary = null;
       cfg = { ...cfg, ...c };
       await api.invoke("set_recorder_config", { config: c });
@@ -756,8 +757,15 @@ App.RecUI = (function () {
     renderAll();
   }
 
+  /** Tells the recorder which language to use for its tray menu and popups (no-op when already in sync). */
+  async function syncLang() {
+    await load();
+    const lang = App.i18n.current();
+    if (cfg.lang !== lang) await save({ lang });
+  }
+
   return {
-    renderTab, paint, wizard,
+    renderTab, paint, wizard, syncLang,
     ensureLoaded: load,
     cfg: () => cfg,
     save,

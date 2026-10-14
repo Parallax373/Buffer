@@ -146,12 +146,10 @@ fn icon_rgba(state: State) -> Vec<u8> {
     px
 }
 
-fn source_label(name: &str) -> &str {
+fn source_label(name: &str) -> String {
     match name {
-        "Game" => "dźwięk gry",
-        "Chat" => "czat",
-        "Mic" => "mikrofon",
-        other => other,
+        "Game" | "Chat" | "Mic" => crate::lang::t(&format!("src.{name}")),
+        other => other.to_string(),
     }
 }
 
@@ -160,49 +158,49 @@ fn state_of(shared: &session::Shared) -> (State, String) {
     if let Some((at, ok)) = *shared.flash.lock().unwrap() {
         if now.duration_since(at) < std::time::Duration::from_secs(4) {
             return if ok {
-                (State::Saved, "Buffer — klip zapisany".to_string())
+                (State::Saved, crate::lang::t("tip.saved"))
             } else {
-                (State::SaveFailed, "Buffer — nie udało się zapisać klipu".to_string())
+                (State::SaveFailed, crate::lang::t("tip.save_failed"))
             };
         }
     }
     if let Some(until) = *shared.post_roll_until.lock().unwrap() {
         if until > now {
             let left = until.duration_since(now).as_secs() + 1;
-            return (State::Saving, format!("Buffer — zapis klipu za {left} s (skrót ponownie = od razu)"));
+            return (State::Saving, crate::lang::f("tip.postroll", &[("n", &left)]));
         }
     }
     if shared.finalizing.load(Ordering::Relaxed) {
-        return (State::Saving, "Buffer — kończę zapis nagrania…".to_string());
+        return (State::Saving, crate::lang::t("tip.finalizing"));
     }
     if let Some(secs) = crate::longrec::elapsed_secs(shared) {
-        return (State::LongRec, format!("Buffer — nagrywa całość · {}", clock(secs)));
+        return (State::LongRec, crate::lang::f("tip.longrec", &[("t", &clock(secs))]));
     }
     if shared.idle.load(Ordering::Relaxed) {
-        return (State::Idle, "Buffer — czeka na grę (nagrywa tylko gry)".to_string());
+        return (State::Idle, crate::lang::t("tip.idle"));
     }
     if !shared.recording.load(Ordering::Relaxed) {
         let err = shared.last_error.lock().unwrap().clone();
         if err.is_empty() && shared.restarts.load(Ordering::Relaxed) == 0 && shared.started.elapsed().as_secs() < 20 {
-            return (State::Starting, "Buffer — uruchamianie nagrywania…".to_string());
+            return (State::Starting, crate::lang::t("tip.starting"));
         }
-        let msg = if err.is_empty() { "zatrzymane".to_string() } else { err.chars().take(90).collect() };
-        return (State::Stopped, format!("Buffer — nie nagrywa: {msg}"));
+        let msg = if err.is_empty() { crate::lang::t("word.stopped") } else { err.chars().take(90).collect() };
+        return (State::Stopped, crate::lang::f("tip.stopped", &[("msg", &msg)]));
     }
-    let down: Vec<&str> = shared
+    let down: Vec<String> = shared
         .sinks
         .iter()
         .filter(|s| !s.live.load(Ordering::Relaxed))
         .map(|s| source_label(s.name))
         .collect();
     if !down.is_empty() {
-        return (State::Problem, format!("Buffer — uwaga, nie działa: {}", down.join(", ")));
+        return (State::Problem, crate::lang::f("tip.problem", &[("list", &down.join(", "))]));
     }
     let cfg = shared.cfg.lock().unwrap();
     let game = shared.active_game.lock().unwrap().as_ref().map(|g| format!(" · {}", g.name)).unwrap_or_default();
     (
         State::Recording,
-        format!("Buffer — nagrywa · bufor {}/{} s{game}", session::buffered_seconds().min(cfg.buffer_seconds), cfg.buffer_seconds),
+        crate::lang::f("tip.recording", &[("cur", &session::buffered_seconds().min(cfg.buffer_seconds)), ("max", &cfg.buffer_seconds), ("game", &game)]),
     )
 }
 
@@ -247,7 +245,7 @@ fn hotkey_save(shared: &Arc<session::Shared>) {
         shared.post_roll_skip.store(true, Ordering::Relaxed);
         return;
     }
-    shared.popup(Event::PostRoll { roll_ms: roll as u64 * 1000 }, format!("Zapisuję klip za {roll} s"), "Naciśnij skrót ponownie, aby zapisać od razu");
+    shared.popup(Event::PostRoll { roll_ms: roll as u64 * 1000 }, crate::lang::f("pop.postroll", &[("n", &roll)]), crate::lang::t("pop.postroll_sub"));
     *shared.post_roll_until.lock().unwrap() = Some(std::time::Instant::now() + std::time::Duration::from_secs(roll as u64));
     let s = shared.clone();
     thread::spawn(move || {
@@ -270,12 +268,12 @@ fn save_async(shared: &Arc<session::Shared>) {
         Ok(path) => {
             win::beep();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            s.popup(Event::Saved, "Zapisano klip", name);
+            s.popup(Event::Saved, crate::lang::t("pop.saved"), name);
         }
         Err(e) => {
             session::log(&format!("save failed: {e}"));
             *s.last_error.lock().unwrap() = format!("save failed: {e}");
-            s.popup(Event::SaveFailed, "Nie udało się zapisać klipu", e);
+            s.popup(Event::SaveFailed, crate::lang::t("pop.save_failed"), e);
         }
     });
 }
@@ -290,21 +288,21 @@ fn announce_game(shared: &session::Shared, game: &str) {
         format!("{} s", cfg.buffer_seconds)
     };
     if !shared.recording.load(Ordering::Relaxed) {
-        shared.popup(Event::RecordingDown, format!("{game}: nagrywanie nie działa"), "Otwórz Buffer → Ustawienia → Nagrywanie");
+        shared.popup(Event::RecordingDown, crate::lang::f("pop.down", &[("game", &game)]), crate::lang::t("pop.down_sub"));
     } else if down.is_empty() {
-        shared.popup(Event::Game, "Buffer aktywny", format!("{} — zapisz ostatnie {len} · {game}", cfg.hotkey));
+        shared.popup(Event::Game, crate::lang::t("pop.active"), crate::lang::f("pop.active_sub", &[("hk", &cfg.hotkey), ("len", &len), ("game", &game)]));
     } else {
-        shared.popup(Event::GameWarn, "Buffer aktywny, ale uwaga", format!("Nie działa: {} · {} zapisuje klip", down.join(", "), cfg.hotkey));
+        shared.popup(Event::GameWarn, crate::lang::t("pop.warn"), crate::lang::f("pop.warn_sub", &[("list", &down.join(", ")), ("hk", &cfg.hotkey)]));
     }
 }
 
 /// Never returns while the recorder runs.
 pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>) {
     let menu = Menu::new();
-    let save_i = MenuItem::new("Zapisz klip teraz", true, None);
-    let rec_i = MenuItem::new("Nagrywaj całość", true, None);
-    let open_i = MenuItem::new("Otwórz edytor", true, None);
-    let quit_i = MenuItem::new("Zamknij Buffer", true, None);
+    let save_i = MenuItem::new(crate::lang::t("menu.save"), true, None);
+    let rec_i = MenuItem::new(crate::lang::t("menu.record"), true, None);
+    let open_i = MenuItem::new(crate::lang::t("menu.open"), true, None);
+    let quit_i = MenuItem::new(crate::lang::t("menu.quit"), true, None);
     let _ = menu.append_items(&[&save_i, &rec_i, &open_i, &PredefinedMenuItem::separator(), &quit_i]);
 
     let tray = TrayIconBuilder::new()
@@ -359,7 +357,7 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
                     m.drain(..cut);
                 }
                 drop(m);
-                hk_shared.popup(Event::Marker, "Znacznik dodany", "Zobaczysz go jako ◆ na osi czasu w edytorze");
+                hk_shared.popup(Event::Marker, crate::lang::t("pop.marker"), crate::lang::t("pop.marker_sub"));
             } else {
                 hk_shared.hotkey_hits.fetch_add(1, Ordering::Relaxed);
                 hotkey_save(&hk_shared);
@@ -396,8 +394,8 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
             if let Some(tray) = &tray {
                 let (state, tip) = state_of(&tick_shared);
                 let _ = rec_i.set_text(match crate::longrec::elapsed_secs(&tick_shared) {
-                    Some(s) => format!("Zatrzymaj nagrywanie ({})", clock(s)),
-                    None => "Nagrywaj całość".to_string(),
+                    Some(s) => crate::lang::f("menu.record_stop", &[("t", &clock(s))]),
+                    None => crate::lang::t("menu.record"),
                 });
                 let _ = tray.set_tooltip(Some(tip));
                 if shown != Some(state) {

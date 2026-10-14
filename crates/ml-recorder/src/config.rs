@@ -60,6 +60,8 @@ pub struct Config {
     pub hotkey: String,
     /// Drops a marker (shown as a diamond on the editor timeline) at this moment of the recording.
     pub marker_hotkey: String,
+    /// UI language code written by the app (en, pl, de, es, fr, uk, tr, ja, zh); used for tray and popup text.
+    pub lang: String,
     /// Starts / stops a long recording (the whole session, not just the last minutes).
     pub record_hotkey: String,
     pub game: SourceCfg,
@@ -94,6 +96,7 @@ impl Default for Config {
             audio_offset_ms: 0,
             hotkey: "Alt+Q".into(),
             marker_hotkey: "Alt+M".into(),
+            lang: "en".into(),
             record_hotkey: "Alt+R".into(),
             game: SourceCfg::default(),
             chat: SourceCfg::default(),

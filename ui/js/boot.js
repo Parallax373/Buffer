@@ -36,6 +36,7 @@
   else setTimeout(() => App.i18n.showBanner(), 1200);   // returning users: offer the system language once (new users see it in the wizard)
 
   // If the user asked for recording at login but the recorder is not up (crashed, killed), start it.
+  if (App.P.settings.onboarded) App.RecUI.syncLang().catch(() => {});   // existing installs: recorder follows the app language
   try {
     await App.Rec.refresh();
     if (!App.S.recorder && (await App.api.invoke("recorder_autostart", { enable: null }))) {

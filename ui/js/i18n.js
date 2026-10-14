@@ -79,6 +79,10 @@ App.i18n = (function () {
     App.P.settings.lang = code;
     App.P.settings.langHint = true;
     await App.api.invoke("save_state", { state: App.P }).catch(() => {});
+    // the recorder (tray menu, popups) follows the app language; best effort, it may not be installed
+    if (App.P.settings.onboarded) {
+      try { await App.api.invoke("set_recorder_config", { config: { ...(await App.api.invoke("recorder_config")), lang: code } }); await App.api.invoke("recorder_cmd", { cmd: "reload" }); } catch { /* recorder not available */ }
+    }
     location.reload();
   }
 

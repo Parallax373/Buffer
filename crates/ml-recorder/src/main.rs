@@ -3,6 +3,7 @@
 mod audio;
 mod config;
 mod identify;
+mod lang;
 mod input;
 mod longrec;
 mod control;
@@ -139,6 +140,7 @@ fn run() {
         return;
     }
     let cfg = Config::load();
+    lang::set(&cfg.lang);
     let sinks = [
         Sink::new("Game", Kind::Loopback, "Game"),
         Sink::new("Chat", Kind::Loopback, "Chat"),

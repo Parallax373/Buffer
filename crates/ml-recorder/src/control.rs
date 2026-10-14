@@ -81,6 +81,7 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
             }
             "reload" => {
                 let cfg = Config::load();
+                crate::lang::set(&cfg.lang);
                 // choosing an encoder by hand overrides an earlier automatic fallback
                 if cfg.encoder != shared.cfg.lock().unwrap().encoder {
                     *shared.encoder_override.lock().unwrap() = None;
