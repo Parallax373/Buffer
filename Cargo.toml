@@ -5,6 +5,7 @@ members = ["crates/ml-core", "crates/ml-cli", "crates/ml-recorder", "src-tauri"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [profile.release]
 lto = true

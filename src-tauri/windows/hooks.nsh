@@ -9,6 +9,12 @@
   Sleep 1500
 !macroend
 
+!macro NSIS_HOOK_POSTINSTALL
+  ; An update stopped the recorder in PREINSTALL: restart it when the user had already completed the setup.
+  IfFileExists "$APPDATA\Buffer\recorder.json" 0 +2
+    Exec '"$INSTDIR\buffer-recorder.exe" run'
+!macroend
+
 !macro NSIS_HOOK_PREUNINSTALL
   ExecWait '"$INSTDIR\buffer-recorder.exe" quit'
   ExecWait '"$INSTDIR\buffer-recorder.exe" uninstall-autostart'

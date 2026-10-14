@@ -45,7 +45,9 @@
     "resources": {
       "../target/release/buffer-recorder.exe": "buffer-recorder.exe",
       "../vendor/ffmpeg/ffmpeg.exe": "ffmpeg.exe",
-      "../vendor/ffmpeg/FFMPEG-LICENSE.txt": "FFMPEG-LICENSE.txt"
+      "../vendor/ffmpeg/FFMPEG-LICENSE.txt": "FFMPEG-LICENSE.txt",
+      "../LICENSE": "LICENSE.txt",
+      "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
     },
     "windows": {
       "nsis": {
@@ -59,6 +61,18 @@
         "installerHooks": "windows/hooks.nsh",
         "template": "windows/installer.nsi",
         "compression": "lzma"
+      }
+    },
+    "copyright": "Copyright (c) 2026 Wheatlay"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRDOTQ5MzlGMUM5M0U5RkQKUldUOTZaTWNuNU9VVEF6dTBUa3BiV3dSeGN5VXcwS3dSR2JnSmFtaEhFUDVEYm1CZjNTRW1rdGkK",
+      "endpoints": [
+        "https://github.com/Wheatlay/buffer/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

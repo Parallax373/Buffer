@@ -2,6 +2,7 @@
 name = "buffer"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -15,3 +16,4 @@ tauri-plugin-drag = "2.1.1"
 trash = "5"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"

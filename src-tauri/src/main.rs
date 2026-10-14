@@ -540,6 +540,16 @@ async fn recorder_levels(ids: Vec<String>, ms: Option<u64>) -> Result<serde_json
     .map_err(|e| e.to_string())?
 }
 
+/// Shows each monitor's number on that monitor for a moment (does not wait for it to disappear).
+#[tauri::command]
+fn identify_monitors() -> Result<(), String> {
+    let exe = recorder_exe().ok_or("buffer-recorder.exe not found next to the app")?;
+    let mut c = Command::new(exe);
+    c.arg("identify").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    hide_window(&mut c);
+    c.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn recorder_monitors() -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -653,6 +663,7 @@ fn main() {
                 let _ = w.set_focus();
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -675,6 +686,7 @@ fn main() {
             set_recorder_config,
             recorder_devices,
             recorder_monitors,
+            identify_monitors,
             recorder_levels,
             cancel_export,
             clip_markers,
