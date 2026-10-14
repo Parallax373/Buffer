@@ -720,3 +720,6 @@ body { color: var(--text); }
 .langchip .go:hover { background: #ffffff0d; }
 .langchip .x { padding: 0 9px 0 4px; height: 100%; color: var(--muted); }
 .langchip .x:hover { color: var(--text); }
+#topbar .right > * { flex-shrink: 0; white-space: nowrap; }
+#topbar .search { min-width: 0; flex-shrink: 1; }
+.langchip .go { overflow: visible; }
