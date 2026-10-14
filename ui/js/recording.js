@@ -433,7 +433,7 @@ App.RecUI = (function () {
     const drawKeys = () => {
       keysBox.replaceChildren(
         keyRow(App.t("key.save"), "hotkey", cfg.hotkey),
-$1);
+        keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey));
     };
     drawKeys();
 
