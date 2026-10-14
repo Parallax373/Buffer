@@ -97,13 +97,14 @@ App.i18n = (function () {
       h("button", { class: "linkbtn", text: "✕", onClick: (e) => { dismissHint(); e.currentTarget.parentElement.remove(); onDone?.(); } }));
   }
 
-  /** For returning users: a dismissible bar, shown once. */
+  /** For returning users: a small card under the top bar, shown once. */
   function showBanner() {
     const el = hintLink();
     if (!el) return;
     el.classList.remove("inline");
     el.classList.add("bar");
-    document.body.append(el);
+    (document.getElementById("app") || document.body).append(el);
+    dismissHint();   // offered once; it never comes back by itself (the picker in Settings stays)
   }
 
   return { ORDER, init, detect, suggestion, setLang, hintLink, showBanner, current: () => lang };
