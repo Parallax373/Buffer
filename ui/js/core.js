@@ -89,7 +89,7 @@ const App = {};
   /* ───── persisted state (debounced) ───── */
   const DEFAULTS = {
     settings: {
-      theme: "ink", autoMarkers: true, anim: true, lite: false, thumb: "M",
+      theme: "ink", anim: true, lite: false, thumb: "M",
       sub: true, auto: true, thumbs: true, cache: true, hw: true,
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false,
     },
@@ -246,18 +246,3 @@ const App = {};
       : kbps < 3000 ? ["dobra", "var(--ok)"] : ["świetna", "var(--ok)"];
 })();
 
-/* Explanations never take space in the UI: any description line is moved into a tooltip of its row. */
-(function () {
-  const SEL = ".line .ds, .src .desc, .wizbody > p.muted";
-  const move = (d) => {
-    const host = d.closest(".line") || d.closest(".src") || d.closest(".wizbody")?.querySelector("h2");
-    if (host && d.textContent.trim()) host.title = d.textContent.trim();
-    d.remove();
-  };
-  const scan = (n) => {
-    if (n.nodeType !== 1) return;
-    if (n.matches(SEL)) move(n);
-    n.querySelectorAll(SEL).forEach(move);
-  };
-  new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach(scan))).observe(document.body, { childList: true, subtree: true });
-})();

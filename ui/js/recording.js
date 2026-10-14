@@ -103,7 +103,7 @@ App.RecUI = (function () {
       const shared = sharedOutput();
       const callout = (shared || cfg.chat_app) ? h("div", { class: "callout",
         title: "Gra i czat dzielą jedno wyjście. Wskaż aplikację czatu, a jej dźwięk trafi tylko na ścieżkę Czat, a ścieżka Gra dostanie całą resztę." },
-        h("span", { text: "Aplikacja czatu" }),
+        h("span", { text: "Wspólne wyjście · aplikacja czatu" }),
         h("select", { class: "field", onChange: (e) => { cfg.chat_app = e.target.value; onChange("chat_app"); draw(); } },
           CHAT_APPS.map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.chat_app || "") === v })))) : null;
       wrap.replaceChildren(...SRC.flatMap(([key, name, label, kind, desc]) => {
@@ -218,11 +218,11 @@ App.RecUI = (function () {
         h("div", { class: "estimates" },
           h("div", { class: "cap", text: "Co to zajmie" }),
           meterBar("Jeden klip", fmtMb(e.clipMb), 500, [[10, "Discord 10 MB"], [50, "Discord 50 MB"]], e.clipMb, fits),
-          meterBar("Bufor na dysku", fmtMb(e.diskMb), 1000, [], e.diskMb, "Tymczasowy, ciągle nadpisywany — nie rośnie.", true),
-          meterBar("Pamięć RAM", `≈ ${fmtMb(e.ramMb)}`, 2000, [], e.ramMb, "Szacunek dla procesu nagrywającego.", true),
-          h("div", { class: "est", title: hw ? "Nagrywanie praktycznie nie obciąża gry." : "Brak kodera sprzętowego — przy wyższej jakości może spadać FPS w grze." },
-            h("div", { class: "top" }, h("span", { text: "Obciążenie" }), h("b", { text: hw ? "GPU (koder sprzętowy)" : "procesor (CPU)" })),
-            null),
+          meterBar("Bufor na dysku", fmtMb(e.diskMb), 1000, [], e.diskMb, "tymczasowy, nadpisywany"),
+          meterBar("Pamięć RAM", `≈ ${fmtMb(e.ramMb)}`, 2000, [], e.ramMb, "szacunek"),
+          h("div", { class: "est" },
+            h("div", { class: "top" }, h("span", { text: "Obciążenie" }), h("b", { text: hw ? "GPU" : "CPU" })),
+            h("div", { class: "note muted", text: hw ? "nie obciąża gry" : "może obniżyć FPS" })),
           h("div", { class: "note muted", text: `Obraz zapisywany w ${e.w}×${e.hgt} px, ${c.fps} fps. 10 klipów ≈ ${fmtMb(e.clipMb * 10)}.` })));
     };
     draw();
@@ -286,11 +286,9 @@ App.RecUI = (function () {
         h("div", { style: { marginTop: "14px" }, title: "Po skrócie nagrywanie trwa jeszcze tyle sekund i dopiero wtedy zapisuje klip, więc w klipie są też chwile tuż po. Drugie naciśnięcie zapisuje od razu." }, cap("Dogrywaj po naciśnięciu skrótu"),
           seg(POST_ROLL, cfg.post_roll_seconds, (v) => save({ post_roll_seconds: +v }).then(rerender)),
           null)),
-      toggle("Znaczniki ze szczytów głośności", "Automatyczne kreski na osi czasu w edytorze", App.P.settings.autoMarkers !== false,
-        async (v) => { App.P.settings.autoMarkers = v; App.persist(); rerender(); }),
-      toggle("Nagrywaj tylko gry", "Bufor działa tylko, gdy jest uruchomiona gra, a ścieżka Game zawiera wyłącznie dźwięk tej gry (bez muzyki i rozmów)", cfg.game_only,
+      toggle("Nagrywaj tylko gry", "Bufor i dźwięk tylko podczas gry", cfg.game_only,
         async (v) => { await save({ game_only: v }); rerender(); }),
-      toggle("Nagrywaj monitor, na którym jest gra", "Przy kilku monitorach Buffer sam przełącza się na ekran z grą", cfg.follow_game_monitor,
+      toggle("Nagrywaj monitor, na którym jest gra", "Przełącza się na ekran z grą", cfg.follow_game_monitor,
         async (v) => { await save({ follow_game_monitor: v }); rerender(); }),
       h("div", { class: "sec" }, cap("Folder zapisu"), h("div", { class: "pathrow" },
         h("input", { class: "field", value: cfg.output_dir, readOnly: true }),
@@ -298,16 +296,16 @@ App.RecUI = (function () {
           const d = await api.pickFolder();
           if (d) { await save({ output_dir: d }); rerender(); }
         } }))),
-      toggle("Osobny folder dla każdej gry", "Klipy trafiają do podfolderu o nazwie gry wewnątrz folderu zapisu", cfg.per_game_folders,
+      toggle("Osobny folder dla każdej gry", "Podfolder z nazwą gry", cfg.per_game_folders,
         async (v) => { await save({ per_game_folders: v }); rerender(); }),
-      toggle("Okienko „Buffer aktywny”", "Pokazuje powiadomienie po uruchomieniu gry i po zapisaniu klipu", cfg.popup,
+      toggle("Okienko „Buffer aktywny”", "Przy starcie gry i zapisie klipu", cfg.popup,
         async (v) => { await save({ popup: v }); rerender(); }),
       h("div", { class: "sec" }, cap("Dodatkowe gry (nazwy procesów, po przecinku)"),
         h("input", { class: "field", style: { width: "100%" }, placeholder: "np. leagueclient, valorant",
           value: (cfg.extra_games || []).join(", "),
           title: "Gry uruchamiane w oknie wykrywamy tylko po nazwie procesu. Pełnoekranowe wykrywane są automatycznie.",
           onChange: (e) => save({ extra_games: e.target.value.split(",").map((x) => x.trim().toLowerCase().replace(/\.exe$/, "")).filter(Boolean) }) })),
-      toggle("Uruchamiaj nagrywanie z systemem", "Nagrywanie startuje po zalogowaniu, niezależnie od edytora", autostart, async (v) => {
+      toggle("Uruchamiaj nagrywanie z systemem", "Startuje po zalogowaniu", autostart, async (v) => {
         autostart = await api.invoke("recorder_autostart", { enable: v }).catch(() => autostart);
         rerender();
       }));
@@ -381,7 +379,7 @@ App.RecUI = (function () {
           body = [
             h("div", { style: { display: "flex", alignItems: "center", gap: "14px" } }, App.logo(64),
               h("h2", { text: "Witaj w Buffer" })),
-            h("p", { class: "muted", text: "Kilka szybkich pytań i nagrywanie działa samo w tle — Buffer pamięta ostatnie minuty, a Ty zapisujesz klip jednym skrótem." }),
+            h("p", { class: "muted", text: "Buffer nagrywa w tle ostatnie minuty. Jeden skrót zapisuje klip." }),
             h("div", { class: "stack" },
               h("div", { class: "statusbox" }, h("span", { text: "Nagrywanie i eksport (ffmpeg)" }),
                 h("span", { style: { color: tools?.ffmpeg_found ? "var(--ok)" : "var(--err)" },
@@ -407,7 +405,7 @@ App.RecUI = (function () {
               h("button", { class: "btn", text: "Zmień", onClick: async () => { const d = await api.pickFolder(); if (d) { w.dir = d; render(); } } })),
             h("div", { class: "line", onClick: () => { c.per_game_folders = !c.per_game_folders; render(); } },
               h("div", null, h("div", { class: "tt", text: "Osobny folder dla każdej gry" }),
-                h("div", { class: "ds", text: "np. …\\Counter-Strike-2\\klip.mp4 — porządek bez wysiłku" })),
+                h("div", { class: "ds", text: "Podfolder z nazwą gry" })),
               h("span", { class: "toggle lg" + (c.per_game_folders ? " on" : "") })),
           ];
           break;
@@ -415,7 +413,7 @@ App.RecUI = (function () {
           cfg = { ...cfg, game: c.game, chat: c.chat, mic: c.mic, chat_app: c.chat_app };   // the shared meter code reads `cfg`
           body = [
             h("h2", { text: "Skąd nagrywać dźwięk?" }),
-            h("p", { class: "muted", text: "Domyślnie Buffer nagrywa to, czego akurat używasz w Windows (głośniki albo słuchawki) i sam przełącza się po zmianie. Każde źródło trafia na osobną ścieżkę klipu. Paski pokazują poziom na żywo." }),
+            h("p", { class: "muted", text: "Domyślnie to, czego używasz w Windows. Każde źródło ma osobną ścieżkę." }),
             sourceCards(() => { c.game = cfg.game; c.chat = cfg.chat; c.mic = cfg.mic; c.chat_app = cfg.chat_app; }),
           ];
           break;
@@ -431,15 +429,15 @@ App.RecUI = (function () {
             seg(POST_ROLL, c.post_roll_seconds, (v) => { c.post_roll_seconds = +v; render(); }),
             h("div", { class: "line", onClick: () => { c.game_only = !c.game_only; render(); } },
               h("div", null, h("div", { class: "tt", text: "Nagrywaj tylko gry" }),
-                h("div", { class: "ds", text: "Bufor działa tylko, gdy jest uruchomiona gra; dźwięk gry bez muzyki i rozmów" })),
+                h("div", { class: "ds", text: "Bufor i dźwięk tylko podczas gry" })),
               h("span", { class: "toggle lg" + (c.game_only ? " on" : "") })),
             h("div", { class: "line", onClick: () => { c.popup = !c.popup; render(); } },
               h("div", null, h("div", { class: "tt", text: "Okienko „Buffer aktywny”" }),
-                h("div", { class: "ds", text: "Przypomina o skrócie po uruchomieniu gry i ostrzega, gdy mikrofon nie działa" })),
+                h("div", { class: "ds", text: "Skrót i ostrzeżenia o dźwięku" })),
               h("span", { class: "toggle lg" + (c.popup ? " on" : "") })),
             h("div", { class: "line", onClick: () => { w.autostart = !w.autostart; render(); } },
               h("div", null, h("div", { class: "tt", text: "Uruchamiaj z Windows" }),
-                h("div", { class: "ds", text: "Nagrywanie startuje po zalogowaniu — nie musisz o niczym pamiętać" })),
+                h("div", { class: "ds", text: "Startuje po zalogowaniu" })),
               h("span", { class: "toggle lg" + (w.autostart ? " on" : "") })),
           ];
           break;

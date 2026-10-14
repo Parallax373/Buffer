@@ -278,34 +278,21 @@
     requestAnimationFrame(drawLanes);
   }
 
-  /* markers: thin = loudness peak, diamond = marked while recording or by you (M) */
-  function autoPeaks() {
-    if (!E?.info || App.P.settings.autoMarkers === false) return [];
-    const g = E.tracks.find((t) => t.name === "Game" && t.wave) || E.tracks.find((t) => t.wave);
-    if (!g) return [];
-    const n = g.wave.length, minGap = n * 0.15;
-    const order = [...g.wave.keys()].sort((a, b) => g.wave[b] - g.wave[a]);
-    const picked = [];
-    for (const i of order) {
-      if (picked.length >= 3 || g.wave[i] < 35) break;
-      if (picked.every((j) => Math.abs(j - i) >= minGap)) picked.push(i);
-    }
-    return picked.map((i) => ({ t: ((i + 0.5) / n) * E.info.duration, kind: "auto" }));
-  }
+  /* markers: diamonds, marked while recording (hotkey) or by you (M) */
 
   function allMarkers() {
     if (!E?.info) return [];
     const mine = App.P.markers[E.clip.path] || [];
-    return [...autoPeaks(), ...(E.rec || []).map((t) => ({ t, kind: "rec" })), ...mine.map((t) => ({ t, kind: "user" }))]
+    return [...(E.rec || []).map((t) => ({ t, kind: "rec" })), ...mine.map((t) => ({ t, kind: "user" }))]
       .sort((a, b) => a.t - b.t);
   }
 
   function renderMarkers() {
     if (!ui.marks) return;
-    const titles = { auto: "Szczyt głośności", rec: "Znacznik z nagrania", user: "Twój znacznik (dwuklik usuwa)" };
+    const titles = { rec: "Znacznik z nagrania", user: "Twój znacznik (dwuklik usuwa)" };
     ui.marks.replaceChildren(...allMarkers().map((m) => {
       const el = h("div", { class: "mk " + m.kind, title: `${titles[m.kind]} ${App.fmt(m.t)}`,
-        style: { left: `${pct(m.t)}%` }, hidden: pct(m.t) < 0 || pct(m.t) > 100 }, m.kind === "auto" ? null : h("i"));
+        style: { left: `${pct(m.t)}%` }, hidden: pct(m.t) < 0 || pct(m.t) > 100 }, h("i"));
       el.addEventListener("pointerdown", (ev) => { ev.stopPropagation(); seek(m.t); });
       if (m.kind === "user") el.addEventListener("dblclick", (ev) => {
         ev.stopPropagation();

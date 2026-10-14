@@ -16,10 +16,10 @@ use tray_icon::{
     Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
 };
 
-/// What the icon says. The logo mark carries the colour, a small badge in the corner carries the detail.
+/// What the icon says. The logo mark carries the colour; a corner badge appears only for stopped, paused and errors.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
-    /// Recording, everything works: lime logo + red REC dot.
+    /// Recording, everything works: the clean lime logo (default, no badge).
     Recording,
     /// Recording, but a problem was detected (a source is down): amber logo + "!".
     Problem,
@@ -27,11 +27,11 @@ enum State {
     Stopped,
     /// Waiting for a game ("record only games"): grey logo + pause bars.
     Idle,
-    /// Just started: grey logo + ring.
+    /// Just started: grey logo until the first segment arrives.
     Starting,
-    /// Post-roll running, the clip will be saved in a moment: lime logo + ring.
+    /// Post-roll running, the clip will be saved in a moment: lime logo (tooltip has the countdown).
     Saving,
-    /// A clip was just saved: lime logo + check.
+    /// A clip was just saved: lime logo (tooltip says so).
     Saved,
     /// Saving failed: red logo + X.
     SaveFailed,
@@ -57,6 +57,10 @@ fn colour(state: State) -> (u8, u8, u8) {
 /// 32x32 icon: the logo mark (a play triangle of scan-lines with faded tails) in the state colour and a
 /// 15 px badge in the bottom-right corner that says what is going on.
 fn icon(state: State) -> Icon {
+    Icon::from_rgba(icon_rgba(state), 32, 32).expect("valid icon")
+}
+
+fn icon_rgba(state: State) -> Vec<u8> {
     const N: usize = 32;
     let (r, g, b) = colour(state);
     let mut px = vec![0u8; N * N * 4];
@@ -94,19 +98,14 @@ fn icon(state: State) -> Icon {
             }
         }
     };
-    let ring = |put: &mut dyn FnMut(i32, i32, [u8; 4]), outer: f32, inner: f32, c: [u8; 4]| {
-        for dy in -9..=9 {
-            for dx in -9..=9 {
-                let d = (dx * dx + dy * dy) as f32;
-                if d <= outer * outer && d >= inner * inner {
-                    put(cx + dx, cy + dy, c);
-                }
-            }
-        }
-    };
-    disc(&mut put, 8.2, dark); // outline so the badge reads on any taskbar colour
+    // Outline so a badge reads on any taskbar colour. Healthy recording has no badge at all:
+    // a red dot looked like an error, so "all good" is simply the clean lime logo.
+    let badge = matches!(state, State::Problem | State::Stopped | State::SaveFailed | State::Idle);
+    if badge {
+        disc(&mut put, 8.2, dark);
+    }
     match state {
-        State::Recording => disc(&mut put, 6.2, [0xff, 0x3b, 0x3b, 255]),
+        State::Recording => {}
         State::Problem => {
             disc(&mut put, 6.2, [0xff, 0xb4, 0x54, 255]);
             for dy in -4..=1 {
@@ -138,27 +137,10 @@ fn icon(state: State) -> Icon {
                 }
             }
         }
-        State::Starting => ring(&mut put, 6.2, 3.6, [0x8b, 0x91, 0x9c, 255]),
-        State::Saving => {
-            disc(&mut put, 6.2, [0xff, 0xff, 0xff, 255]);
-            ring(&mut put, 6.2, 4.4, [0xc6, 0xf4, 0x32, 255]);
-            for dy in -3..=0 {
-                put(cx, cy + dy, dark); // clock hands
-            }
-            for dx in 0..=2 {
-                put(cx + dx, cy, dark);
-            }
-        }
-        State::Saved => {
-            disc(&mut put, 6.2, [0x4c, 0xc3, 0x8a, 255]);
-            let tick = [(-3, 0), (-2, 1), (-1, 2), (0, 1), (1, 0), (2, -1), (3, -2)];
-            for (dx, dy) in tick {
-                put(cx + dx, cy + dy, white);
-                put(cx + dx, cy + dy + 1, white);
-            }
-        }
+        // Healthy or transient states carry no badge: only stopped, paused and errors are called out.
+        State::Starting | State::Saving | State::Saved => {}
     }
-    Icon::from_rgba(px, N as u32, N as u32).expect("valid icon")
+    px
 }
 
 fn source_label(name: &str) -> &str {
@@ -450,7 +432,23 @@ mod tests {
     #[test]
     fn every_state_has_a_valid_icon() {
         for s in [State::Recording, State::Problem, State::Stopped, State::Idle, State::Starting, State::Saving, State::Saved, State::SaveFailed] {
-            let _ = icon(s); // would panic on out-of-range drawing or a bad RGBA buffer
+            assert_eq!(icon_rgba(s).len(), 32 * 32 * 4);
+            let _ = icon(s);
         }
+    }
+
+    /// Dev helper: `ICON_DUMP=<file> cargo test dump_icons` writes every state side by side as raw RGBA.
+    #[test]
+    fn dump_icons() {
+        let Ok(path) = std::env::var("ICON_DUMP") else { return };
+        let states = [State::Recording, State::Problem, State::Stopped, State::Idle, State::Starting, State::Saving, State::Saved, State::SaveFailed];
+        let mut out = Vec::new();
+        for y in 0..32 {
+            for s in states {
+                let px = icon_rgba(s);
+                out.extend_from_slice(&px[y * 32 * 4..(y + 1) * 32 * 4]);
+            }
+        }
+        std::fs::write(path, out).unwrap();
     }
 }

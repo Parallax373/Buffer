@@ -360,7 +360,7 @@
               h("div", { class: "nm", text: name }))))),
           sec("Rozmiar miniatur", h("div", { class: "seg big" }, ["S", "M", "L"].map((k) =>
             h("button", { class: s.thumb === k ? "on" : "", text: k, onClick: () => { s.thumb = k; App.persist(); Settings.render(); } })))),
-          line("Animacje interfejsu", "Wygaszenia, ślady i przejścia widoków", "anim"));
+          line("Animacje interfejsu", "Przejścia i ślady", "anim"));
         break;
       case "gen": await renderGeneral(body); break;
       case "exp":
@@ -375,7 +375,7 @@
               if (d) { s.outDir = d; App.persist(); Settings.render(); }
             } }),
             s.outDir ? h("button", { class: "btn ghost", text: "Domyślny", onClick: () => { s.outDir = ""; App.persist(); Settings.render(); } }) : null)),
-          line("Normalizuj głośność domyślnie", "−16 LUFS dla każdego eksportu", "normDef"));
+          line("Normalizuj głośność domyślnie", "−16 LUFS", "normDef"));
         break;
     }
   };
@@ -398,10 +398,10 @@
           const n = await api.pickFolder();
           if (n && !App.P.libDirs.includes(n)) { App.P.libDirs.push(n); App.persist(); await App.Lib.load(); Settings.render(); }
         } })))),
-      line("Skanuj podfoldery", "Pomija „Exported Clips” i „Shared Clips”", "sub", () => App.Lib.load()),
-      line("Odświeżaj bibliotekę przy starcie", "Wykrywa nowe nagrania", "auto"),
+      line("Skanuj podfoldery", "Bez folderów eksportów", "sub", () => App.Lib.load()),
+      line("Odświeżaj bibliotekę przy starcie", "Wykrywa nowe klipy", "auto"),
       h("div", { class: "line", onClick: () => { Settings.adv = !Settings.adv; Settings.render(); } },
-        h("div", null, h("div", { class: "tt", text: "Zaawansowane" }), h("div", { class: "ds", text: "Narzędzia, pamięć podręczna, dekodowanie sprzętowe" })),
+        h("div", null, h("div", { class: "tt", text: "Zaawansowane" }), h("div", { class: "ds", text: "Narzędzia i pamięć podręczna" })),
         h("span", { class: "muted", text: Settings.adv ? "▴" : "▾" })),
       ...(Settings.adv ? [
         h("div", { class: "stack" },
@@ -411,18 +411,18 @@
           h("div", { class: "statusbox" }, h("span", { text: "Kodowanie wideo" }),
             h("span", { style: { color: tools?.encoder && tools.encoder !== "libx264" ? "var(--ok)" : "var(--warn)" },
               text: ({ h264_nvenc: "● NVIDIA NVENC", h264_amf: "● AMD AMF", h264_qsv: "● Intel QuickSync", libx264: "● procesor (CPU) — wolniej" })[tools?.encoder] + (tools?.gpu ? " · " + tools.gpu : "") }))),
-        line("Miniatury w tle", "Jedna klatka na klip, tylko dla widocznych kart", "thumbs"),
-        line("Pamięć podręczna audio", "Ścieżki wyodrębnione bez rekodowania", "cache"),
-        line("Dekodowanie sprzętowe (NVDEC)", "Automatyczny powrót do CPU przy błędzie", "hw"),
+        line("Miniatury w tle", "Tylko widoczne klipy", "thumbs"),
+        line("Pamięć podręczna audio", "Szybsze otwieranie klipów", "cache"),
+        line("Dekodowanie sprzętowe (NVDEC)", "Awaryjnie CPU", "hw"),
         h("div", { class: "line static" },
-          h("div", null, h("div", { class: "tt", text: `Pamięć podręczna · ${App.fmtMB(size)}` })),
+          h("div", null, h("div", { class: "tt", text: "Pamięć podręczna" }), h("div", { class: "ds", text: App.fmtMB(size) })),
           h("button", { class: "btn", text: "Wyczyść", onClick: async () => {
             await api.invoke("clear_cache").catch(() => {});
             App.toast("Wyczyszczono pamięć podręczną", "ok");
             Settings.render();
           } })),
         h("div", { class: "line static" },
-          h("div", null, h("div", { class: "tt", text: "Kreator ustawień" }), h("div", { class: "ds", text: "Przejdź ponownie przez wybór folderów, dźwięku i jakości" })),
+          h("div", null, h("div", { class: "tt", text: "Kreator ustawień" }), h("div", { class: "ds", text: "Folder, dźwięk, jakość" })),
           h("button", { class: "btn", text: "Uruchom", onClick: () => App.RecUI.wizard() })),
       ] : []));
   }
