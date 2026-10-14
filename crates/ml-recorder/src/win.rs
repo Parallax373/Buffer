@@ -140,6 +140,8 @@ pub struct Foreground {
     pub stem: String,
     /// The window covers its whole monitor (exclusive or borderless fullscreen).
     pub fullscreen: bool,
+    /// Index of the monitor the window is on (same order as `monitors()` / the capture index).
+    pub monitor: usize,
 }
 
 /// The program currently in the foreground, ignoring the desktop shell itself.
@@ -175,8 +177,10 @@ pub fn foreground() -> Option<Foreground> {
 
         let mut r: RECT = std::mem::zeroed();
         let mut fullscreen = false;
+        let mut monitor = 0usize;
         if GetWindowRect(hwnd, &mut r) != 0 {
             let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            monitor = monitor_handles().iter().position(|h| *h == mon as isize).unwrap_or(0);
             let mut mi: MONITORINFO = std::mem::zeroed();
             mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
             if GetMonitorInfoW(mon, &mut mi) != 0 {
@@ -184,7 +188,7 @@ pub fn foreground() -> Option<Foreground> {
                 fullscreen = r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom;
             }
         }
-        Some(Foreground { pid, stem, fullscreen })
+        Some(Foreground { pid, stem, fullscreen, monitor })
     }
 }
 
@@ -236,4 +240,65 @@ pub fn monitors() -> Vec<(i32, i32, bool)> {
         EnumDisplayMonitors(std::ptr::null_mut(), std::ptr::null(), Some(cb), &mut v as *mut _ as LPARAM);
     }
     v
+}
+
+fn monitor_handles() -> Vec<isize> {
+    use windows_sys::Win32::Foundation::{BOOL, LPARAM};
+    use windows_sys::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
+    unsafe extern "system" fn cb(mon: HMONITOR, _dc: HDC, _r: *mut RECT, data: LPARAM) -> BOOL {
+        (*(data as *mut Vec<isize>)).push(mon as isize);
+        1
+    }
+    let mut v: Vec<isize> = Vec::new();
+    unsafe {
+        EnumDisplayMonitors(std::ptr::null_mut(), std::ptr::null(), Some(cb), &mut v as *mut _ as LPARAM);
+    }
+    v
+}
+
+/// True while the process still exists.
+pub fn pid_alive(pid: u32) -> bool {
+    use windows_sys::Win32::System::Threading::GetExitCodeProcess;
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(h, &mut code);
+        CloseHandle(h);
+        ok != 0 && code == 259 // STILL_ACTIVE
+    }
+}
+
+/// The top-most process of an executable (the one whose parent is not the same executable),
+/// so that "include process tree" covers helper/child processes as well (Electron apps, browsers).
+pub fn find_root_pid(stem: &str) -> Option<u32> {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    let want = format!("{}.exe", stem.trim_end_matches(".exe").to_lowercase());
+    let mut same: Vec<(u32, u32)> = Vec::new();
+    unsafe {
+        let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snap.is_null() || snap as isize == -1 {
+            return None;
+        }
+        let mut e: PROCESSENTRY32W = std::mem::zeroed();
+        e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut ok = Process32FirstW(snap, &mut e);
+        while ok != 0 {
+            let len = e.szExeFile.iter().position(|c| *c == 0).unwrap_or(e.szExeFile.len());
+            let name = String::from_utf16_lossy(&e.szExeFile[..len]).to_lowercase();
+            if name == want {
+                same.push((e.th32ProcessID, e.th32ParentProcessID));
+            }
+            ok = Process32NextW(snap, &mut e);
+        }
+        CloseHandle(snap);
+    }
+    same.iter()
+        .find(|(_, parent)| !same.iter().any(|(pid, _)| pid == parent))
+        .or(same.first())
+        .map(|(pid, _)| *pid)
 }

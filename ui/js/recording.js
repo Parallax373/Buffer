@@ -9,9 +9,13 @@ App.RecUI = (function () {
     ["chat", "Chat", "Czat głosowy", "render", "Rozmówcy z Discorda, Teamspeaka itp. — osobna ścieżka, żeby dało się ją wyciszyć."],
     ["mic", "Mic", "Mikrofon", "capture", "Twój głos. Dostaje własną ścieżkę z osobną głośnością."],
   ];
-  const ROLE = { primary: "główne", secondary: "zapasowe", auto: "automatycznie", waiting: "czeka na urządzenie", default: "domyślne Windows" };
+  const ROLE = { primary: "główne", secondary: "zapasowe", auto: "automatycznie", waiting: "czeka na urządzenie", default: "domyślne Windows",
+    app: "tylko ta aplikacja", appx: "wszystko poza czatem" };
+  const CHAT_APPS = [["", "— nie rozdzielaj —"], ["discord", "Discord"], ["teamspeak", "TeamSpeak"], ["ts3client_win64", "TeamSpeak 3"],
+    ["teams", "Microsoft Teams"], ["zoom", "Zoom"], ["telegram", "Telegram"], ["skype", "Skype"]];
   const BASE = {
-    output_dir: "", per_game_folders: false, buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, monitor: 0,
+    output_dir: "", per_game_folders: true, post_roll_seconds: 30, game_only: false, follow_game_monitor: true, chat_app: "",
+    buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, monitor: 0,
     encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", popup: true, extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
   };
@@ -80,14 +84,34 @@ App.RecUI = (function () {
     } }, opts);
   }
 
+  /** Do the game and chat tracks currently resolve to the same playback device? */
+  function sharedOutput() {
+    const idOf = (key) => {
+      const p = cfg[key].primary;
+      if (!p || !p.id) return "";
+      if (p.id !== FOLLOW) return p.id;
+      return key === "chat" ? devices.default.communications : devices.default.render;
+    };
+    const g = idOf("game"), c = idOf("chat");
+    return !!g && g === c;
+  }
+
   /** One card per audio source: main device, live level, optional (hidden by default) backup device. */
   function sourceCards(onChange) {
     const wrap = h("div", { class: "stack", id: "recSources" });
     const draw = () => {
-      wrap.replaceChildren(...SRC.map(([key, name, label, kind, desc]) => {
+      const shared = sharedOutput();
+      const callout = (shared || cfg.chat_app) ? h("div", { class: "callout" },
+        h("div", { class: "tt", text: cfg.chat_app ? "Czat jest wydzielony z gry" : "Gra i czat korzystają z tego samego wyjścia" }),
+        h("div", { class: "muted", text: cfg.chat_app
+          ? "Czat = tylko dźwięk wybranej aplikacji, gra = wszystko poza nią. Działa także przy jednym wyjściu."
+          : "Bez rozdzielenia rozmowa znajdzie się w obu ścieżkach. Wskaż aplikację czatu — Buffer wyodrębni jej dźwięk." }),
+        h("select", { class: "field", onChange: (e) => { cfg.chat_app = e.target.value; onChange("chat_app"); draw(); } },
+          CHAT_APPS.map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.chat_app || "") === v })))) : null;
+      wrap.replaceChildren(...SRC.flatMap(([key, name, label, kind, desc]) => {
         const c = cfg[key];
         const showBackup = !!c.secondary;
-        return h("div", { class: "src", "data-src": name },
+        const card = h("div", { class: "src", "data-src": name },
           h("div", { class: "nm", text: label }),
           h("div", { class: "meter" }, h("div")),
           h("div", { class: "st", text: "—" }),
@@ -104,6 +128,7 @@ App.RecUI = (function () {
               cfg[key] = { ...cfg[key], secondary: { id: "", name: "" } };   // placeholder until a device is picked
               draw();
             } }));
+        return key === "chat" && callout ? [card, callout] : [card];
       }));
       pollMeters();
     };
@@ -118,6 +143,8 @@ App.RecUI = (function () {
       const rows = [...document.querySelectorAll("#recSources .src")];
       if (!rows.length) { clearInterval(meterTimer); return; }
       const ids = SRC.map(([key, , , kind]) => {
+        if (cfg.chat_app && key === "chat") return "@app:" + cfg.chat_app;
+        if (cfg.chat_app && key === "game") return "@appx:" + cfg.chat_app;
         const p = cfg[key].primary;
         if (!p || !p.id) return "";
         if (p.id !== FOLLOW) return p.id;
@@ -140,6 +167,7 @@ App.RecUI = (function () {
   const RES = [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, "Natywna"]];
   const QUAL = [[8000, "Oszczędna"], [14000, "Standard"], [30000, "Wysoka"]];
   const LEN = [[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]];
+  const POST_ROLL = [[0, "Od razu"], [10, "10 s"], [30, "30 s"], [60, "60 s"]];
 
   const seg = (items, cur, on) => h("div", { class: "seg wrap" }, items.map(([v, t]) =>
     h("button", { class: String(cur) === String(v) ? "on" : "", text: t, onClick: () => on(v) })));
@@ -230,7 +258,7 @@ App.RecUI = (function () {
       h("div", null, h("div", { class: "tt", text: title }), h("div", { class: "ds", text: desc })),
       h("span", { class: "toggle lg" + (on ? " on" : "") }));
     const rerender = () => App.Settings.render();
-    const persistSources = () => save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic });
+    const persistSources = () => save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic, chat_app: cfg.chat_app });
 
     body.append(
       h("div", { class: "sec" }, cap("Stan"),
@@ -257,7 +285,15 @@ App.RecUI = (function () {
             title: "Dodatnie opóźnia dźwięk względem obrazu. Dostrój, jeśli głos nie pasuje do ust.",
             onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) }))),
       h("div", { class: "sec" }, cap("Skrót zapisu klipu"),
-        hotkeyInput(cfg.hotkey, (c) => save({ hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania"))),
+        hotkeyInput(cfg.hotkey, (c) => save({ hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania")),
+        h("div", { style: { marginTop: "14px" } }, cap("Dogrywaj po naciśnięciu skrótu"),
+          seg(POST_ROLL, cfg.post_roll_seconds, (v) => save({ post_roll_seconds: +v }).then(rerender)),
+          h("div", { class: "muted", style: { fontSize: "12px", marginTop: "6px" },
+            text: cfg.post_roll_seconds ? `Po skrócie nagrywanie trwa jeszcze ${cfg.post_roll_seconds} s i dopiero wtedy zapisuje klip — w klipie są też chwile tuż po. Drugie naciśnięcie zapisuje od razu.` : "Klip jest zapisywany od razu po naciśnięciu skrótu." }))),
+      toggle("Nagrywaj tylko gry", "Bufor działa tylko, gdy jest uruchomiona gra, a ścieżka Game zawiera wyłącznie dźwięk tej gry (bez muzyki i rozmów)", cfg.game_only,
+        async (v) => { await save({ game_only: v }); rerender(); }),
+      toggle("Nagrywaj monitor, na którym jest gra", "Przy kilku monitorach Buffer sam przełącza się na ekran z grą", cfg.follow_game_monitor,
+        async (v) => { await save({ follow_game_monitor: v }); rerender(); }),
       h("div", { class: "sec" }, cap("Folder zapisu"), h("div", { class: "pathrow" },
         h("input", { class: "field", value: cfg.output_dir, readOnly: true }),
         h("button", { class: "btn", text: "Zmień", onClick: async () => {
@@ -286,8 +322,9 @@ App.RecUI = (function () {
     const st = App.$("#recState");
     if (!st) return;
     const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
-    const color = !r || !r.recording ? "var(--err)" : down.length ? "var(--warn)" : "var(--ok)";
+    const color = r && r.idle ? "var(--muted)" : !r || !r.recording ? "var(--err)" : down.length ? "var(--warn)" : "var(--ok)";
     const text = !r ? "● Nagrywanie nie działa"
+      : r.idle ? "● Czeka na grę — nagrywa tylko, gdy gra jest uruchomiona"
       : !r.recording ? `● Zatrzymane${r.last_error ? ": " + r.last_error : ""}`
         : down.length ? `● Nagrywa, ale nie działa: ${down.join(", ")}`
           : `● Nagrywa · bufor ${r.buffer_s} / ${r.buffer_target_s} s`;
@@ -296,7 +333,7 @@ App.RecUI = (function () {
     const tgl = App.$("#recToggle");
     if (tgl) tgl.textContent = r ? "Zatrzymaj nagrywanie" : "Uruchom nagrywanie";
     const sv = App.$("#recSave");
-    if (sv) sv.disabled = !r || !r.recording;
+    if (sv) sv.disabled = !r || (!r.recording && !r.idle);
     for (const row of document.querySelectorAll("#recSources .src")) {
       const src = r && r.sources.find((s) => s.name === row.dataset.src);
       const stEl = row.querySelector(".st");
@@ -327,6 +364,9 @@ App.RecUI = (function () {
     if (!w.cfg.game.primary) w.cfg.game.primary = follow;
     if (!w.cfg.chat.primary) w.cfg.chat.primary = hasChat ? { id: hasChat.id, name: hasChat.name } : follow;
     if (!w.cfg.mic.primary) w.cfg.mic.primary = follow;
+    // One shared output is the common case: split the chat app out of the game track by default.
+    cfg = { ...cfg, game: w.cfg.game, chat: w.cfg.chat, mic: w.cfg.mic, chat_app: w.cfg.chat_app };
+    if (sharedOutput() && !w.cfg.chat_app) w.cfg.chat_app = "discord";
 
     const overlay = h("div", { class: "wiz" });
     document.body.append(overlay);
@@ -363,11 +403,11 @@ App.RecUI = (function () {
           ];
           break;
         case 2:
-          cfg = { ...cfg, game: c.game, chat: c.chat, mic: c.mic };   // the shared meter code reads `cfg`
+          cfg = { ...cfg, game: c.game, chat: c.chat, mic: c.mic, chat_app: c.chat_app };   // the shared meter code reads `cfg`
           body = [
             h("h2", { text: "Skąd nagrywać dźwięk?" }),
             h("p", { class: "muted", text: "Domyślnie Buffer nagrywa to, czego akurat używasz w Windows (głośniki albo słuchawki) i sam przełącza się po zmianie. Każde źródło trafia na osobną ścieżkę klipu. Paski pokazują poziom na żywo." }),
-            sourceCards(() => { c.game = cfg.game; c.chat = cfg.chat; c.mic = cfg.mic; }),
+            sourceCards(() => { c.game = cfg.game; c.chat = cfg.chat; c.mic = cfg.mic; c.chat_app = cfg.chat_app; }),
           ];
           break;
         case 3:
@@ -378,6 +418,12 @@ App.RecUI = (function () {
             h("h2", { text: "Skrót i zachowanie" }),
             cap("Skrót zapisu klipu"),
             hotkeyInput(c.hotkey, (k) => { c.hotkey = k; }),
+            cap("Dogrywaj po naciśnięciu skrótu"),
+            seg(POST_ROLL, c.post_roll_seconds, (v) => { c.post_roll_seconds = +v; render(); }),
+            h("div", { class: "line", onClick: () => { c.game_only = !c.game_only; render(); } },
+              h("div", null, h("div", { class: "tt", text: "Nagrywaj tylko gry" }),
+                h("div", { class: "ds", text: "Bufor działa tylko, gdy jest uruchomiona gra; dźwięk gry bez muzyki i rozmów" })),
+              h("span", { class: "toggle lg" + (c.game_only ? " on" : "") })),
             h("div", { class: "line", onClick: () => { c.popup = !c.popup; render(); } },
               h("div", null, h("div", { class: "tt", text: "Okienko „Buffer aktywny”" }),
                 h("div", { class: "ds", text: "Przypomina o skrócie po uruchomieniu gry i ostrzega, gdy mikrofon nie działa" })),

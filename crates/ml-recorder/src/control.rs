@@ -29,6 +29,10 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
         .collect();
     json!({
         "recording": shared.recording.load(Ordering::Relaxed),
+        "idle": shared.idle.load(Ordering::Relaxed),
+        "game": shared.active_game.lock().unwrap().as_ref().map(|g| g.name.clone()),
+        "post_roll_s": cfg.post_roll_seconds,
+        "monitor": shared.monitor_now.load(Ordering::Relaxed),
         "uptime_s": shared.started.elapsed().as_secs(),
         "restarts": shared.restarts.load(Ordering::Relaxed),
         "last_error": *shared.last_error.lock().unwrap(),
@@ -63,6 +67,7 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
                 shared.sinks[1].set_cfg(cfg.chat.clone());
                 shared.sinks[2].set_cfg(cfg.mic.clone());
                 *shared.cfg.lock().unwrap() = cfg;
+                crate::tray::apply_app_sources(shared);
                 shared.restart.store(true, Ordering::Relaxed);
                 json!({ "ok": true })
             }

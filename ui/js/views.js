@@ -23,8 +23,8 @@
   function renderNav() {
     const nav = App.$("#nav");
     const r = S.recorder;
-    const state = !r ? "bad" : !r.recording ? "bad" : r.sources.every((s) => s.live) ? "ok" : "warn";
-    const label = !r ? "REC wył." : state === "ok" ? "REC" : state === "warn" ? "REC !" : "REC wył.";
+    const state = !r ? "bad" : r.idle ? "idle" : !r.recording ? "bad" : r.sources.every((s) => s.live) ? "ok" : "warn";
+    const label = !r ? "REC wył." : state === "idle" ? "czeka" : state === "ok" ? "REC" : state === "warn" ? "REC !" : "REC wył.";
     nav.replaceChildren(
       h("div", { class: "logo" }, App.logo(40)),
       ...NAV.map(([v, ic, lb]) => h("button", { class: "item" + (S.view === v ? " on" : ""), onClick: () => App.go(v) },
@@ -40,6 +40,7 @@
   function recTooltip() {
     const r = S.recorder;
     if (!r) return "Nagrywanie nie działa — kliknij, aby uruchomić";
+    if (r.idle) return "Czeka na grę — nagrywanie tylko podczas gry";
     if (!r.recording) return r.last_error || "Nagrywanie zatrzymane";
     const down = r.sources.filter((s) => !s.live).map((s) => s.name);
     return down.length ? `Nie działa: ${down.join(", ")}` : `Nagrywa · bufor ${r.buffer_s}/${r.buffer_target_s} s`;

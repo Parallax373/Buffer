@@ -2,6 +2,8 @@
 //! game detection. They share one thread because they all need that thread's Win32 message loop.
 
 use crate::overlay::{Kind, Overlay, Popup};
+use crate::audio::AppSource;
+use crate::session::ActiveGame;
 use crate::{session, win};
 use std::{
     collections::HashSet,
@@ -19,6 +21,8 @@ enum State {
     Ok,
     Warn,
     Stopped,
+    /// Waiting for a game ("record only games"): intentionally not recording.
+    Idle,
 }
 
 /// Programs that are never treated as games even when they cover the whole screen.
@@ -36,6 +40,7 @@ fn icon(state: State) -> Icon {
         State::Ok => (0xc6, 0xf4, 0x32),
         State::Warn => (0xff, 0xb4, 0x54),
         State::Stopped => (0xff, 0x5d, 0x5d),
+        State::Idle => (0x8b, 0x91, 0x9c),
     };
     const N: usize = 32;
     let mut px = vec![0u8; N * N * 4];
@@ -66,6 +71,9 @@ fn state_of(shared: &session::Shared) -> (State, String) {
     let recording = shared.recording.load(Ordering::Relaxed);
     let down: Vec<&str> = shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| s.name).collect();
     let buffered = session::buffered_seconds();
+    if shared.idle.load(Ordering::Relaxed) {
+        return (State::Idle, "Buffer — czeka na grę (nagrywa tylko gry)".to_string());
+    }
     if !recording {
         let err = shared.last_error.lock().unwrap().clone();
         let msg = if err.is_empty() { "nagrywanie zatrzymane".to_string() } else { format!("nagrywanie zatrzymane: {err}") };
@@ -82,6 +90,48 @@ fn open_editor() {
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
         let _ = Command::new(dir.join("buffer.exe")).spawn();
     }
+}
+
+/// Which sources use per-application capture, given the current settings and the detected game:
+/// the chat app is split from the game, and "game only" records just the game's own sound.
+pub fn apply_app_sources(shared: &session::Shared) {
+    let cfg = shared.cfg.lock().unwrap().clone();
+    let chat_app = cfg.chat_app.trim().to_lowercase();
+    let chat_app = chat_app.trim_end_matches(".exe").to_string();
+    shared.sinks[1].set_app(if chat_app.is_empty() { AppSource::None } else { AppSource::IncludeStem(chat_app.clone()) });
+    let game = shared.active_game.lock().unwrap().clone();
+    shared.sinks[0].set_app(match game {
+        Some(g) if cfg.game_only => AppSource::IncludePid(g.pid),
+        _ if !chat_app.is_empty() => AppSource::ExcludeStem(chat_app),
+        _ => AppSource::None,
+    });
+}
+
+/// Hotkey: wait the configured post-roll (so the moments right after the press are in the clip), then save.
+/// Pressing again while waiting saves immediately.
+fn hotkey_save(shared: &Arc<session::Shared>) {
+    let roll = shared.cfg.lock().unwrap().post_roll_seconds;
+    if roll == 0 {
+        save_async(shared);
+        return;
+    }
+    if shared.post_roll_active.swap(true, Ordering::Relaxed) {
+        shared.post_roll_skip.store(true, Ordering::Relaxed);
+        return;
+    }
+    shared.popup(Kind::Info, format!("Zapisuję klip za {roll} s"), "Naciśnij skrót ponownie, aby zapisać od razu");
+    let s = shared.clone();
+    thread::spawn(move || {
+        for _ in 0..roll * 4 {
+            if s.post_roll_skip.load(Ordering::Relaxed) || s.quit.load(Ordering::Relaxed) {
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(250));
+        }
+        s.post_roll_skip.store(false, Ordering::Relaxed);
+        s.post_roll_active.store(false, Ordering::Relaxed);
+        save_async(&s);
+    });
 }
 
 fn save_async(shared: &Arc<session::Shared>) {
@@ -149,7 +199,7 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
     let hk_shared = shared.clone();
     let tick_shared = shared.clone();
     win::pump_messages(
-        || save_async(&hk_shared),
+        || hotkey_save(&hk_shared),
         || {
             tick += 1;
             overlay.tick();
@@ -181,17 +231,56 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
                 }
             }
             // Game detection: twice a second is plenty and costs next to nothing.
+            let cfg = tick_shared.cfg.lock().unwrap().clone();
+            // 1) the game we know about has exited
+            let gone = {
+                let g = tick_shared.active_game.lock().unwrap();
+                g.as_ref().is_some_and(|g| !win::pid_alive(g.pid))
+            };
+            if gone {
+                *tick_shared.active_game.lock().unwrap() = None;
+                apply_app_sources(&tick_shared);
+            }
+            // 2) a new game came to the foreground / the known one moved to another monitor
             if let Some(fg) = win::foreground() {
-                if fg.pid != my_pid && !notified.contains(&fg.pid) {
-                    let cfg = tick_shared.cfg.lock().unwrap().clone();
+                if fg.pid != my_pid {
                     let ignored = NEVER_GAMES.contains(&fg.stem.as_str()) || cfg.ignore_apps.iter().any(|a| a == &fg.stem);
                     let forced = cfg.extra_games.iter().any(|a| a == &fg.stem);
                     if !ignored && (fg.fullscreen || forced) {
-                        notified.insert(fg.pid);
-                        if notified.len() > 256 {
-                            notified.clear();
+                        let known = tick_shared.active_game.lock().unwrap().clone();
+                        let name = session::current_game_name(&cfg);
+                        match known {
+                            Some(g) if g.pid == fg.pid => {
+                                if g.monitor != fg.monitor {
+                                    tick_shared.active_game.lock().unwrap().as_mut().unwrap().monitor = fg.monitor;
+                                    if cfg.follow_game_monitor
+                                        && session::desired_monitor(&tick_shared, &cfg)
+                                            != tick_shared.monitor_now.load(Ordering::Relaxed)
+                                    {
+                                        tick_shared.restart.store(true, Ordering::Relaxed);
+                                    }
+                                }
+                            }
+                            _ => {
+                                *tick_shared.active_game.lock().unwrap() =
+                                    Some(ActiveGame { pid: fg.pid, name: name.clone(), monitor: fg.monitor });
+                                apply_app_sources(&tick_shared);
+                                if cfg.follow_game_monitor
+                                    && session::desired_monitor(&tick_shared, &cfg)
+                                        != tick_shared.monitor_now.load(Ordering::Relaxed)
+                                    && tick_shared.recording.load(Ordering::Relaxed)
+                                {
+                                    tick_shared.restart.store(true, Ordering::Relaxed);
+                                }
+                                if !notified.contains(&fg.pid) {
+                                    notified.insert(fg.pid);
+                                    if notified.len() > 256 {
+                                        notified.clear();
+                                    }
+                                    announce_game(&tick_shared, &name);
+                                }
+                            }
                         }
-                        announce_game(&tick_shared, &session::current_game_name(&cfg));
                     }
                 }
             }

@@ -319,3 +319,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 .src { grid-template-columns: 130px minmax(0, 1fr) 170px; }
 .pathrow select.field { font-family: inherit; }
 .src .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+#nav .rec.idle .dot { background: var(--muted); }
+.callout { border: 1px solid var(--acc); background: var(--acc-dim); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.callout .tt { font-weight: 600; }
+.callout select { align-self: flex-start; min-width: 240px; }

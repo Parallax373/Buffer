@@ -21,6 +21,14 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+/// The game that is running right now (set by the tray thread's detection).
+#[derive(Clone)]
+pub struct ActiveGame {
+    pub pid: u32,
+    pub name: String,
+    pub monitor: usize,
+}
+
 pub struct Shared {
     pub cfg: Mutex<Config>,
     pub sinks: [Arc<Sink>; 3],
@@ -40,6 +48,14 @@ pub struct Shared {
     /// "ddagrab" (GPU desktop duplication) or "gdigrab" (slower, works almost everywhere).
     pub capture: Mutex<&'static str>,
     pub fast_failures: AtomicU32,
+    pub active_game: Mutex<Option<ActiveGame>>,
+    /// True while the buffer is deliberately paused ("record only games" and no game is running).
+    pub idle: AtomicBool,
+    /// Monitor index the current session captures.
+    pub monitor_now: AtomicU32,
+    /// A save is waiting out its post-roll; a second hotkey press sets `post_roll_skip` to save at once.
+    pub post_roll_active: AtomicBool,
+    pub post_roll_skip: AtomicBool,
 }
 
 impl Shared {
@@ -154,6 +170,16 @@ fn encoder_args(encoder: &str, kbps: u32, fps: u32) -> Vec<String> {
     v
 }
 
+/// Which monitor to capture: the configured one, or the one the detected game is on.
+pub fn desired_monitor(shared: &Shared, cfg: &Config) -> u32 {
+    if cfg.follow_game_monitor {
+        if let Some(g) = shared.active_game.lock().unwrap().as_ref() {
+            return g.monitor as u32;
+        }
+    }
+    cfg.monitor
+}
+
 fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
     let cfg = shared.cfg.lock().unwrap().clone();
     fs::create_dir_all(buffer_dir()).map_err(|e| e.to_string())?;
@@ -185,10 +211,12 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
     if off < 0.0 {
         cmd.args(["-itsoffset", &format!("{:.3}", -off)]);
     }
+    let monitor = desired_monitor(shared, &cfg);
+    shared.monitor_now.store(monitor, Ordering::Relaxed);
     if capture == "ddagrab" {
         cmd.args(["-f", "lavfi", "-i"]).arg(format!(
             "ddagrab=output_idx={}:framerate={}:draw_mouse=1",
-            cfg.monitor, cfg.fps
+            monitor, cfg.fps
         ));
     } else {
         cmd.args(["-f", "gdigrab", "-framerate", &cfg.fps.to_string(), "-draw_mouse", "1", "-i", "desktop"]);
@@ -296,7 +324,19 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
 
     let mut last_prune = Instant::now();
     let mut last_progress = Instant::now();
+    let mut no_game_since: Option<Instant> = None;
     loop {
+        if shared.cfg.lock().unwrap().game_only {
+            if shared.active_game.lock().unwrap().is_none() {
+                let since = *no_game_since.get_or_insert_with(Instant::now);
+                if since.elapsed() > Duration::from_secs(10) {
+                    finish(&mut child, &stop);
+                    return Ok(());
+                }
+            } else {
+                no_game_since = None;
+            }
+        }
         if !go.load(Ordering::Relaxed) && started.elapsed() > Duration::from_millis(2500) {
             go.store(true, Ordering::Relaxed);
         }
@@ -339,6 +379,18 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
 pub fn supervise(shared: Arc<Shared>) {
     let mut backoff = 2u64;
     while !shared.quit.load(Ordering::Relaxed) {
+        // "record only games": wait without capturing until a game is running
+        let waiting = {
+            let c = shared.cfg.lock().unwrap();
+            c.game_only && shared.active_game.lock().unwrap().is_none()
+        };
+        if waiting {
+            shared.idle.store(true, Ordering::Relaxed);
+            shared.recording.store(false, Ordering::Relaxed);
+            thread::sleep(Duration::from_millis(500));
+            continue;
+        }
+        shared.idle.store(false, Ordering::Relaxed);
         let began = Instant::now();
         match run_session(&shared) {
             Ok(()) => {

@@ -237,8 +237,7 @@
   }
 
   function createCard(clip) {
-    const el = h("div", { class: "card", onClick: () => Lib.setActive(clip.path),
-      onDblclick: () => App.Ed.open(clip.path) });
+    const el = h("div", { class: "card", onClick: () => App.Ed.open(clip.path) });
     if (animBudget > 0) animBudget--; else el.style.animation = "none";
     el.append(
       h("div", { class: "th" },

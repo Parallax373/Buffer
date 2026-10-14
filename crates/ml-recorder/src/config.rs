@@ -31,6 +31,14 @@ pub struct Config {
     pub output_dir: String,
     /// Put every clip into a sub-folder named after the game.
     pub per_game_folders: bool,
+    /// After the save hotkey, keep recording this many seconds and save then (0 = save immediately).
+    pub post_roll_seconds: u32,
+    /// Buffer only while a game is running (and record only that game's sound), instead of the whole screen.
+    pub game_only: bool,
+    /// Capture the monitor the game is on instead of always the configured one.
+    pub follow_game_monitor: bool,
+    /// Executable stem of a chat app (e.g. "discord") to split from the game when both share one output.
+    pub chat_app: String,
     /// How many seconds a saved clip contains.
     pub buffer_seconds: u32,
     pub fps: u32,
@@ -63,7 +71,11 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             output_dir: default_output_dir(),
-            per_game_folders: false,
+            per_game_folders: true,
+            post_roll_seconds: 30,
+            game_only: false,
+            follow_game_monitor: true,
+            chat_app: String::new(),
             buffer_seconds: 120,
             fps: 30,
             width: 1920,

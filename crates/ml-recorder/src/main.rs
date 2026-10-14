@@ -153,7 +153,13 @@ fn run() {
         encoder: Mutex::new(String::new()),
         capture: Mutex::new("ddagrab"),
         fast_failures: AtomicU32::new(0),
+        active_game: Mutex::new(None),
+        idle: AtomicBool::new(false),
+        monitor_now: AtomicU32::new(0),
+        post_roll_active: AtomicBool::new(false),
+        post_roll_skip: AtomicBool::new(false),
     });
+    tray::apply_app_sources(&shared);
     log(&format!("recorder starting (ffmpeg: {})", ml_core::tools::ffmpeg().display()));
 
     let stop_capture = Arc::new(AtomicBool::new(false));
