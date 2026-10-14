@@ -173,7 +173,7 @@
       panel: h("div", { class: "expanel" }),
       kb: h("div", { class: "kbpop", hidden: true }, [
         [App.t("kb.play"), App.t("kb.space")], [App.t("kb.inout"), "I / O"], [App.t("kb.zoom"), App.t("kb.wheel")],
-        [App.t("kb.step"), "← → / Shift"],
+        [App.t("kb.step"), "← → / Shift"], [App.t("kb.frame"), ", / ."],
         [App.t("kb.clip"), "PgUp / PgDn"], [App.t("kb.export"), "Ctrl E"], [App.t("kb.search"), "Ctrl K"],
       ].map(([l, k]) => h("div", null, h("span", { text: l }), h("kbd", { text: k })))),
     };
@@ -221,6 +221,11 @@
     ui.transport.replaceChildren(
       h("button", { class: "play", onClick: toggle, text: E.playing ? "❚❚" : "▶" }),
       h("span", { class: "time", id: "edTime", text: `${App.fmt(video.currentTime)} / ${App.fmt(dur)}` }),
+      h("span", { class: "zoomctl stepctl" },
+        h("button", { title: App.t("ed.back1s"), text: "−1s", onClick: () => stepSec(-1) }),
+        h("button", { title: App.t("ed.backFrame"), text: "◂", onClick: () => stepFrame(-1) }),
+        h("button", { title: App.t("ed.fwdFrame"), text: "▸", onClick: () => stepFrame(1) }),
+        h("button", { title: App.t("ed.fwd1s"), text: "+1s", onClick: () => stepSec(1) })),
       h("span", { class: "sp" }),
       h("button", { class: "mk", onClick: setIn }, App.t("ed.in") + " ", h("b", { text: "I" })),
       h("button", { class: "mk", onClick: setOut }, App.t("ed.out") + " ", h("b", { text: "O" })),
@@ -230,6 +235,15 @@
         h("button", { title: App.t("ed.zoomIn"), text: "+", onClick: () => zoomAt(1.6, video.currentTime) }),
         h("button", { title: App.t("ed.fit"), text: "↔", onClick: fitView })));
   }
+
+  /** One frame back/forward from the exact current frame (pauses playback). */
+  function stepFrame(dir) {
+    if (!E?.info) return;
+    stop();
+    const fps = E.info.fps > 0 ? E.info.fps : 30;
+    seek((Math.round(video.currentTime * fps) + dir) / fps);
+  }
+  function stepSec(dir) { seek(video.currentTime + dir); }
 
   function setIn() { if (E?.info) { E.start = Math.min(video.currentTime, E.end - MIN_SEL); layoutSel(); } }
   function setOut() { if (E?.info) { E.end = Math.max(video.currentTime, E.start + MIN_SEL); layoutSel(); } }
@@ -252,7 +266,7 @@
     for (const t of names) {
       const hex = TRACK_COLORS[t.name] || "var(--muted)";
       const val = h("span", { text: `${Math.round(t.gain * 100)}%` });
-      const slider = h("input", { type: "range", min: 0, max: 200, value: Math.round(t.gain * 100),
+      const slider = h("input", { type: "range", min: 0, max: 200, step: 5, value: Math.round(t.gain * 100),
         style: { accentColor: hex },
         onInput: (e) => {
           t.gain = e.target.value / 100;
@@ -454,7 +468,14 @@
         if (!E?.info) return;
         ev.stopPropagation();
         node.setPointerCapture(ev.pointerId);
-        const move = (e) => { apply(timeAt(e)); layoutSel(); };
+        // within ~10 px of the playhead or either end of the clip the handle snaps (hold Alt to place it freely)
+        const snap = (t, e) => {
+          if (e.altKey) return t;
+          const tol = (10 / area.getBoundingClientRect().width) * (E.v1 - E.v0);
+          for (const m of [video.currentTime, 0, E.info.duration]) if (Math.abs(t - m) <= tol) return m;
+          return t;
+        };
+        const move = (e) => { apply(snap(timeAt(e), e)); layoutSel(); };
         const up = () => { node.removeEventListener("pointermove", move); node.removeEventListener("pointerup", up); };
         node.addEventListener("pointermove", move);
         node.addEventListener("pointerup", up);
@@ -609,6 +630,8 @@
       case "o": case "O": setOut(); return true;
       case "ArrowLeft": seek(video.currentTime - step); return true;
       case "ArrowRight": seek(video.currentTime + step); return true;
+      case ",": stepFrame(-1); return true;
+      case ".": stepFrame(1); return true;
       case "+": case "=": zoomAt(1.6, video.currentTime); return true;
       case "-": case "_": zoomAt(1 / 1.6, video.currentTime); return true;
       case "0": fitView(); return true;

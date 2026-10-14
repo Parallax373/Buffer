@@ -370,8 +370,6 @@
     const m = Lib.meta(clip);
     th.querySelector(".dur").textContent = m ? App.fmtS(m.dur) : "";
     th.querySelector(".dur").hidden = !m;
-    const tg = th.querySelector(".tg");
-    tg.replaceChildren(...(isExported(clip.path) ? [h("span", { text: App.t("badge.exported") })] : []));
     // a clip with its own name shows the game next to the date, so the card still says what it is
     el.querySelector(".info span").textContent = `${App.customTitle(clip) ? App.gameOf(clip) + " · " : ""}${App.date(clip.modified)} · ${App.fmtMB(clip.size)}`;
   }

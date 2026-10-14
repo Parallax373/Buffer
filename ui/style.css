@@ -764,3 +764,5 @@ body { color: var(--text); }
 
 /* export progress: bars change opacity smoothly, and the editor bar eases its width */
 .scan i, .expchip .bars i { transition: opacity .12s linear; }
+
+.stepctl button { width: auto; min-width: 28px; padding: 0 8px; }
