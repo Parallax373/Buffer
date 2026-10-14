@@ -675,7 +675,8 @@ App.RecUI = (function () {
         const dev = deviceLabel(w.cfg, key, kind);
         return h("div", { class: "wzaudio", "data-src": name, title: App.t(tip), style: { animationDelay: `${0.1 + i * 0.1}s` } },
           h("span", { class: "sq", style: { background: color } }), h("b", { text: App.t(label) }),
-          h("span", { class: "dev" }, dev.text, dev.note ? h("em", { text: dev.note }) : null), meterEl(color, true));
+          deviceSelect(key, kind, w.cfg[key].primary, (v) => { w.cfg[key] = { ...w.cfg[key], primary: v }; renderStep(); }, false),
+          dev.note ? h("em", { class: "wznote", text: dev.note }) : null, meterEl(color, true));
       });
       setTimeout(() => { if (w.step === 1) stopMeters = pollMeters(() => w.cfg, ".wzbody", 140, 40); }, 400);
       return h("div", { class: "stack12" },
@@ -686,17 +687,13 @@ App.RecUI = (function () {
     };
 
     const stepPicture = () => {
-      const sumBars = Array.from({ length: 20 }, () => h("i"));
-      const valEl = h("b", { class: "mono" }), noteEl = h("div", { class: "muted", style: { fontSize: "12px", marginTop: "6px" } });
-      const lenEl = h("span");
+      const lenBox = h("div");
+      const dirEl = h("span", { class: "mono path", text: w.dir });
       const cardsBox = h("div", { class: "presets3" });
       const advBox = h("div");
+      const drawLen = () => put(lenBox, U.srow(App.t("v.len"), U.segc(LEN(), w.cfg.buffer_seconds, (v) => { w.cfg.buffer_seconds = +v; refresh(); })));
       const refresh = () => {
-        const e = estimates(w.cfg);
-        valEl.textContent = fmtMb(e.clipMb);
-        lenEl.textContent = App.t("wz.oneClip", { t: fmtBuf(w.cfg.buffer_seconds) });
-        bars20(e.clipMb, 500).forEach((o, j) => { sumBars[j].style.opacity = o; });
-        noteEl.textContent = `${e.clipMb <= 10 ? App.t("wz.fitsD") : e.clipMb <= 50 ? App.t("wz.fitsB") : e.clipMb <= 500 ? App.t("wz.fitsN") : App.t("wz.over")} · ${hw() ? App.t("wz.gpu") : App.t("wz.cpu")}`;
+        drawLen();
         const cur = presetOf();
         [...cardsBox.children].forEach((c, i) => c.classList.toggle("on", cur === PRESETS[i]));
       };
@@ -713,7 +710,11 @@ App.RecUI = (function () {
       return h("div", { class: "stack12" },
         h("div", null, h("div", { class: "big", text: App.t("wz.picQ") }), h("div", { class: "muted", text: App.t("wz.picD") })),
         cardsBox,
-        h("div", { class: "card2 pad" }, h("div", { class: "between" }, lenEl, valEl), h("div", { class: "sb" }, sumBars), noteEl),
+        h("div", { class: "card2" }, lenBox,
+          U.srow(App.t("wz.folder"), h("div", { class: "pathrow" }, dirEl, h("button", { class: "linkbtn", text: App.t("common.change"), onClick: async () => {
+            const d = await api.pickFolder();
+            if (d) { w.dir = d; dirEl.textContent = d; }
+          } })))),
         advBox);
     };
 
@@ -728,8 +729,7 @@ App.RecUI = (function () {
         strip.textContent = w.tested ? App.t("wz.keyOk") : App.t("wz.keyTest", { hk: String(w.cfg.hotkey).replaceAll("+", " + ") });
       };
       const rows = [
-        [App.t("wz.folder"), h("span", { class: "mono", text: w.dir }), h("button", { class: "linkbtn", text: App.t("common.change"), onClick: async () => {
-          const d = await api.pickFolder(); if (d) { w.dir = d; renderStep(); } } })],
+        [App.t("wz.folder"), h("span", { class: "mono", text: w.dir }), h("button", { class: "linkbtn", text: App.t("common.change"), onClick: () => { w.step = 2; renderAll(); } })],
         [App.t("wz.saveKey"), hotVal, h("button", { class: "linkbtn", text: App.t("common.change"), onClick: () => { w.editKey = true; drawKey(); } })],
         [App.t("wz.picture"), h("span", { class: "mono", text: App.t("wz.imgRow", { w: e.w, h: e.hgt, fps: w.cfg.fps, len: fmtBuf(w.cfg.buffer_seconds), size: fmtMb(e.clipMb) }) }),
           h("button", { class: "linkbtn", text: App.t("common.change"), onClick: () => { w.step = 2; renderAll(); } })],
