@@ -97,15 +97,16 @@ App.i18n = (function () {
       h("button", { class: "linkbtn", text: "✕", onClick: (e) => { dismissHint(); e.currentTarget.parentElement.remove(); onDone?.(); } }));
   }
 
-  /** For returning users: a small card under the top bar, shown once. */
-  function showBanner() {
-    const el = hintLink();
-    if (!el) return;
-    el.classList.remove("inline");
-    el.classList.add("bar");
-    (document.getElementById("app") || document.body).append(el);
-    dismissHint();   // offered once; it never comes back by itself (the picker in Settings stays)
+  /** Top-bar chip suggesting the system language (null when there is nothing to suggest). Click switches; ✕ dismisses for good. */
+  function topbarChip() {
+    const code = suggestion();
+    if (!code) return null;
+    const h = App.h;
+    const L = App.locales[code];
+    return h("div", { class: "langchip", title: L.ai ? App.tIn(code, "lang.aiTip") : "" },
+      h("button", { class: "go", text: "🌐 " + App.tIn(code, "lang.switchTo"), onClick: () => setLang(code) }),
+      h("button", { class: "x", text: "✕", "aria-label": App.t("common.dismiss"), onClick: (e) => { dismissHint(); e.currentTarget.parentElement.remove(); } }));
   }
 
-  return { ORDER, init, detect, suggestion, setLang, hintLink, showBanner, current: () => lang };
+  return { ORDER, init, detect, suggestion, setLang, hintLink, topbarChip, current: () => lang };
 })();

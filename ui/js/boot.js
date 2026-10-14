@@ -33,7 +33,6 @@
 
   // First run: walk the user through the settings that matter.
   if (!App.P.settings.onboarded) setTimeout(() => App.RecUI.wizard(), 400);
-  else setTimeout(() => App.i18n.showBanner(), 1200);   // returning users: offer the system language once (new users see it in the wizard)
 
   // If the user asked for recording at login but the recorder is not up (crashed, killed), start it.
   if (App.P.settings.onboarded) App.RecUI.syncLang().catch(() => {});   // existing installs: recorder follows the app language

@@ -14,6 +14,7 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "common.change": "Change",
   "common.delete": "Delete",
   "common.cancel": "Cancel",
+  "common.dismiss": "Dismiss",
   "common.default": "Default",
 
   "rec.pill.off": "REC off",

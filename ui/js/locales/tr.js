@@ -14,6 +14,7 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "common.change": "Değiştir",
   "common.delete": "Sil",
   "common.cancel": "İptal",
+  "common.dismiss": "Kapat",
   "common.default": "Varsayılan",
 
   "rec.pill.off": "REC kapalı",

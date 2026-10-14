@@ -14,6 +14,7 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "common.change": "Modifier",
   "common.delete": "Supprimer",
   "common.cancel": "Annuler",
+  "common.dismiss": "Fermer",
   "common.default": "Par défaut",
 
   "rec.pill.off": "REC off",

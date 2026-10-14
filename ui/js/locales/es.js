@@ -14,6 +14,7 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "common.change": "Cambiar",
   "common.delete": "Eliminar",
   "common.cancel": "Cancelar",
+  "common.dismiss": "Cerrar",
   "common.default": "Predeterminado",
 
   "rec.pill.off": "REC apagado",

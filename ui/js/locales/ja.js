@@ -14,6 +14,7 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "common.change": "変更",
   "common.delete": "削除",
   "common.cancel": "キャンセル",
+  "common.dismiss": "閉じる",
   "common.default": "既定",
 
   "rec.pill.off": "REC オフ",

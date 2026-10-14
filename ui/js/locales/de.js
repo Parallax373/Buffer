@@ -14,6 +14,7 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "common.change": "Ändern",
   "common.delete": "Löschen",
   "common.cancel": "Abbrechen",
+  "common.dismiss": "Schließen",
   "common.default": "Standard",
 
   "rec.pill.off": "REC aus",

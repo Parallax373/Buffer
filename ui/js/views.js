@@ -64,7 +64,7 @@
         h("div", { class: "mini" }, widths.map((w) => h("i", { style: { width: `${w}px` } }))),
         h("b", { text: "Buffer" })),
       h("label", { class: "search" }, h("span", { text: "⌕" }), search, h("kbd", { text: "Ctrl K" })),
-      h("div", { class: "right", "data-tauri-drag-region": true }, App.Update.chip, recPill, chip, windowControls()));
+      h("div", { class: "right", "data-tauri-drag-region": true }, App.i18n.topbarChip(), App.Update.chip, recPill, chip, windowControls()));
     paintRec();
     paintChip();
   }

@@ -14,6 +14,7 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "common.change": "更改",
   "common.delete": "删除",
   "common.cancel": "取消",
+  "common.dismiss": "关闭",
   "common.default": "默认",
 
   "rec.pill.off": "录制已关闭",
