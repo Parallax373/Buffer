@@ -32,6 +32,7 @@
   App.Update.start();
   await App.Lib.load();
   App.go("lib");
+  App.Exports.autoClean();            // only does anything when "Delete old exports" is set
 
   // First run: walk the user through the settings that matter.
   if (!App.P.settings.onboarded) setTimeout(() => App.RecUI.wizard(), 400);

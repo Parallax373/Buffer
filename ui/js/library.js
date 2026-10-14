@@ -125,6 +125,9 @@
         ["newest", "oldest", "size", "dur"]
           .map((v) => h("option", { value: v, text: App.t("sort." + v), selected: S.sort === v }))),
       thumbSeg: h("div", { class: "seg" }),
+      group: h("select", { class: "field", title: App.t("group.date"),
+        onChange: (e) => { App.P.settings.groupBy = e.target.value; App.persist(); Lib.render(true); } },
+      ["none", "date"].map((v) => h("option", { value: v, text: App.t("group." + v), selected: (App.P.settings.groupBy || "none") === v }))),
       grid: h("div", { class: "grid", onScroll: () => layoutGrid() }),
       spacer: h("div", { class: "spacer" }),
       bulk: h("div"),
@@ -132,7 +135,7 @@
     };
     els.grid.append(els.spacer);
     const toolbar = h("div", { class: "toolbar" }, els.title, els.count, h("span", { class: "sp" }),
-      els.sort, els.thumbSeg);
+      els.group, els.sort, els.thumbSeg);
     const main = h("div", { class: "main" }, toolbar, els.grid, els.bulk);
     els.lib = h("div", { class: "lib nodetail" }, els.side, main, els.details);
     root.append(els.lib);
@@ -203,14 +206,52 @@
     return { cols, cardW, cardH, rowH: cardH + GAP };
   }
 
+  /* Optional grouping by date: thin headers (collapsible) between the cards. Positions are computed for the whole
+     list (cheap) and only the cards near the viewport exist as DOM nodes. */
+  const GROUP_H = 34;
+  const heads = new Map();           // group key -> header element currently in the DOM
+  S.collapsed = S.collapsed || new Set();
+
+  function bucketOf(clip) {
+    const d = new Date();
+    const midnight = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000;
+    const t = clip.modified;
+    if (t >= midnight) return 0;
+    if (t >= midnight - 6 * 86400) return 1;
+    if (t >= midnight - 29 * 86400) return 2;
+    return 3;
+  }
+
+  function layout(list, g) {
+    const items = [], groups = [];
+    const at = (i, y0) => ({ x: (i % g.cols) * (g.cardW + GAP), y: y0 + Math.floor(i / g.cols) * g.rowH });
+    if ((App.P.settings.groupBy || "none") !== "date") {
+      list.forEach((clip, i) => items.push({ clip, ...at(i, 0) }));
+      return { items, groups, height: Math.max(0, Math.ceil(list.length / g.cols) * g.rowH - GAP) };
+    }
+    const buckets = [[], [], [], []];
+    for (const c of list) buckets[bucketOf(c)].push(c);
+    const keys = ["today", "week", "month", "earlier"];
+    let y = 0;
+    buckets.forEach((b, bi) => {
+      if (!b.length) return;
+      const closed = S.collapsed.has(keys[bi]);
+      groups.push({ key: keys[bi], y, count: b.length, closed });
+      y += GROUP_H;
+      if (closed) return;
+      b.forEach((clip, i) => items.push({ clip, ...at(i, y) }));
+      y += Math.ceil(b.length / g.cols) * g.rowH;
+    });
+    return { items, groups, height: Math.max(0, y - GAP) };
+  }
+
   function layoutGrid(force = false) {
     if (!els.grid || !els.grid.isConnected || !els.grid.clientWidth) return;
     const list = Lib.visible();
     const g = geometry();
-    const rows = Math.ceil(list.length / g.cols);
-    els.spacer.style.height = `${Math.max(0, rows * g.rowH - GAP)}px`;
 
     if (!list.length) {
+      els.spacer.style.height = "0px";
       const filtered = !!S.q || S.cat !== "all";
       els.spacer.replaceChildren(App.emptyState(
         S.listError ? App.t("lib.loadFail") : App.t("lib.none"),
@@ -218,37 +259,58 @@
         filtered ? App.t("lib.clearFilters") : null,
         () => { S.q = ""; S.cat = "all"; const i = App.$("#topSearch"); if (i) i.value = ""; Lib.render(false); }));
       cards.clear();
+      heads.clear();
       return;
     }
-    if (els.spacer.firstChild && !els.spacer.firstChild.classList?.contains("card") && !cards.size) {
-      els.spacer.replaceChildren();
-    }
+    els.spacer.querySelector(":scope > .empty")?.remove();
 
+    const lay = layout(list, g);
+    els.spacer.style.height = `${lay.height}px`;
     const top = els.grid.scrollTop, vh = els.grid.clientHeight;
-    const first = Math.max(0, Math.floor(top / g.rowH) - 1);
-    const last = Math.min(rows - 1, Math.floor((top + vh) / g.rowH) + 1);
+    const lo = top - g.rowH, hi = top + vh + g.rowH;
     const wanted = new Set();
-    for (let r = first; r <= last; r++) {
-      for (let c = 0; c < g.cols; c++) {
-        const i = r * g.cols + c;
-        if (i >= list.length) break;
-        const clip = list[i];
-        wanted.add(clip.path);
-        let el = cards.get(clip.path);
-        if (!el) {
-          el = createCard(clip);
-          cards.set(clip.path, el);
-          els.spacer.append(el);
-          requestThumb(clip, el);
-        }
-        el.style.left = `${c * (g.cardW + GAP)}px`;
-        el.style.top = `${r * g.rowH}px`;
-        el.style.width = `${g.cardW}px`;
-        if (force) updateCard(el, clip);
+    for (const it of lay.items) {
+      if (it.y + g.rowH < lo || it.y > hi) continue;
+      const clip = it.clip;
+      wanted.add(clip.path);
+      let el = cards.get(clip.path);
+      if (!el) {
+        el = createCard(clip);
+        cards.set(clip.path, el);
+        els.spacer.append(el);
+        requestThumb(clip, el);
       }
+      el.style.left = `${it.x}px`;
+      el.style.top = `${it.y}px`;
+      el.style.width = `${g.cardW}px`;
+      if (force) updateCard(el, clip);
     }
     for (const [p, el] of cards) {
       if (!wanted.has(p)) { el.remove(); cards.delete(p); }
+    }
+
+    const wantHeads = new Set();
+    for (const gr of lay.groups) {
+      wantHeads.add(gr.key);
+      let el = heads.get(gr.key);
+      if (!el) {
+        el = h("button", { class: "ghead", onClick: () => {
+          if (S.collapsed.has(gr.key)) S.collapsed.delete(gr.key); else S.collapsed.add(gr.key);
+          layoutGrid(true);
+        } });
+        heads.set(gr.key, el);
+        els.spacer.append(el);
+      }
+      el.style.top = `${gr.y}px`;
+      const sig = `${gr.count}|${gr.closed}|${App.t("group." + gr.key)}`;
+      if (el._sig !== sig) {
+        el._sig = sig;
+        el.replaceChildren(h("span", { class: "gl", text: App.t("group." + gr.key) }), h("span", { class: "gc", text: String(gr.count) }),
+          h("span", { class: "gar", text: gr.closed ? "▸" : "▾" }));
+      }
+    }
+    for (const [k, el] of heads) {
+      if (!wantHeads.has(k)) { el.remove(); heads.delete(k); }
     }
   }
 
@@ -399,13 +461,21 @@
     els.lib?.classList.toggle("nodetail", !(S.active && S.byPath.get(S.active)));
     const c = S.active && S.byPath.get(S.active);
     if (!c) {
+      els.details._for = null;
       els.details.replaceChildren(h("div", { class: "empty" }, App.t("det.empty").split("\n").flatMap((l, i) => (i ? [h("br"), l] : [l]))));
       return;
     }
     const m = Lib.meta(c);
     const pv = h("div", { class: "pv" }, h("div", { class: "go", onClick: () => App.Ed.open(c.path) }, h("span", { text: "▶" })));
-    Lib.thumbUrl(c.path).then((u) => { if (u && S.active === c.path) pv.prepend(h("img", { src: u, alt: "" })); });
-    els.details.replaceChildren(
+    Lib.thumbUrl(c.path).then((u) => {
+      const box = els.details.querySelector(".pv");
+      if (u && S.active === c.path && box && !box.querySelector("img")) box.prepend(h("img", { src: u, alt: "" }));
+    });
+    // the same clip keeps its nodes (the preview does not flash); another clip is a fresh panel
+    const sameClip = els.details._for === c.path && els.details.firstChild;
+    els.details._for = c.path;
+    const paint = (...kids) => (sameClip ? App.morph(els.details, kids) : els.details.replaceChildren(...kids));
+    paint(
       pv,
       h("div", null,
         h("div", { class: "gamechip", title: App.t("det.game"), text: App.gameOf(c) }),

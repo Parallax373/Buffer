@@ -187,6 +187,7 @@
       App.persist();
       S.lastDone = { ...entry, secs, at: Date.now() };
       popUntil = Date.now() + 7000;
+      setTimeout(() => Exports.autoClean(), 0);
       return { name: entry.name, path: output, size: entry.size };
     } catch (e) {
       if (String(e).includes("cancelled")) App.toast(App.t("exp.cancelled"));
@@ -202,6 +203,35 @@
   };
 
   Exports.cancel = () => api.invoke("cancel_export").catch(() => {});
+
+  /* ───── clean-up of old exports: a quiet nudge, and an optional automatic delete (both go to the Recycle Bin) ───── */
+  const DAY = 86400000;
+  const NUDGE_AFTER_DAYS = 14;
+  const oldExports = (days) => App.P.exports.filter((e) => Date.now() - e.created > days * DAY);
+  const bytesOf = (list) => list.reduce((a, e) => a + (e.size || 0), 0) * 1048576;
+  /** Moves the files to the Recycle Bin and drops them from the history. Returns how many were handled. */
+  Exports.remove = async (list) => {
+    if (!list.length) return 0;
+    try { await api.invoke("delete_clips", { paths: list.map((e) => e.path) }); } catch { /* already gone: forget them anyway */ }
+    const gone = new Set(list.map((e) => e.id));
+    App.P.exports = App.P.exports.filter((e) => !gone.has(e.id));
+    App.persist();
+    return list.length;
+  };
+  /** Runs at start and after each export; does nothing unless "Delete old exports" is set in Settings. */
+  Exports.autoClean = async () => {
+    const days = App.P.settings.autoCleanDays || 0;
+    if (!days || S.exporting) return;
+    const n = await Exports.remove(oldExports(days));
+    if (n) { App.toast(App.t("clean.done", { n }), "ok"); notifyState(); }
+  };
+  /** The nudge for the exports popover: the old exports worth cleaning, or null (also while dismissed or automatic). */
+  const cleanNudge = () => {
+    const s = App.P.settings;
+    if (s.autoCleanDays || Date.now() - (s.cleanDismissedAt || 0) < 7 * DAY) return null;
+    const old = oldExports(NUDGE_AFTER_DAYS);
+    return old.length >= 5 || bytesOf(old) >= 1073741824 ? old : null;
+  };
 
   function notifyState() {
     App.Ed.onExportState();
@@ -321,6 +351,21 @@
         dragHandle(e.path, "lime", "⇪")));
     }
     if (!ex && !done && !recent.length) parts.push(h("div", { class: "muted", text: App.t("exp.empty") }));
+    const nudge = cleanNudge();
+    if (nudge) {
+      parts.push(h("div", { class: "nudge" },
+        h("span", { class: "muted", text: App.t("clean.line", { n: nudge.length, size: App.fmtMB(bytesOf(nudge)) }) }),
+        h("span", { class: "acts" },
+          h("button", { class: "linkbtn lime", text: App.t("clean.do"), onClick: async () => {
+            if (!confirm(App.t("clean.confirm", { n: nudge.length, days: NUDGE_AFTER_DAYS, size: App.fmtMB(bytesOf(nudge)) }))) return;
+            const n = await Exports.remove(nudge);
+            App.toast(App.t("clean.done", { n }), "ok");
+            renderPop(); paintChip();
+          } }),
+          h("button", { class: "linkbtn", text: App.t("clean.later"), onClick: () => {
+            App.P.settings.cleanDismissedAt = Date.now(); App.persist(); renderPop();
+          } }))));
+    }
     parts.push(h("button", { class: "histlink", text: App.t("exp.history", { n: App.P.exports.length }),
       onClick: () => { drawerOpen = true; renderDrawer(); } }));
     host.replaceChildren(h("div", { class: "popover",
@@ -352,19 +397,31 @@
   const THEMES = [["ink", "#0b0c0a"], ["oled", "#000000"]];
 
   /** Settings pane; only a tab switch plays the slide-in, edits inside a tab re-render quietly. */
+  let renderToken = 0;
   Settings.render = async (animate = false) => {
     const root = App.$("#v-set");
+    const token = ++renderToken;
     const pane = h("div", { class: "pane" + (animate ? " stepin" : "") });
-    root.replaceChildren(h("div", { class: "set" },
+    const shell = () => h("div", { class: "set", "data-tab": Settings.tab },
       h("div", { class: "tabs" }, h("h1", { text: App.t("set.title") }),
         TABS.map((k) => h("button", { class: Settings.tab === k ? "on" : "", text: App.t("set.tab." + k),
           onClick: () => { Settings.tab = k; Settings.render(true); } })),
         h("div", { class: "grow" }),
         h("button", { class: "wizbtn", text: App.t("set.wizard"), onClick: () => App.RecUI.wizard() })),
-      h("div", { class: "setscroll" }, pane)));
-    if (Settings.tab === "rec") await App.RecUI.renderTab(pane);
-    else if (Settings.tab === "lib") await renderLibraryTab(pane);
-    else await renderAppTab(pane);
+      h("div", { class: "setscroll" }, pane));
+    if (Settings.tab === "rec") {
+      // the recording tab keeps itself current (live meters and status), so it is built in place
+      root.replaceChildren(shell());
+      await App.RecUI.renderTab(pane);
+      return;
+    }
+    // the other tabs are built off screen and morphed into the page: scroll, focus and open sections stay put
+    if (Settings.tab === "lib") await renderLibraryTab(pane); else await renderAppTab(pane);
+    if (token !== renderToken) return;
+    const next = shell();
+    const cur = root.firstElementChild;
+    if (animate || !cur || cur.dataset.tab !== Settings.tab) root.replaceChildren(next);
+    else App.morph(root, [next]);
   };
 
   const advHead = (label, open, toggle) => h("button", { class: "advhead", onClick: toggle },
@@ -441,7 +498,9 @@
               if (d) { s.outDir = d; App.persist(); Settings.render(); }
             } }),
             s.outDir ? h("button", { class: "linkbtn", text: App.t("common.default"), onClick: () => { s.outDir = ""; App.persist(); Settings.render(); } }) : null)),
-          U.trow(App.t("exp.norm"), "−16 LUFS", s.normDef, (on) => { s.normDef = on; App.persist(); Settings.render(); })))));
+          U.trow(App.t("exp.norm"), "−16 LUFS", s.normDef, (on) => { s.normDef = on; App.persist(); Settings.render(); }),
+          U.srow(App.t("set.autoClean"), U.segc([[0, App.t("clean.never")], ...[7, 30, 90].map((n) => [n, App.t("clean.days", { n })])],
+            s.autoCleanDays || 0, (d) => { s.autoCleanDays = d; App.persist(); Settings.render(); }))))));
   }
 
   /* Aplikacja: appearance + system. */
