@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$Installer,
     [string]$Notes = "",
-    [string]$Repo = "Wheatlay/buffer",
+    [string]$Repo = "Wheatlay/Buffer",
     [string]$Out = "latest.json"
 )
 $ErrorActionPreference = "Stop"

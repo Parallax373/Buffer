@@ -6,7 +6,7 @@
 
 Always-on clip recorder and editor for Windows.
 
-[**Download for Windows**](https://github.com/Wheatlay/buffer/releases/latest)  ·  Windows 10 and 11  ·  installs in a minute
+[**Download for Windows**](https://github.com/Wheatlay/Buffer/releases/latest)  ·  Windows 10 and 11  ·  installs in a minute
 
 </div>
 
@@ -32,7 +32,7 @@ Small on purpose. No launcher, no account, no overlay, nothing to babysit.
 
 ## Install
 
-Download the latest installer from [Releases](https://github.com/Wheatlay/buffer/releases/latest) and run it. It is per-user, asks nothing, and opens a short first-run setup when it is done.
+Download the latest installer from [Releases](https://github.com/Wheatlay/Buffer/releases/latest) and run it. It is per-user, asks nothing, and opens a short first-run setup when it is done.
 
 ## Build from source
 

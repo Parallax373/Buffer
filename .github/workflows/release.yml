@@ -28,7 +28,7 @@ jobs:
         run: rustup toolchain install stable --profile minimal
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude buffer   # the app crate needs the release recorder and ffmpeg resources, which the installer build creates
 
       - name: Build installer (fetches and verifies ffmpeg, signs the update package)
         shell: pwsh
