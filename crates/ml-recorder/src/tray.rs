@@ -292,6 +292,14 @@ fn save_async(shared: &Arc<session::Shared>, announced: bool) {
 }
 
 /// "Buffer active" message shown when a game comes to the foreground.
+/// Is it time to tell the user about a game that just came to the front? Yes once recording is up (normal popup), as
+/// soon as there is a real error, or after `GRACE` without recording; not in the first moments, when a session that is
+/// still starting would otherwise raise a false "recording isn't working".
+fn announce_due(recording: bool, seen_for: std::time::Duration, has_error: bool) -> bool {
+    const GRACE: std::time::Duration = std::time::Duration::from_secs(12);
+    recording || has_error || seen_for >= GRACE
+}
+
 fn announce_game(shared: &session::Shared, game: &str) {
     let cfg = shared.cfg.lock().unwrap().clone();
     let down: Vec<&str> = shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| s.name).collect();
@@ -361,6 +369,7 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
     let mut overlay = Overlay::new();
     let mut shown: Option<State> = None;
     let mut notified: HashSet<u32> = HashSet::new();
+    let mut first_seen: std::collections::HashMap<u32, std::time::Instant> = std::collections::HashMap::new();
     let mut tick = 0u32;
     let my_pid = std::process::id();
 
@@ -459,11 +468,19 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
                                     tick_shared.restart.store(true, Ordering::Relaxed);
                                 }
                                 if !notified.contains(&fg.pid) {
-                                    notified.insert(fg.pid);
-                                    if notified.len() > 256 {
-                                        notified.clear();
+                                    // the session needs a few seconds to come up after a game launch, a restart or an
+                                    // update: wait for it (the normal "Buffer active" popup) before raising an alarm
+                                    let seen = *first_seen.entry(fg.pid).or_insert_with(std::time::Instant::now);
+                                    let recording = tick_shared.recording.load(Ordering::Relaxed);
+                                    let has_error = !tick_shared.last_error.lock().unwrap().is_empty();
+                                    if announce_due(recording, seen.elapsed(), has_error) {
+                                        first_seen.remove(&fg.pid);
+                                        notified.insert(fg.pid);
+                                        if notified.len() > 256 {
+                                            notified.clear();
+                                        }
+                                        announce_game(&tick_shared, &name);
                                     }
-                                    announce_game(&tick_shared, &name);
                                 }
                             }
                         }
@@ -478,6 +495,17 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_false_alarm_while_the_session_is_still_starting() {
+        use std::time::Duration;
+        let s = Duration::from_secs;
+        assert!(!announce_due(false, s(0), false), "just seen, not recording yet: wait");
+        assert!(!announce_due(false, s(5), false), "still inside the grace period");
+        assert!(announce_due(true, s(1), false), "recording is up: announce normally");
+        assert!(announce_due(false, s(1), true), "a real error is announced at once");
+        assert!(announce_due(false, s(12), false), "never came up: tell the user");
+    }
 
     #[test]
     fn every_state_has_a_valid_icon() {
