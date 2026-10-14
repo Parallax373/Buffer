@@ -16,8 +16,8 @@ use windows_sys::Win32::{
             JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
         },
         Performance::{
-            PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhOpenQueryW,
-            PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE,
+            PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhGetFormattedCounterValue,
+            PdhOpenQueryW, PDH_FMT_COUNTERVALUE, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE,
         },
         SystemInformation::{GetSystemInfo, SYSTEM_INFO},
         Threading::{GetCurrentProcess, GetCurrentProcessId, GetProcessTimes},
@@ -84,6 +84,8 @@ fn job_pids(job: isize) -> Vec<u32> {
 struct Gpu {
     query: isize,
     counter: isize,
+    /// "% Processor Performance": the current clock relative to the base clock (0 = counter unavailable).
+    perf: isize,
 }
 
 impl Gpu {
@@ -99,8 +101,28 @@ impl Gpu {
                 PdhCloseQuery(query);
                 return None;
             }
+            let ppath: Vec<u16> = "\\Processor Information(_Total)\\% Processor Performance\0".encode_utf16().collect();
+            let mut perf = 0isize;
+            if PdhAddEnglishCounterW(query, ppath.as_ptr(), 0, &mut perf) != 0 {
+                perf = 0;
+            }
             PdhCollectQueryData(query);
-            Some(Gpu { query, counter })
+            Some(Gpu { query, counter, perf })
+        }
+    }
+
+    /// Current CPU clock as a fraction of the base clock (idle power states are well below 1, boost above), read after `sample`.
+    fn performance(&self) -> Option<f64> {
+        if self.perf == 0 {
+            return None;
+        }
+        unsafe {
+            let mut v: PDH_FMT_COUNTERVALUE = std::mem::zeroed();
+            if PdhGetFormattedCounterValue(self.perf, PDH_FMT_DOUBLE, std::ptr::null_mut(), &mut v) != 0 || v.CStatus != 0 {
+                return None;
+            }
+            let d = v.Anonymous.doubleValue;
+            if d > 0.0 { Some((d / 100.0).clamp(0.05, 3.0)) } else { None }
         }
     }
 
@@ -168,16 +190,7 @@ pub fn start(shared: Arc<Shared>) {
         let mut last_at = Instant::now();
         loop {
             std::thread::sleep(Duration::from_secs(2));
-            let now = Instant::now();
-            let cpu = own_cpu_time() + job.map_or(0, job_cpu_time);
-            let wall = now.duration_since(last_at).as_secs_f64() * 1e7; // 100 ns ticks
-            if wall > 0.0 && cpu >= last_cpu {
-                let pct = ((cpu - last_cpu) as f64 / wall / cores * 100.0).clamp(0.0, 100.0);
-                shared.cpu_x10.store((pct * 10.0) as u32, Ordering::Relaxed);
-            }
-            last_cpu = cpu;
-            last_at = now;
-
+            // GPU first: it also refreshes the clock counter used to weight the CPU figure
             let g = gpu.as_ref().and_then(|g| {
                 let mut pids = vec![own_pid];
                 if let Some(j) = job {
@@ -185,7 +198,19 @@ pub fn start(shared: Arc<Shared>) {
                 }
                 g.sample(&pids)
             });
+            let clock = gpu.as_ref().and_then(|g| g.performance()).unwrap_or(1.0);
             shared.gpu_x10.store(g.map_or(-1, |v| (v * 10.0) as i32), Ordering::Relaxed);
+
+            let now = Instant::now();
+            let cpu = own_cpu_time() + job.map_or(0, job_cpu_time);
+            let wall = now.duration_since(last_at).as_secs_f64() * 1e7; // 100 ns ticks
+            if wall > 0.0 && cpu >= last_cpu {
+                // share of CPU time, scaled by the clock: the same work costs more time at a low idle clock
+                let pct = ((cpu - last_cpu) as f64 / wall / cores * 100.0 * clock).clamp(0.0, 100.0);
+                shared.cpu_x10.store((pct * 10.0) as u32, Ordering::Relaxed);
+            }
+            last_cpu = cpu;
+            last_at = now;
         }
     });
 }

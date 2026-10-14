@@ -310,7 +310,8 @@ App.RecUI = (function () {
   };
 
   /** Sticky "Co to zajmie" card; call update(c) after any video change. */
-  let sumLoadEl = null;          // the "Load" value of the summary card; paint() fills it with live numbers
+  let sumLoad = null;            // the "Load" row of the summary card: { text, meters, cpu, gpu, row }; paint() feeds it live values
+  let defaultsAt = 0;
   function summaryCard() {
     const defs = [[App.t("sum.clip"), 500], [App.t("sum.disk"), 700], [App.t("sum.ram"), 1400]];
     const refs = defs.map(([label]) => ({
@@ -320,13 +321,16 @@ App.RecUI = (function () {
       label,
     }));
     const loadEl = h("span", { class: "mono lime", style: { fontWeight: 600 } });
+    const lbar = () => h("span", { class: "lbar" }, Array.from({ length: 10 }, () => h("i")));
+    const cpuBar = lbar(), gpuBar = lbar();
+    const meters = h("span", { class: "loadm", hidden: true }, h("small", { text: "CPU" }), cpuBar, h("small", { text: "GPU" }), gpuBar);
     const capEl = h("div", { class: "sc" });
     const el = h("div", { class: "sumside" }, U.cap(App.t("sum.cap")),
       ...refs.map((r) => h("div", null,
         h("div", { class: "sh" }, h("b", { text: r.label }), r.val),
         h("div", { class: "sb" }, r.bars), r.note)),
-      h("div", { class: "sl", title: App.t("sum.loadTip") }, h("b", { text: App.t("sum.load") }), loadEl), capEl);
-    sumLoadEl = loadEl;
+      h("div", { class: "sl", title: App.t("sum.loadTip") }, h("b", { text: App.t("sum.load") }), loadEl, meters), capEl);
+    sumLoad = { text: loadEl, meters, cpu: cpuBar, gpu: gpuBar, row: loadEl.parentElement };
     const update = (c) => {
       const e = estimates(c);
       const vals = [e.clipMb, e.diskMb, e.ramMb];
@@ -509,18 +513,50 @@ App.RecUI = (function () {
     longBtn.disabled = !r || (!r.recording && !r.idle && !lg);
     longBtn.textContent = lg ? App.t("long.stop") : App.t("long.start");
     toggleBtn.textContent = r ? App.t("st.stop") : App.t("st.start");
-    if (sumLoadEl && sumLoadEl.isConnected) {
-      // measured while recording; before that, the estimate from the encoder in use
+    if (sumLoad && sumLoad.text.isConnected) {
+      // measured while the recorder runs (bars, exact values in the tooltip); before that, the estimate from the encoder
       if (r && r.cpu_pct != null) {
+        const paintBar = (bar, v) => {
+          const lit = Math.min(10, Math.ceil(v / 10));
+          [...bar.children].forEach((b, i) => {
+            b.style.opacity = i < lit ? 0.95 : 0.15;
+            b.style.background = v >= 60 ? "var(--warn)" : "var(--acc)";
+          });
+        };
+        paintBar(sumLoad.cpu, r.cpu_pct);
+        paintBar(sumLoad.gpu, r.gpu_pct ?? 0);
         const pc = (v) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
-        sumLoadEl.textContent = `CPU ${pc(r.cpu_pct)}%` + (r.gpu_pct != null ? ` · GPU ${pc(r.gpu_pct)}%` : "");
-      } else sumLoadEl.textContent = hw() ? "GPU" : "CPU";
+        sumLoad.row.title = App.t("sum.loadTip") + "\nCPU " + pc(r.cpu_pct) + "%" + (r.gpu_pct != null ? " \u00B7 GPU " + pc(r.gpu_pct) + "%" : "");
+        sumLoad.meters.hidden = false;
+        sumLoad.text.hidden = true;
+      } else {
+        sumLoad.meters.hidden = true;
+        sumLoad.text.hidden = false;
+        sumLoad.text.textContent = hw() ? "GPU" : "CPU";
+      }
+    }
+    // while the recorder is idle its sources are not connected, so the names it reports are from the last
+    // session; show the Windows default as it is right now (EarTrumpet and friends switch it at any time)
+    const liveRec = !!(r && r.recording);
+    if (!liveRec && Date.now() - defaultsAt > 2500) {
+      defaultsAt = Date.now();
+      api.invoke("recorder_devices").then((d) => {
+        if (d && d.default) { devices = { ...devices, ...d }; paint(); }
+      }).catch(() => {});
     }
     const diag = App.$("#recDiag");
     if (diag) diag.textContent = r ? App.t("adv.diagFmt", { n: r.restarts, enc: r.encoder || "?", cap: r.capture || "?", rate: r.kbps ? (r.kbps / 1000).toFixed(1) + " Mb/s" : "?" }) : "—";
     for (const row of document.querySelectorAll("#recSources .aitem")) {
       const src = r && r.sources.find((s) => s.name === row.dataset.src);
       const dev = row.querySelector(".dev");
+      if (dev && !liveRec) {
+        const def = SRC.find((s) => s[1] === row.dataset.src);
+        if (def) {
+          const d = deviceLabel(cfg, def[0], def[3]);
+          dev.replaceChildren(...[d.text, d.note ? h("em", { text: d.note }) : null].filter(Boolean));
+        }
+        continue;
+      }
       if (!src || !dev) continue;
       const base = dev.firstChild ? dev.firstChild.textContent : "";
       const note = !src.live ? src.status.replace(/^down: /, App.t("src.missing")) : (src.role === "secondary" ? App.t("src.backup") : "");
