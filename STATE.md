@@ -24,10 +24,10 @@ no bloat, no launcher/update breakage, a richer editor, and a size-targeted expo
 - Autostart: HKCU Run key (`ml-recorder install-autostart`), done by the installer and by Settings.
 
 ## UI (design handoff "Moments Lite")
-Library (virtualised grid, lazy thumbnails, categories/games/tags/favourites, bulk bar, details panel),
+Library (virtualised grid, lazy thumbnails, categories/games/favourites, bulk bar, details panel),
 Editor (preview with per-track gain, waveforms, trim, 16:9 crop, speed, loudness, export panel, drag-out),
 Exports (history, drag-out), Settings (Nagrywanie, Wygląd, Ogólne, Eksport, Skróty, Zaawansowane).
-Favourites/tags/exports/settings persist in `%APPDATA%\moments-lite\app-state.json`.
+Favourites/exports/settings persist in `%APPDATA%\moments-lite\app-state.json`.
 
 ## Distribution
 - `build-installer.ps1` fetches a checksum-verified static ffmpeg (vendor/, not committed), builds the recorder and app,

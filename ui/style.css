@@ -131,7 +131,6 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 .card .star.on { color: var(--warn); }
 .card .dur { position: absolute; right: 8px; bottom: 8px; background: #000b; border-radius: 5px; padding: 1px 7px; font: 11px "JetBrains Mono", monospace; color: #fff; }
 .card .tg { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 4px; align-items: center; }
-.card .tg i { width: 8px; height: 8px; border-radius: 4px; display: block; }
 .card .tg span { font: 10px "JetBrains Mono", monospace; color: var(--ok); }
 .card .info { padding: 9px 12px 11px; }
 .card .info b { font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -152,7 +151,6 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 .details dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 12px; margin: 0; }
 .details dt { color: var(--muted); }
 .details dd { margin: 0; font-family: "JetBrains Mono", monospace; }
-.details .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .pill { display: flex; gap: 7px; align-items: center; padding: 6px 10px; white-space: nowrap; border-radius: 99px; border: 1px solid var(--line); transition: all var(--t) ease; }
 .pill i { width: 7px; height: 7px; border-radius: 4px; display: block; }
 .details .empty { color: var(--muted); margin: auto; text-align: center; line-height: 1.6; }

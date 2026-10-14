@@ -1,5 +1,5 @@
 "use strict";
-/* Library view: sidebar (categories / games / tags), virtualised thumbnail grid, details panel. */
+/* Library view: sidebar (categories / games), virtualised thumbnail grid, details panel. */
 
 (function () {
   const { h, S, api } = App;
@@ -73,7 +73,6 @@
     return mods.length ? mods[Math.min(19, mods.length - 1)] : 0;
   };
 
-  const tagsOf = (c) => App.P.tags[c.path] || [];
   const isFav = (c) => !!App.P.favs[c.path];
 
   Lib.games = () => {
@@ -95,7 +94,6 @@
       if (cat === "fav") return isFav(c);
       if (cat === "exp") return isExported(c.path);
       if (cat.startsWith("g:")) return App.gameOf(c) === cat.slice(2);
-      if (cat.startsWith("t:")) return tagsOf(c).includes(cat.slice(2));
       return true;
     });
     const dur = (c) => (Lib.meta(c) || {}).dur || 0;
@@ -112,17 +110,6 @@
     App.persist();
     refreshCards(); Lib.renderSide(); Lib.renderDetails();
     if (S.view === "ed" && App.Ed) App.Ed.refreshFav();
-  };
-
-  Lib.toggleTag = (paths, tag, force) => {
-    for (const p of paths) {
-      const cur = new Set(App.P.tags[p] || []);
-      const on = force != null ? force : !cur.has(tag);
-      if (on) cur.add(tag); else cur.delete(tag);
-      if (cur.size) App.P.tags[p] = [...cur]; else delete App.P.tags[p];
-    }
-    App.persist();
-    refreshCards(); Lib.renderSide(); Lib.renderDetails();
   };
 
   /* ───── build ───── */
@@ -180,8 +167,6 @@
       item("exp", "Wyeksportowane", S.clips.filter((c) => isExported(c.path)).length),
       h("div", { class: "cap", text: "Gry" }),
       ...Lib.games().map(([g, n]) => item("g:" + g, g, n, { sq: `hsl(${App.hueOf(g)} 60% 55%)` })),
-      h("div", { class: "cap", text: "Tagi" }),
-      ...App.TAGS.map(([t, col]) => item("t:" + t, t, S.clips.filter((c) => tagsOf(c).includes(t)).length, { dot: col })),
     ];
     els.side.replaceChildren(...frag);
   };
@@ -279,9 +264,7 @@
     th.querySelector(".dur").textContent = m ? App.fmtS(m.dur) : "";
     th.querySelector(".dur").hidden = !m;
     const tg = th.querySelector(".tg");
-    const dots = tagsOf(clip).map((t) => h("i", { style: { background: (App.TAGS.find((x) => x[0] === t) || [0, "#888"])[1] } }));
-    if (isExported(clip.path)) dots.push(h("span", { text: "✓ wyeksp." }));
-    tg.replaceChildren(...dots);
+    tg.replaceChildren(...(isExported(clip.path) ? [h("span", { text: "✓ wyeksp." })] : []));
     el.querySelector(".info span").textContent = `${App.date(clip.modified)} · ${App.fmtMB(clip.size)}`;
   }
 
@@ -349,9 +332,6 @@
     const t = App.P.settings.defTarget;
     els.bulk.replaceChildren(h("div", { class: "bulk" },
       h("b", { text: String(S.sel.size) }), h("span", { class: "muted", text: "zaznaczone" }), h("span", { class: "sp" }),
-      ...App.TAGS.map(([name, col]) => h("div", { class: "chip", style: { cursor: "pointer" },
-        onClick: () => Lib.toggleTag([...S.sel], name, true) },
-        h("span", { style: { width: "8px", height: "8px", borderRadius: "4px", background: col } }), name)),
       h("div", { class: "chip", style: { cursor: "pointer" }, onClick: () => {
         for (const p of S.sel) App.P.favs[p] = 1;
         App.persist(); refreshCards(); Lib.renderSide(); } }, "★ Ulubione"),
@@ -372,7 +352,7 @@
     try {
       await api.invoke("delete_clips", { paths });
       for (const p of paths) {
-        delete App.P.favs[p]; delete App.P.tags[p]; delete App.P.meta[p];
+        delete App.P.favs[p]; delete App.P.meta[p];
         S.sel.delete(p);
       }
       App.persist();
@@ -395,7 +375,6 @@
     const m = Lib.meta(c);
     const pv = h("div", { class: "pv" }, h("div", { class: "go", onClick: () => App.Ed.open(c.path) }, h("span", { text: "▶" })));
     Lib.thumbUrl(c.path).then((u) => { if (u && S.active === c.path) pv.prepend(h("img", { src: u, alt: "" })); });
-    const tagNames = tagsOf(c);
     els.details.replaceChildren(
       pv,
       h("div", null, h("h2", { text: App.gameOf(c) }), h("div", { class: "file", text: App.baseName(c.path) })),
@@ -404,13 +383,6 @@
         h("dt", { text: "Czas" }), h("dd", { text: m ? App.fmtS(m.dur) : "…" }),
         h("dt", { text: "Rozmiar" }), h("dd", { text: App.fmtMB(c.size) }),
         h("dt", { text: "Format" }), h("dd", { text: m ? `${m.h}p · ${Math.round(m.fps)} fps` : "…" })),
-      h("div", null, h("div", { class: "cap", text: "Tagi" }),
-        h("div", { class: "tags" }, ...App.TAGS.map(([name, col]) => {
-          const on = tagNames.includes(name);
-          return h("div", { class: "pill", style: { cursor: "pointer", borderColor: on ? col : "", background: on ? col + "22" : "" },
-            onClick: () => Lib.toggleTag([c.path], name) },
-            h("i", { style: { background: col } }), name);
-        }))),
       h("div", { class: "sp" }),
       h("button", { class: "btn acc", style: { padding: "11px" }, onClick: () => App.Ed.open(c.path), text: "✂  Edytuj i przytnij" }),
       h("button", { class: "btn", onClick: () => App.Exports.quick(c.path),

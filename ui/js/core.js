@@ -64,10 +64,9 @@ const App = {};
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false,
     },
     libDirs: ["E:\\Nagrania"],
-    favs: {}, tags: {}, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
+    favs: {}, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
   };
   App.P = structuredClone(DEFAULTS);
-  App.TAGS = [["Highlight", "#ffb454"], ["Śmieszne", "#4cc38a"], ["Do wysłania", "#6aa8ff"]];
 
   let saveTimer = 0;
   App.persist = () => {
