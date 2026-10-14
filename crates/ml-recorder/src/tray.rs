@@ -239,13 +239,15 @@ pub fn apply_app_sources(shared: &session::Shared) {
 /// Pressing again while waiting saves immediately.
 fn hotkey_save(shared: &Arc<session::Shared>) {
     // nothing is being buffered (waiting for a game, or stopped): say so now instead of counting down to a failure
-    if !shared.recording.load(Ordering::Relaxed) && crate::longrec::elapsed_secs(shared).is_none() {
+    let recording = shared.recording.load(Ordering::Relaxed);
+    if !recording && crate::longrec::elapsed_secs(shared).is_none() && !session::has_buffer() {
         let why = if shared.idle.load(Ordering::Relaxed) { "pop.nothing_idle" } else { "pop.nothing_stopped" };
         shared.popup(Event::SaveFailed, crate::lang::t("pop.nothing"), crate::lang::t(why));
         return;
     }
     let roll = shared.cfg.lock().unwrap().post_roll_seconds;
-    if roll == 0 {
+    // no new footage is coming when recording has already stopped (the game closed), so save what is there now
+    if roll == 0 || !recording {
         save_async(shared, false);
         return;
     }

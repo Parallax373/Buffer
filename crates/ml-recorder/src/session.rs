@@ -96,6 +96,11 @@ pub fn log(msg: &str) {
     }
 }
 
+/// Is there recorded footage on disk that a save could use (even if recording has stopped since)?
+pub fn has_buffer() -> bool {
+    segments().iter().any(|p| fs::metadata(p).map(|m| m.len() > 4096).unwrap_or(false))
+}
+
 pub fn segments() -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = fs::read_dir(buffer_dir())
         .map(|rd| {
