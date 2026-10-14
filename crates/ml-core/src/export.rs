@@ -97,7 +97,12 @@ const BUDGET_FACTOR: f64 = 0.96;
 const MIN_VIDEO_KBPS: i64 = 150;
 const MAX_ATTEMPTS: u32 = 4;
 
-pub fn export(opts: &ExportOptions, mut on_progress: impl FnMut(f64)) -> Result<ExportResult> {
+/// `cancel` is polled while ffmpeg runs; returning true kills it and fails with "cancelled".
+pub fn export(
+    opts: &ExportOptions,
+    mut on_progress: impl FnMut(f64),
+    cancel: impl Fn() -> bool,
+) -> Result<ExportResult> {
     let mut resolved = opts.clone();
     resolved.codec = opts.codec.resolve();
     let opts = &resolved;
@@ -127,7 +132,7 @@ pub fn export(opts: &ExportOptions, mut on_progress: impl FnMut(f64)) -> Result<
             );
         }
         let job = Job { opts, info: &info, gains: &gains, start: opts.start, src_dur, out_dur, speed };
-        job.run(video_kbps as u64, &mut on_progress)?;
+        job.run(video_kbps as u64, &mut on_progress, &cancel)?;
         let size = std::fs::metadata(&opts.output)?.len();
         if size <= opts.target_bytes {
             return Ok(ExportResult { size, attempts, video_kbps: video_kbps as u64 });
@@ -216,7 +221,7 @@ impl Job<'_> {
         vf
     }
 
-    fn run(&self, video_kbps: u64, on_progress: &mut impl FnMut(f64)) -> Result<()> {
+    fn run(&self, video_kbps: u64, on_progress: &mut impl FnMut(f64), cancel: &impl Fn() -> bool) -> Result<()> {
         let mut cmd = Command::new(crate::tools::ffmpeg());
         cmd.args(["-y", "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1"]);
         if self.opts.hwaccel && self.opts.codec != Codec::X264 {
@@ -263,6 +268,12 @@ impl Job<'_> {
             if let Some(us) = line.strip_prefix("out_time_us=") {
                 if let Ok(us) = us.trim().parse::<f64>() {
                     on_progress((us / 1e6 / self.out_dur).clamp(0.0, 1.0));
+                }
+                if cancel() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = std::fs::remove_file(&self.opts.output);
+                    bail!("cancelled");
                 }
             }
         }

@@ -102,10 +102,14 @@ fn main() -> Result<()> {
                 normalize,
                 hwaccel: true,
             };
-            let r = export(&opts, |p| {
-                print!("\r{:5.1}%", p * 100.0);
-                let _ = std::io::stdout().flush();
-            })?;
+            let r = export(
+                &opts,
+                |p| {
+                    print!("\r{:5.1}%", p * 100.0);
+                    let _ = std::io::stdout().flush();
+                },
+                || false,
+            )?;
             println!(
                 "\r100.0%  {:.2} MiB (target {} MiB), video {} kbps, {} attempt(s)\n-> {}",
                 r.size as f64 / 1048576.0,

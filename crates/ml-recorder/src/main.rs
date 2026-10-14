@@ -158,6 +158,9 @@ fn run() {
         monitor_now: AtomicU32::new(0),
         post_roll_active: AtomicBool::new(false),
         post_roll_skip: AtomicBool::new(false),
+        post_roll_until: Mutex::new(None),
+        flash: Mutex::new(None),
+        markers: Mutex::new(Vec::new()),
     });
     tray::apply_app_sources(&shared);
     log(&format!("recorder starting (ffmpeg: {})", ml_core::tools::ffmpeg().display()));

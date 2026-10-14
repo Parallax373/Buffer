@@ -27,6 +27,7 @@
       S.listError = String(e);
     }
     S.byPath = new Map(S.clips.map((c) => [c.path, c]));
+    App.computeNew(S.clips);
     for (const p of [...S.sel]) if (!S.byPath.has(p)) S.sel.delete(p);
     if (S.active && !S.byPath.has(S.active)) S.active = null;
     animBudget = 24;
@@ -120,8 +121,6 @@
     els = {
       side: h("div", { class: "side" }),
       title: h("h1"), count: h("span", { class: "count" }),
-      search: h("input", { class: "field search", placeholder: "Szukaj klipów…", spellcheck: false, value: S.q,
-        onInput: (e) => { S.q = e.target.value; Lib.render(false); } }),
       sort: h("select", { class: "field", onChange: (e) => { S.sort = e.target.value; Lib.render(false); } },
         [["newest", "Najnowsze"], ["oldest", "Najstarsze"], ["size", "Największe"], ["dur", "Najdłuższe"]]
           .map(([v, t]) => h("option", { value: v, text: t, selected: S.sort === v }))),
@@ -133,9 +132,10 @@
     };
     els.grid.append(els.spacer);
     const toolbar = h("div", { class: "toolbar" }, els.title, els.count, h("span", { class: "sp" }),
-      els.search, els.sort, els.thumbSeg);
+      els.sort, els.thumbSeg);
     const main = h("div", { class: "main" }, toolbar, els.grid, els.bulk);
-    root.append(h("div", { class: "lib" }, els.side, main, els.details));
+    els.lib = h("div", { class: "lib nodetail" }, els.side, main, els.details);
+    root.append(els.lib);
     new ResizeObserver(() => layoutGrid()).observe(els.grid);
   };
 
@@ -199,8 +199,12 @@
     els.spacer.style.height = `${Math.max(0, rows * g.rowH - GAP)}px`;
 
     if (!list.length) {
-      els.spacer.replaceChildren(h("div", { class: "muted", style: { padding: "40px 0", textAlign: "center" },
-        text: S.listError || (S.clips.length ? "Brak klipów w tym widoku." : "Nie znaleziono klipów w folderze biblioteki.") }));
+      const filtered = !!S.q || S.cat !== "all";
+      els.spacer.replaceChildren(App.emptyState(
+        S.listError ? "Nie można wczytać biblioteki" : "Brak klipów",
+        S.listError || (S.clips.length ? "W tym widoku nic nie pasuje." : "W folderach biblioteki nie ma jeszcze klipów."),
+        filtered ? "Wyczyść filtry" : null,
+        () => { S.q = ""; S.cat = "all"; const i = App.$("#topSearch"); if (i) i.value = ""; Lib.render(false); }));
       cards.clear();
       return;
     }
@@ -244,6 +248,7 @@
         h("div", { class: "chk", onClick: (e) => { e.stopPropagation(); Lib.toggleSel(clip.path); } }),
         h("div", { class: "star", text: "☆", onClick: (e) => { e.stopPropagation(); Lib.toggleFav(clip.path); } }),
         h("div", { class: "dur" }),
+        h("div", { class: "now", text: "NOWE" }),
         h("div", { class: "tg" })),
       h("div", { class: "info" }, h("b", { text: App.gameOf(clip) }), h("span")));
     updateCard(el, clip);
@@ -254,6 +259,9 @@
     const sel = S.sel.has(clip.path);
     el.classList.toggle("sel", sel);
     el.classList.toggle("act", S.active === clip.path);
+    const fresh = App.isNew(clip.path);
+    el.classList.toggle("fresh", fresh);
+    el.firstChild.querySelector(".now").hidden = !fresh;
     const th = el.firstChild;
     th.querySelector(".chk").textContent = sel ? "✓" : "";
     const star = th.querySelector(".star");
@@ -315,13 +323,20 @@
     if (S.sel.has(path)) S.sel.delete(path); else S.sel.add(path);
     const el = cards.get(path), c = S.byPath.get(path);
     if (el && c) updateCard(el, c);
+    // exactly one checked clip opens the details panel (a click on the card itself opens the editor)
+    const prev = S.active;
+    S.active = S.sel.size === 1 ? [...S.sel][0] : null;
+    for (const p of [prev, S.active]) { const e2 = cards.get(p), c2 = S.byPath.get(p); if (e2 && c2) updateCard(e2, c2); }
+    Lib.renderDetails();
     Lib.renderBulk();
   };
 
   Lib.clearSel = () => {
     const old = [...S.sel];
     S.sel.clear();
+    S.active = null;
     for (const p of old) { const el = cards.get(p), c = S.byPath.get(p); if (el && c) updateCard(el, c); }
+    Lib.renderDetails();
     Lib.renderBulk();
   };
 
@@ -366,6 +381,8 @@
 
   Lib.renderDetails = () => {
     if (!els.details) return;
+    // the details panel takes space only while one clip is selected
+    els.lib?.classList.toggle("nodetail", !(S.active && S.byPath.get(S.active)));
     const c = S.active && S.byPath.get(S.active);
     if (!c) {
       els.details.replaceChildren(h("div", { class: "empty" }, "Wybierz klip,", h("br"), "aby zobaczyć szczegóły."));

@@ -1,49 +1,122 @@
 "use strict";
-/* Navigation, export queue + list, settings (including recorder control). */
+/* Chrome around the views: top bar (search, REC pill, export chip), icon rail, export popover + history
+   drawer, and settings. "Lime means now": playhead, selection, active item, progress. */
 
 (function () {
   const { h, S, api } = App;
+  const VIEWS = { lib: "#v-lib", ed: "#v-ed", set: "#v-set" };
+  const NAV = [["lib", "▦", "Biblioteka"], ["ed", "✂", "Edytor"]];
 
   /* ───── navigation ───── */
 
-  const NAV = [["lib", "▦", "Biblioteka"], ["ed", "✂", "Edytor"], ["exp", "⇪", "Eksporty"]];
-  const VIEWS = { lib: "#v-lib", ed: "#v-ed", exp: "#v-exp", set: "#v-set" };
-
   App.go = (view) => {
+    if (view === "exp") view = "lib";                       // the standalone exports page is gone
     if (view === "ed" && !App.Ed.current()) view = "lib";
     if (S.view === "ed" && view !== "ed") App.Ed.leave();
+    const changed = S.view !== view;
     S.view = view;
     for (const [v, sel] of Object.entries(VIEWS)) App.$(sel).hidden = v !== view;
     if (view === "lib") App.Lib.render(false);
-    if (view === "exp") App.Exports.render();
     if (view === "set") Settings.render();
-    renderNav();
+    renderRail();
+    if (changed) wipe(App.$(VIEWS[view]));
   };
 
-  function renderNav() {
-    const nav = App.$("#nav");
-    const r = S.recorder;
-    const state = !r ? "bad" : r.idle ? "idle" : !r.recording ? "bad" : r.sources.every((s) => s.live) ? "ok" : "warn";
-    const label = !r ? "REC wył." : state === "idle" ? "czeka" : state === "ok" ? "REC" : state === "warn" ? "REC !" : "REC wył.";
-    nav.replaceChildren(
-      h("div", { class: "logo" }, App.logo(40)),
-      ...NAV.map(([v, ic, lb]) => h("button", { class: "item" + (S.view === v ? " on" : ""), onClick: () => App.go(v) },
-        h("div", { class: "ic", text: ic }), h("div", { class: "lb", text: lb }), h("div", { class: "bar" }))),
-      h("div", { class: "grow" }),
-      h("button", { class: `rec ${state}`, title: recTooltip(), onClick: () => { Settings.tab = "rec"; App.go("set"); } },
-        h("span", { class: "dot" }), h("div", { class: "lb", text: label })),
-      h("button", { class: "item" + (S.view === "set" ? " on" : ""), onClick: () => App.go("set") },
-        h("div", { class: "ic", text: "⚙" }), h("div", { class: "lb", text: "Ustawienia" }), h("div", { class: "bar" })));
+  /** A thin lime-edged sweep left → right over the incoming view, once. */
+  function wipe(section) {
+    if (!section || App.P.settings.anim === false) return;
+    const w = h("div", { class: "wipe" }, h("div"));
+    section.append(w);
+    setTimeout(() => w.remove(), 700);
   }
-  App.renderNav = renderNav;
+
+  function renderRail() {
+    const nav = App.$("#nav");
+    const item = (v, icon, label) => h("button", { class: "item" + (S.view === v ? " on" : ""), "data-label": label,
+      "aria-label": label, onClick: () => App.go(v) }, h("span", { class: "ic", text: icon }));
+    nav.replaceChildren(...NAV.map(([v, i, l]) => item(v, i, l)), h("div", { class: "grow" }), item("set", "⚙", "Ustawienia"));
+  }
+
+  /* ───── top bar ───── */
+
+  let savedUntil = 0;
+  let savedDur = 0;
+  const recPill = h("button", { class: "recpill off", onClick: () => onRecClick() });
+  const chip = h("button", { class: "expchip", onClick: () => Exports.togglePop() });
+
+  function buildTopbar() {
+    const widths = [5, 9, 13, 17, 13, 9, 5];
+    const search = h("input", { id: "topSearch", placeholder: "Szukaj klipów…", spellcheck: false,
+      onInput: (e) => {
+        S.q = e.target.value;
+        if (S.view !== "lib") App.go("lib"); else App.Lib.render(false);
+      } });
+    App.$("#topbar").replaceChildren(
+      h("div", { class: "brand" },
+        h("div", { class: "mini" }, widths.map((w) => h("i", { style: { width: `${w}px` } }))),
+        h("b", { text: "Buffer" })),
+      h("label", { class: "search" }, h("span", { text: "⌕" }), search, h("kbd", { text: "Ctrl K" })),
+      h("div", { class: "right" }, recPill, chip));
+    paintRec();
+    paintChip();
+  }
+  App.focusSearch = () => App.$("#topSearch")?.focus();
+
+  const fmtBuf = (s) => `${Math.floor(s / 60)}:${String(Math.round(s) % 60).padStart(2, "0")}`;
+
+  function paintRec() {
+    const r = S.recorder;
+    const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
+    let cls, text;
+    if (savedUntil > Date.now()) { cls = "saved"; text = `✓ zapisano ${fmtBuf(savedDur)}`; }
+    else if (!r) { cls = "off"; text = "REC wył."; }
+    else if (r.idle) { cls = "idle"; text = "czeka na grę"; }
+    else if (!r.recording) { cls = "bad"; text = "REC zatrzymane"; }
+    else if (down.length) { cls = "warn"; text = "REC · uwaga"; }
+    else { cls = "on"; text = `REC · bufor ${fmtBuf(r.buffer_s)}`; }
+    recPill.className = `recpill ${cls}`;
+    recPill.title = recTooltip();
+    recPill.replaceChildren(h("span", { class: "dot" }), text);
+  }
 
   function recTooltip() {
     const r = S.recorder;
-    if (!r) return "Nagrywanie nie działa — kliknij, aby uruchomić";
+    if (!r) return "Nagrywanie nie działa — kliknij, aby przejść do ustawień";
     if (r.idle) return "Czeka na grę — nagrywanie tylko podczas gry";
     if (!r.recording) return r.last_error || "Nagrywanie zatrzymane";
     const down = r.sources.filter((s) => !s.live).map((s) => s.name);
-    return down.length ? `Nie działa: ${down.join(", ")}` : `Nagrywa · bufor ${r.buffer_s}/${r.buffer_target_s} s`;
+    const base = down.length ? `Nie działa: ${down.join(", ")}` : `Nagrywa · bufor ${r.buffer_s}/${r.buffer_target_s} s`;
+    return `${base} — kliknij, aby zapisać klip teraz`;
+  }
+
+  async function onRecClick() {
+    const r = S.recorder;
+    if (r && r.recording) {
+      try {
+        const res = await api.invoke("recorder_cmd", { cmd: "save" });
+        if (res.ok) {
+          savedDur = r.buffer_s; savedUntil = Date.now() + 2500; paintRec();
+          setTimeout(paintRec, 2600);
+          setTimeout(() => App.Lib.load(), 800);
+        } else App.toast(`Nie zapisano: ${res.error}`, "err");
+      } catch (e) { App.toast(`Nagrywanie nie działa: ${e}`, "err"); }
+    } else {
+      App.Settings.tab = "rec";
+      App.go("set");
+    }
+  }
+
+  function paintChip() {
+    const ex = S.exporting;
+    chip.className = "expchip" + (ex ? " busy" : S.lastDone && Date.now() - S.lastDone.at < 7000 ? " done" : "");
+    if (ex) {
+      chip.replaceChildren(`⇪ ${Math.round(ex.pct)}%`, h("span", { class: "bars" },
+        Array.from({ length: 8 }, (_, i) => h("i", { style: { opacity: ex.pct / 100 * 8 > i ? 1 : 0.15 } }))));
+    } else if (S.lastDone && Date.now() - S.lastDone.at < 7000) {
+      chip.replaceChildren(`✓ ${S.lastDone.size} MiB`);
+    } else {
+      chip.replaceChildren("⇪ Eksporty");
+    }
   }
 
   /* ───── recorder polling ───── */
@@ -52,22 +125,31 @@
   let pollTimer = 0;
   Rec.refresh = async () => {
     try { S.recorder = await api.invoke("recorder_cmd", { cmd: "status" }); } catch { S.recorder = null; }
-    renderNav();
+    paintRec();
     if (S.view === "set" && Settings.tab === "rec") Settings.paintRecorder();
   };
   Rec.start = () => {
     const loop = async () => {
       if (!document.hidden) await Rec.refresh();
-      pollTimer = setTimeout(loop, S.view === "set" && Settings.tab === "rec" ? 700 : 4000);
+      pollTimer = setTimeout(loop, S.view === "set" && Settings.tab === "rec" ? 700 : 3000);
     };
     clearTimeout(pollTimer);
     loop();
   };
 
-  /* ───── exports ───── */
+  /* ───── exports: run, popover, drawer ───── */
 
   const Exports = (App.Exports = {});
   const exQueue = [];
+  let popOpen = false;
+  let popHover = false;
+  let popUntil = 0;
+  let drawerOpen = false;
+
+  const ago = (ts) => {
+    const m = Math.round((Date.now() - ts) / 60000);
+    return m < 1 ? "teraz" : m < 60 ? `${m} min temu` : m < 1440 ? `${Math.round(m / 60)} h temu` : `${Math.round(m / 1440)} d temu`;
+  };
 
   /** Runs one export with the editor's or the quick-export defaults. Resolves with the finished file or null. */
   Exports.run = async (o) => {
@@ -86,21 +168,28 @@
       codec: o.codec || "auto", audio_kbps: 128, volumes,
       crop_wide: o.wide ?? null, speed: o.speed ?? 1, normalize: o.normalize ?? s.normDef, hwaccel: s.hw,
     };
-    S.exporting = { name: App.gameOf(clip), pct: 0, source: clip.path };
+    S.exporting = { name: App.gameOf(clip), target: mb, pct: 0, source: clip.path, startedAt: Date.now() };
+    S.lastDone = null;
+    Exports.openPop();
     notifyState();
     try {
       const r = await api.invoke("export_clip", { opts });
+      const secs = ((Date.now() - S.exporting.startedAt) / 1000).toFixed(1);
       const entry = { id: `e${Date.now()}`, name: output.slice(output.lastIndexOf("\\") + 1), path: output,
         source: clip.path, size: +(r.size / 1048576).toFixed(2), target: mb,
         dur: ((o.end ?? (App.Lib.meta(clip) || {}).dur ?? 0) - (o.start ?? 0)) / (o.speed || 1), created: Date.now() };
       App.P.exports.unshift(entry);
       App.P.exports = App.P.exports.slice(0, 200);
       App.persist();
-      App.toast(`Gotowe: ${entry.size} MiB (cel ${mb})`, "ok");
+      S.lastDone = { ...entry, secs, at: Date.now() };
+      popUntil = Date.now() + 7000;
       return { name: entry.name, path: output, size: entry.size };
     } catch (e) {
-      App.toast(`Eksport nie powiódł się: ${e}`, "err");
-      if (App.Ed.current()) App.Ed.current().error = String(e);
+      if (String(e).includes("cancelled")) App.toast("Eksport anulowany");
+      else {
+        App.toast(`Eksport nie powiódł się: ${e}`, "err");
+        if (App.Ed.current()) App.Ed.current().error = String(e);
+      }
       return null;
     } finally {
       S.exporting = null;
@@ -108,16 +197,16 @@
     }
   };
 
+  Exports.cancel = () => api.invoke("cancel_export").catch(() => {});
+
   function notifyState() {
     App.Ed.onExportState();
-    if (S.view === "exp") Exports.render();
+    paintChip();
+    renderPop();
     if (S.view === "lib") App.Lib.renderSide();
   }
 
-  Exports.quick = async (path) => {
-    const r = await Exports.run({ path });
-    if (r && App.P.settings.drag) App.toast(`${r.name} — przeciągnij z zakładki Eksporty do Discorda`, "ok");
-  };
+  Exports.quick = async (path) => { await Exports.run({ path }); };
 
   Exports.batch = async (paths) => {
     exQueue.push(...paths);
@@ -130,58 +219,104 @@
       await Exports.run({ path: p });
     }
     App.Lib.clearSel();
-    App.go("exp");
   };
 
   api.listen("export-progress", (e) => {
     if (!S.exporting) return;
     S.exporting.pct = e.payload * 100;
     App.Ed.onProgress(S.exporting.pct);
-    const bar = App.$("#exBar"), t = App.$("#exPct");
-    if (bar) bar.style.width = `${S.exporting.pct}%`;
-    if (t) t.textContent = `${Math.round(S.exporting.pct)}%`;
+    paintChip();
+    renderPop();
   });
 
-  Exports.render = () => {
-    const root = App.$("#v-exp");
-    const list = h("div", { class: "explist" }, h("h1", { text: "Eksporty" }));
-    if (S.exporting) {
-      list.append(h("div", { class: "exrow run" },
-        h("div", { style: { display: "flex", justifyContent: "space-between" } },
-          h("b", { text: S.exporting.name }), h("span", { class: "mono", id: "exPct", text: `${Math.round(S.exporting.pct)}%` })),
-        h("div", { class: "prog", style: { marginTop: "10px" } }, h("div", { class: "b" },
-          h("div", { id: "exBar", style: { width: `${S.exporting.pct}%` } })))));
-    }
-    if (!App.P.exports.length && !S.exporting) {
-      list.append(h("div", { class: "muted", text: "Tu pojawią się wyeksportowane klipy." }));
-    }
-    for (const e of App.P.exports) {
-      const th = h("div", { class: "th" });
-      App.Lib.thumbUrl(e.path).then((u) => { if (u) th.style.backgroundImage = `url("${u}")`; });
-      const drag = h("button", { class: "btn drag", text: "⇪ Przeciągnij", title: "Przeciągnij do Discorda" });
-      drag.addEventListener("pointerdown", (ev) => {
-        if (ev.button !== 0) return;
-        ev.preventDefault();
-        api.startDrag(e.path).catch((err) => App.toast(`Nie udało się przeciągnąć: ${err}`, "err"));
-      });
-      list.append(h("div", { class: "exrow" }, th,
-        h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: e.name }),
-          h("div", { class: "mt", text: `${App.fmtS(e.dur)} · cel ${e.target} MB · ${new Date(e.created).toLocaleString("pl-PL")}` })),
-        h("div", { class: "sz", text: `${e.size} MiB` }),
-        h("div", { class: "ac" },
-          h("button", { class: "btn ghost", text: "Pokaż", onClick: () => api.invoke("reveal", { path: e.path }) }), drag)));
-    }
-    root.replaceChildren(list);
+  Exports.togglePop = () => { popOpen ? closePop() : Exports.openPop(true); };
+  Exports.openPop = (manual) => {
+    popOpen = true;
+    popUntil = manual ? 0 : Date.now() + 60000;   // auto-opened popovers close themselves after the result
+    renderPop();
   };
+  function closePop() { popOpen = false; renderPop(); }
+
+  setInterval(() => {
+    if (popOpen && popUntil && !popHover && !S.exporting && !drawerOpen && Date.now() > popUntil) closePop();
+    if (S.lastDone && Date.now() - S.lastDone.at >= 7000 && chip.classList.contains("done")) paintChip();
+  }, 500);
+
+  const dragHandle = (path, cls, text) => {
+    const el = h("span", { class: cls, text, title: "Przeciągnij do Discorda lub innego okna" });
+    el.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      api.startDrag(path).catch((err) => App.toast(`Nie udało się przeciągnąć: ${err}`, "err"));
+    });
+    return el;
+  };
+
+  function thumbBox(path, cls) {
+    const el = h("div", { class: cls });
+    App.Lib.thumbUrl(path).then((u) => { if (u) el.style.backgroundImage = `url("${u}")`; });
+    return el;
+  }
+
+  function renderPop() {
+    const host = App.$("#pop");
+    if (!popOpen) { host.replaceChildren(); renderDrawer(); return; }
+    const ex = S.exporting;
+    const done = !ex && S.lastDone;
+    const recent = App.P.exports.filter((e) => !done || e.id !== S.lastDone.id).slice(0, 2);
+    const parts = [];
+    if (ex) {
+      const p = ex.pct;
+      const elapsed = (Date.now() - ex.startedAt) / 1000;
+      const eta = p > 3 ? Math.max(0, Math.round((elapsed * (100 - p)) / p)) : null;
+      parts.push(h("div", null,
+        h("div", { class: "pr1" }, h("b", { text: `${ex.name} · ${ex.target} MB` }), h("span", { class: "mono lime", text: `${Math.round(p)}%` })),
+        h("div", { class: "scan" }, Array.from({ length: 30 }, (_, i) =>
+          h("i", { style: { opacity: p / 100 * 30 > i ? 0.35 + 0.65 * (i / 30) : 0.12 } }))),
+        h("div", { class: "pr3 mono muted" }, h("span", { text: eta == null ? "liczenie…" : `≈ ${eta} s` }),
+          h("button", { class: "linkbtn", text: "Anuluj", onClick: Exports.cancel }))));
+    }
+    if (done) {
+      parts.push(h("div", { class: "donecard" },
+        h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: done.name }),
+          h("div", { class: "mono lime", text: `Gotowe w ${done.secs} s · ${done.size} MiB` })),
+        dragHandle(done.path, "big", "⇪ Przeciągnij")));
+    }
+    for (const e of recent) {
+      parts.push(h("div", { class: "prow" }, thumbBox(e.path, "tn"),
+        h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: e.name }),
+          h("div", { class: "mono muted", text: `${e.size} MiB · ${ago(e.created)}` })),
+        dragHandle(e.path, "lime", "⇪")));
+    }
+    if (!ex && !done && !recent.length) parts.push(h("div", { class: "muted", text: "Tu pojawią się wyeksportowane klipy." }));
+    parts.push(h("button", { class: "histlink", text: `Historia (${App.P.exports.length}) →`,
+      onClick: () => { drawerOpen = true; renderDrawer(); } }));
+    host.replaceChildren(h("div", { class: "popover",
+      onMouseenter: () => { popHover = true; }, onMouseleave: () => { popHover = false; popUntil = Date.now() + 3000; } }, parts));
+    renderDrawer();
+  }
+
+  function renderDrawer() {
+    const host = App.$("#drawer");
+    if (!drawerOpen) { host.replaceChildren(); return; }
+    const close = () => { drawerOpen = false; popUntil = Date.now() + 3000; renderDrawer(); };
+    host.replaceChildren(h("div", { class: "scrim", onClick: close },
+      h("aside", { class: "drawer", onClick: (e) => e.stopPropagation() },
+        h("div", { class: "dhead" }, h("b", { text: "Historia eksportów" }), h("button", { class: "linkbtn", text: "✕", onClick: close })),
+        ...(App.P.exports.length ? App.P.exports.map((e) => h("div", { class: "drow" }, thumbBox(e.path, "tn"),
+          h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: e.name }),
+            h("div", { class: "mono muted", text: `${e.size} MiB · ${ago(e.created)}` })),
+          h("div", { class: "acts" },
+            h("button", { class: "linkbtn", text: "Pokaż", onClick: () => api.invoke("reveal", { path: e.path }) }),
+            dragHandle(e.path, "lime", "⇪")))) : [h("div", { class: "muted", text: "Brak eksportów." })]))));
+  }
 
   /* ───── settings ───── */
 
-  const Settings = (App.Settings = { tab: "look" });
-  const TABS = [["rec", "Nagrywanie"], ["look", "Wygląd"], ["gen", "Ogólne"], ["exp", "Eksport"], ["keys", "Skróty"], ["adv", "Zaawansowane"]];
-  const THEMES = [["graphite", "Grafit", ["#121316", "#181a1f", "#20232a", "#2a2e36"]],
-    ["oled", "OLED czerń", ["#000000", "#0a0a0c", "#151619", "#222328"]],
-    ["slate", "Chłodny granat", ["#0f1218", "#151a23", "#1d2430", "#2a3342"]]];
-  const ACCENTS = ["#c6f432", "#ff6a1f", "#8b7bff", "#1fc7a8", "#ff5c8a"];
+  const Settings = (App.Settings = { tab: "rec", adv: false });
+  const TABS = [["rec", "Nagrywanie"], ["look", "Wygląd"], ["gen", "Ogólne"], ["exp", "Eksport"]];
+  const THEMES = [["ink", "Ink", ["#0b0c0a", "#121410", "#1a1d16", "#262a20"]],
+    ["oled", "OLED czerń", ["#000000", "#0a0b08", "#14160f", "#20231a"]]];
   let tools = null;
 
   const cap = (t) => h("div", { class: "cap", text: t });
@@ -212,13 +347,9 @@
                 h("div", null, h("i", { style: { width: "60%", background: c[2] } }),
                   h("i", { style: { width: "30%", background: "var(--acc)", marginTop: "6px" } }))),
               h("div", { class: "nm", text: name }))))),
-          sec("Akcent", h("div", { class: "accents" }, ACCENTS.map((c) =>
-            h("button", { class: s.accent === c ? "on" : "", style: { background: c }, "aria-label": c,
-              onClick: () => { s.accent = c; App.persist(); App.applyTheme(); Settings.render(); } })))),
           sec("Rozmiar miniatur", h("div", { class: "seg big" }, ["S", "M", "L"].map((k) =>
             h("button", { class: s.thumb === k ? "on" : "", text: k, onClick: () => { s.thumb = k; App.persist(); Settings.render(); } })))),
-          line("Animacje interfejsu", "Płynne przejścia i podświetlenia", "anim"),
-          line("Tryb oszczędny", "Wyłącza poświatę i półprzezroczystości — mniej pracy GPU", "lite"));
+          line("Animacje interfejsu", "Wygaszenia, ślady i przejścia widoków", "anim"));
         break;
       case "gen": await renderGeneral(body); break;
       case "exp":
@@ -233,23 +364,14 @@
               if (d) { s.outDir = d; App.persist(); Settings.render(); }
             } }),
             s.outDir ? h("button", { class: "btn ghost", text: "Domyślny", onClick: () => { s.outDir = ""; App.persist(); Settings.render(); } }) : null)),
-          line("Normalizuj głośność domyślnie", "−16 LUFS dla każdego eksportu", "normDef"),
-          line("Pokaż chip przeciągania po eksporcie", "Przeciągnij gotowy plik prosto do Discorda", "drag"));
+          line("Normalizuj głośność domyślnie", "−16 LUFS dla każdego eksportu", "normDef"));
         break;
-      case "keys":
-        body.append(h("div", { style: { display: "flex", flexDirection: "column" } },
-          [["Odtwórz / pauza", "Spacja"], ["Ustaw początek", "I"], ["Ustaw koniec", "O"], ["Krok 1 s wstecz / dalej", "← / →"],
-            ["Krok 5 s", "Shift + ← / →"], ["Eksportuj", "Ctrl + E"], ["Następny / poprzedni klip", "J / K"],
-            ["Szukaj w bibliotece", "Ctrl + F"]].map(([l, k]) =>
-            h("div", { class: "keyrow" }, h("span", { text: l }), h("kbd", { text: k })))));
-        break;
-      case "adv": await renderAdvanced(body); break;
     }
   };
 
   async function renderGeneral(body) {
-    const s = App.P.settings;
     tools = tools || (await api.invoke("tools_status").catch(() => null));
+    const size = await api.invoke("cache_size").catch(() => 0);
     body.append(
       sec("Foldery biblioteki", h("div", { class: "stack" },
         App.P.libDirs.map((d, i) => h("div", { class: "pathrow" },
@@ -265,33 +387,38 @@
           const n = await api.pickFolder();
           if (n && !App.P.libDirs.includes(n)) { App.P.libDirs.push(n); App.persist(); await App.Lib.load(); Settings.render(); }
         } })))),
-      sec("Narzędzia", h("div", { class: "stack" },
-        h("div", { class: "statusbox" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version} · ffprobe` : "ffmpeg" }),
-          h("span", { style: { color: tools?.ffmpeg_found ? "var(--ok)" : "var(--err)" },
-            text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? "● wbudowane w aplikację" : "● znaleziono w systemie") : "● nie znaleziono — zainstaluj aplikację ponownie" })),
-        h("div", { class: "statusbox" }, h("span", { text: "Kodowanie wideo" }),
-          h("span", { style: { color: tools?.encoder && tools.encoder !== "libx264" ? "var(--ok)" : "var(--warn)" },
-            text: ({ h264_nvenc: "● NVIDIA NVENC", h264_amf: "● AMD AMF", h264_qsv: "● Intel QuickSync", libx264: "● procesor (CPU) — wolniej" })[tools?.encoder] + (tools?.gpu ? " · " + tools.gpu : "") })))),
       line("Skanuj podfoldery", "Pomija „Exported Clips” i „Shared Clips”", "sub", () => App.Lib.load()),
-      line("Odświeżaj bibliotekę przy starcie", "Wykrywa nowe nagrania", "auto"));
-  }
-
-  async function renderAdvanced(body) {
-    const size = await api.invoke("cache_size").catch(() => 0);
-    body.append(
-      line("Miniatury w tle", "Jedna klatka na klip, tylko dla widocznych kart", "thumbs"),
-      line("Pamięć podręczna audio", "Ścieżki wyodrębnione bez rekodowania", "cache"),
-      line("Dekodowanie sprzętowe (NVDEC)", "Automatyczny powrót do CPU przy błędzie", "hw"),
-      h("div", { class: "line static" },
-        h("div", null, h("div", { class: "tt", text: "Pamięć podręczna" }),
-          h("div", { class: "ds", text: `Wyodrębnione ścieżki audio, miniatury i fale · ${App.fmtMB(size)}` })),
-        h("button", { class: "btn", text: "Wyczyść", onClick: async () => {
-          await api.invoke("clear_cache").catch(() => {});
-          App.toast("Wyczyszczono pamięć podręczną", "ok");
-          Settings.render();
-        } })));
+      line("Odświeżaj bibliotekę przy starcie", "Wykrywa nowe nagrania", "auto"),
+      h("div", { class: "line", onClick: () => { Settings.adv = !Settings.adv; Settings.render(); } },
+        h("div", null, h("div", { class: "tt", text: "Zaawansowane" }), h("div", { class: "ds", text: "Narzędzia, pamięć podręczna, dekodowanie sprzętowe" })),
+        h("span", { class: "muted", text: Settings.adv ? "▴" : "▾" })),
+      ...(Settings.adv ? [
+        h("div", { class: "stack" },
+          h("div", { class: "statusbox" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version}` : "ffmpeg" }),
+            h("span", { style: { color: tools?.ffmpeg_found ? "var(--ok)" : "var(--err)" },
+              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? "● wbudowane w aplikację" : "● znaleziono w systemie") : "● nie znaleziono — zainstaluj aplikację ponownie" })),
+          h("div", { class: "statusbox" }, h("span", { text: "Kodowanie wideo" }),
+            h("span", { style: { color: tools?.encoder && tools.encoder !== "libx264" ? "var(--ok)" : "var(--warn)" },
+              text: ({ h264_nvenc: "● NVIDIA NVENC", h264_amf: "● AMD AMF", h264_qsv: "● Intel QuickSync", libx264: "● procesor (CPU) — wolniej" })[tools?.encoder] + (tools?.gpu ? " · " + tools.gpu : "") }))),
+        line("Miniatury w tle", "Jedna klatka na klip, tylko dla widocznych kart", "thumbs"),
+        line("Pamięć podręczna audio", "Ścieżki wyodrębnione bez rekodowania", "cache"),
+        line("Dekodowanie sprzętowe (NVDEC)", "Automatyczny powrót do CPU przy błędzie", "hw"),
+        h("div", { class: "line static" },
+          h("div", null, h("div", { class: "tt", text: "Pamięć podręczna" }),
+            h("div", { class: "ds", text: `Ścieżki audio, miniatury i fale · ${App.fmtMB(size)}` })),
+          h("button", { class: "btn", text: "Wyczyść", onClick: async () => {
+            await api.invoke("clear_cache").catch(() => {});
+            App.toast("Wyczyszczono pamięć podręczną", "ok");
+            Settings.render();
+          } })),
+        h("div", { class: "line static" },
+          h("div", null, h("div", { class: "tt", text: "Kreator ustawień" }), h("div", { class: "ds", text: "Przejdź ponownie przez wybór folderów, dźwięku i jakości" })),
+          h("button", { class: "btn", text: "Uruchom", onClick: () => App.RecUI.wizard() })),
+      ] : []));
   }
 
   /* The recording tab and the first-run wizard live in recording.js. */
   Settings.paintRecorder = () => App.RecUI.paint();
+
+  App.renderNav = () => { buildTopbar(); renderRail(); };
 })();

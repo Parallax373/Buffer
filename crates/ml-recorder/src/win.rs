@@ -106,9 +106,13 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
 
 /// Registers a thread-level global hotkey; its presses arrive as WM_HOTKEY in this thread's queue.
 pub fn register_hotkey(spec: &str) -> Result<(), String> {
+    register_hotkey_id(spec, 1)
+}
+
+pub fn register_hotkey_id(spec: &str, id: i32) -> Result<(), String> {
     let (mods, vk) = parse_hotkey(spec).ok_or_else(|| format!("invalid hotkey '{spec}'"))?;
     unsafe {
-        if RegisterHotKey(std::ptr::null_mut(), 1, mods, vk) == 0 {
+        if RegisterHotKey(std::ptr::null_mut(), id, mods, vk) == 0 {
             return Err(format!("hotkey '{spec}' is already taken by another program"));
         }
     }
@@ -117,14 +121,14 @@ pub fn register_hotkey(spec: &str) -> Result<(), String> {
 
 /// Runs this thread's message loop. `on_hotkey` fires per press, `on_tick` every ~500 ms.
 /// Dispatching messages also services the tray icon's hidden window.
-pub fn pump_messages(mut on_hotkey: impl FnMut(), mut on_tick: impl FnMut()) {
+pub fn pump_messages(mut on_hotkey: impl FnMut(usize), mut on_tick: impl FnMut()) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{DispatchMessageW, SetTimer, TranslateMessage, WM_TIMER};
     unsafe {
         SetTimer(std::ptr::null_mut(), 1, 500, None);
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             match msg.message {
-                WM_HOTKEY => on_hotkey(),
+                WM_HOTKEY => on_hotkey(msg.wParam as usize),
                 WM_TIMER => on_tick(),
                 _ => {}
             }

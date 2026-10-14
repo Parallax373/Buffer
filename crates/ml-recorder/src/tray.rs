@@ -16,13 +16,25 @@ use tray_icon::{
     Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
 };
 
+/// What the icon says. The logo mark carries the colour, a small badge in the corner carries the detail.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
-    Ok,
-    Warn,
+    /// Recording, everything works: lime logo + red REC dot.
+    Recording,
+    /// Recording, but a problem was detected (a source is down): amber logo + "!".
+    Problem,
+    /// Not recording although it should (ffmpeg failed, ...): red logo + X.
     Stopped,
-    /// Waiting for a game ("record only games"): intentionally not recording.
+    /// Waiting for a game ("record only games"): grey logo + pause bars.
     Idle,
+    /// Just started: grey logo + ring.
+    Starting,
+    /// Post-roll running, the clip will be saved in a moment: lime logo + ring.
+    Saving,
+    /// A clip was just saved: lime logo + check.
+    Saved,
+    /// Saving failed: red logo + X.
+    SaveFailed,
 }
 
 /// Programs that are never treated as games even when they cover the whole screen.
@@ -33,57 +45,174 @@ const NEVER_GAMES: &[&str] = &[
     "zoom", "discord", "spotify", "slack", "steamwebhelper", "taskmgr", "mstsc", "vmware", "virtualbox",
 ];
 
-/// 32x32 logo mark: a play triangle built from scan-lines with faded tails, in the state colour
-/// (lime = all good, amber = a source is down, red = stopped).
+fn colour(state: State) -> (u8, u8, u8) {
+    match state {
+        State::Recording | State::Saving | State::Saved => (0xc6, 0xf4, 0x32),
+        State::Problem => (0xff, 0xb4, 0x54),
+        State::Stopped | State::SaveFailed => (0xff, 0x5d, 0x5d),
+        State::Idle | State::Starting => (0x8b, 0x91, 0x9c),
+    }
+}
+
+/// 32x32 icon: the logo mark (a play triangle of scan-lines with faded tails) in the state colour and a
+/// 15 px badge in the bottom-right corner that says what is going on.
 fn icon(state: State) -> Icon {
-    let (r, g, b) = match state {
-        State::Ok => (0xc6, 0xf4, 0x32),
-        State::Warn => (0xff, 0xb4, 0x54),
-        State::Stopped => (0xff, 0x5d, 0x5d),
-        State::Idle => (0x8b, 0x91, 0x9c),
-    };
     const N: usize = 32;
+    let (r, g, b) = colour(state);
     let mut px = vec![0u8; N * N * 4];
-    let put = |px: &mut Vec<u8>, x: usize, y: usize, a: u8| {
-        if x < N && y < N {
-            let i = (y * N + x) * 4;
-            px[i..i + 4].copy_from_slice(&[r, g, b, a]);
+    let mut put = |x: i32, y: i32, c: [u8; 4]| {
+        if (0..N as i32).contains(&x) && (0..N as i32).contains(&y) {
+            let i = (y as usize * N + x as usize) * 4;
+            px[i..i + 4].copy_from_slice(&c);
         }
     };
-    // 7 bars of 3px with 1px gaps, widest in the middle (like the full logo, thicker for 16-32px)
-    let tails = [9usize, 3, 11, 5, 8, 2, 10];
+    // logo: 7 bars of 3px with 1px gaps, widest in the middle (thicker than the full logo, for 16-32px)
+    let tails = [9i32, 3, 11, 5, 8, 2, 10];
     for (i, tail) in tails.iter().enumerate() {
-        let y0 = 2 + i * 4;
-        let w = 6 + (3 - (i as i32 - 3).unsigned_abs() as usize) * 5;
+        let y0 = 2 + i as i32 * 4;
+        let w = 6 + (3 - (i as i32 - 3).abs()) * 5;
         for dy in 0..3 {
             for x in 0..*tail {
-                put(&mut px, 10usize.saturating_sub(*tail) + x, y0 + dy, 80);
+                put((10 - tail).max(0) + x, y0 + dy, [r, g, b, 80]);
             }
             for x in 0..w {
-                put(&mut px, 10 + x, y0 + dy, 255);
+                put(10 + x, y0 + dy, [r, g, b, 255]);
+            }
+        }
+    }
+
+    // badge centre and helpers
+    let (cx, cy) = (23i32, 23i32);
+    let dark = [17u8, 17, 17, 255];
+    let white = [255u8, 255, 255, 255];
+    let disc = |put: &mut dyn FnMut(i32, i32, [u8; 4]), rad: f32, c: [u8; 4]| {
+        for dy in -9..=9 {
+            for dx in -9..=9 {
+                if ((dx * dx + dy * dy) as f32) <= rad * rad {
+                    put(cx + dx, cy + dy, c);
+                }
+            }
+        }
+    };
+    let ring = |put: &mut dyn FnMut(i32, i32, [u8; 4]), outer: f32, inner: f32, c: [u8; 4]| {
+        for dy in -9..=9 {
+            for dx in -9..=9 {
+                let d = (dx * dx + dy * dy) as f32;
+                if d <= outer * outer && d >= inner * inner {
+                    put(cx + dx, cy + dy, c);
+                }
+            }
+        }
+    };
+    disc(&mut put, 8.2, dark); // outline so the badge reads on any taskbar colour
+    match state {
+        State::Recording => disc(&mut put, 6.2, [0xff, 0x3b, 0x3b, 255]),
+        State::Problem => {
+            disc(&mut put, 6.2, [0xff, 0xb4, 0x54, 255]);
+            for dy in -4..=1 {
+                for dx in -1..=0 {
+                    put(cx + dx, cy + dy, dark);
+                }
+            }
+            for dy in 3..=4 {
+                for dx in -1..=0 {
+                    put(cx + dx, cy + dy, dark);
+                }
+            }
+        }
+        State::Stopped | State::SaveFailed => {
+            disc(&mut put, 6.2, [0xff, 0x5d, 0x5d, 255]);
+            for d in -3..=3i32 {
+                // a 2px-thick X
+                for off in [0i32, 1] {
+                    put(cx + d + off, cy + d, white);
+                    put(cx + d + off, cy - d, white);
+                }
+            }
+        }
+        State::Idle => {
+            disc(&mut put, 6.2, [0x8b, 0x91, 0x9c, 255]);
+            for dy in -3..=3 {
+                for dx in [-3, -2, 1, 2] {
+                    put(cx + dx, cy + dy, dark);
+                }
+            }
+        }
+        State::Starting => ring(&mut put, 6.2, 3.6, [0x8b, 0x91, 0x9c, 255]),
+        State::Saving => {
+            disc(&mut put, 6.2, [0xff, 0xff, 0xff, 255]);
+            ring(&mut put, 6.2, 4.4, [0xc6, 0xf4, 0x32, 255]);
+            for dy in -3..=0 {
+                put(cx, cy + dy, dark); // clock hands
+            }
+            for dx in 0..=2 {
+                put(cx + dx, cy, dark);
+            }
+        }
+        State::Saved => {
+            disc(&mut put, 6.2, [0x4c, 0xc3, 0x8a, 255]);
+            let tick = [(-3, 0), (-2, 1), (-1, 2), (0, 1), (1, 0), (2, -1), (3, -2)];
+            for (dx, dy) in tick {
+                put(cx + dx, cy + dy, white);
+                put(cx + dx, cy + dy + 1, white);
             }
         }
     }
     Icon::from_rgba(px, N as u32, N as u32).expect("valid icon")
 }
 
+fn source_label(name: &str) -> &str {
+    match name {
+        "Game" => "dźwięk gry",
+        "Chat" => "czat",
+        "Mic" => "mikrofon",
+        other => other,
+    }
+}
+
 fn state_of(shared: &session::Shared) -> (State, String) {
-    let recording = shared.recording.load(Ordering::Relaxed);
-    let down: Vec<&str> = shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| s.name).collect();
-    let buffered = session::buffered_seconds();
+    let now = std::time::Instant::now();
+    if let Some((at, ok)) = *shared.flash.lock().unwrap() {
+        if now.duration_since(at) < std::time::Duration::from_secs(4) {
+            return if ok {
+                (State::Saved, "Buffer — klip zapisany".to_string())
+            } else {
+                (State::SaveFailed, "Buffer — nie udało się zapisać klipu".to_string())
+            };
+        }
+    }
+    if let Some(until) = *shared.post_roll_until.lock().unwrap() {
+        if until > now {
+            let left = until.duration_since(now).as_secs() + 1;
+            return (State::Saving, format!("Buffer — zapis klipu za {left} s (skrót ponownie = od razu)"));
+        }
+    }
     if shared.idle.load(Ordering::Relaxed) {
         return (State::Idle, "Buffer — czeka na grę (nagrywa tylko gry)".to_string());
     }
-    if !recording {
+    if !shared.recording.load(Ordering::Relaxed) {
         let err = shared.last_error.lock().unwrap().clone();
-        let msg = if err.is_empty() { "nagrywanie zatrzymane".to_string() } else { format!("nagrywanie zatrzymane: {err}") };
-        return (State::Stopped, format!("Buffer — {msg}"));
+        if err.is_empty() && shared.restarts.load(Ordering::Relaxed) == 0 && shared.started.elapsed().as_secs() < 20 {
+            return (State::Starting, "Buffer — uruchamianie nagrywania…".to_string());
+        }
+        let msg = if err.is_empty() { "zatrzymane".to_string() } else { err.chars().take(90).collect() };
+        return (State::Stopped, format!("Buffer — nie nagrywa: {msg}"));
     }
-    if down.is_empty() {
-        (State::Ok, format!("Buffer — nagrywa · bufor {buffered} s · Game/Chat/Mic działają"))
-    } else {
-        (State::Warn, format!("Buffer — nagrywa, ale nie działa: {}", down.join(", ")))
+    let down: Vec<&str> = shared
+        .sinks
+        .iter()
+        .filter(|s| !s.live.load(Ordering::Relaxed))
+        .map(|s| source_label(s.name))
+        .collect();
+    if !down.is_empty() {
+        return (State::Problem, format!("Buffer — uwaga, nie działa: {}", down.join(", ")));
     }
+    let cfg = shared.cfg.lock().unwrap();
+    let game = shared.active_game.lock().unwrap().as_ref().map(|g| format!(" · {}", g.name)).unwrap_or_default();
+    (
+        State::Recording,
+        format!("Buffer — nagrywa · bufor {}/{} s{game}", session::buffered_seconds().min(cfg.buffer_seconds), cfg.buffer_seconds),
+    )
 }
 
 fn open_editor() {
@@ -120,6 +249,7 @@ fn hotkey_save(shared: &Arc<session::Shared>) {
         return;
     }
     shared.popup(Kind::Info, format!("Zapisuję klip za {roll} s"), "Naciśnij skrót ponownie, aby zapisać od razu");
+    *shared.post_roll_until.lock().unwrap() = Some(std::time::Instant::now() + std::time::Duration::from_secs(roll as u64));
     let s = shared.clone();
     thread::spawn(move || {
         for _ in 0..roll * 4 {
@@ -130,6 +260,7 @@ fn hotkey_save(shared: &Arc<session::Shared>) {
         }
         s.post_roll_skip.store(false, Ordering::Relaxed);
         s.post_roll_active.store(false, Ordering::Relaxed);
+        *s.post_roll_until.lock().unwrap() = None;
         save_async(&s);
     });
 }
@@ -180,7 +311,7 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
         .with_tooltip("Buffer")
-        .with_icon(icon(State::Warn))
+        .with_icon(icon(State::Starting))
         .build()
         .map_err(|e| session::log(&format!("tray unavailable: {e}")))
         .ok();
@@ -188,6 +319,12 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
     if let Err(e) = win::register_hotkey(&hotkey) {
         session::log(&e);
         *shared.last_error.lock().unwrap() = e;
+    }
+    let marker_hotkey = shared.cfg.lock().unwrap().marker_hotkey.clone();
+    if !marker_hotkey.is_empty() {
+        if let Err(e) = win::register_hotkey_id(&marker_hotkey, 2) {
+            session::log(&e);
+        }
     }
 
     let mut overlay = Overlay::new();
@@ -199,7 +336,24 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
     let hk_shared = shared.clone();
     let tick_shared = shared.clone();
     win::pump_messages(
-        || hotkey_save(&hk_shared),
+        |id| {
+            if id == 2 {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64);
+                let mut m = hk_shared.markers.lock().unwrap();
+                m.push(now);
+                let keep = 400;
+                if m.len() > keep {
+                    let cut = m.len() - keep;
+                    m.drain(..cut);
+                }
+                drop(m);
+                hk_shared.popup(Kind::Info, "Znacznik dodany", "Zobaczysz go jako ◆ na osi czasu w edytorze");
+            } else {
+                hotkey_save(&hk_shared);
+            }
+        },
         || {
             tick += 1;
             overlay.tick();
@@ -287,4 +441,16 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
             let _ = tick;
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_state_has_a_valid_icon() {
+        for s in [State::Recording, State::Problem, State::Stopped, State::Idle, State::Starting, State::Saving, State::Saved, State::SaveFailed] {
+            let _ = icon(s); // would panic on out-of-range drawing or a bad RGBA buffer
+        }
+    }
 }

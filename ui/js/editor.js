@@ -29,9 +29,9 @@
     E = {
       clip, info: null, start: 0, end: 0, tracks: [], playing: false,
       target: App.P.settings.defTarget, wide: false, pan: 50, norm: App.P.settings.normDef,
-      speed: 1, codec: "auto", res: "orig", done: null,
+      speed: 1, codec: "auto", res: "orig", done: null, adv: false, rec: [],
     };
-    S.active = path;
+    App.markSeen(path);
     App.go("ed");          // needs E to be set: go() falls back to the library when no clip is open
     build();
     renderAll();
@@ -45,6 +45,9 @@
       E.info = info;
       E.start = 0;
       E.end = info.duration;
+      api.invoke("clip_markers", { path }).then((m) => {
+        if (token === loadToken) { E.rec = m; renderMarkers(); }
+      }).catch(() => {});
       video.src = api.src(path);
       video.load();
       if (!ctx) ctx = new AudioContext();
@@ -52,7 +55,7 @@
       renderAll();
       for (const t of E.tracks) {
         api.invoke("waveform", { path, index: t.index }).then((w) => {
-          if (token === loadToken) { t.wave = w; drawLanes(); }
+          if (token === loadToken) { t.wave = w; drawLanes(); renderMarkers(); }
         }).catch(() => {});
       }
     } catch (e) {
@@ -157,13 +160,18 @@
       transport: h("div", { class: "transport" }),
       lanesWrap: h("div", { class: "tl" }),
       panel: h("div", { class: "expanel" }),
+      kb: h("div", { class: "kbpop", hidden: true }, [
+        ["Odtwórz / pauza", "Spacja"], ["Początek / koniec", "I / O"], ["Znacznik", "M"],
+        ["Poprzedni / następny znacznik", "J / K"], ["Krok 1 s / 5 s", "← → / Shift"],
+        ["Poprzedni / następny klip", "PgUp / PgDn"], ["Eksportuj", "Ctrl E"], ["Szukaj", "Ctrl K"],
+      ].map(([l, k]) => h("div", null, h("span", { text: l }), h("kbd", { text: k })))),
     };
     const box = h("div", { class: "box" }, video, ui.crop);
     ui.stage.append(box, ui.big);
     root.append(h("div", { class: "ed" }, ui.rail,
       h("div", { class: "edmain" }, ui.head, ui.stage, ui.transport, ui.lanesWrap,
         h("div", { class: "hint", text: "Spacja – odtwarzaj · I / O – początek / koniec · przeciągnij uchwyty, aby przyciąć · klik w oś – przewiń" })),
-      ui.panel));
+      ui.panel, ui.kb));
   }
 
   function renderAll() {
@@ -204,11 +212,12 @@
     const step = (d) => { if (list.length) Ed.open(list[(i + d + list.length) % list.length].path); };
     Ed.step = step;
     ui.head.replaceChildren(
-      h("button", { class: "nv", onClick: () => step(-1), title: "Poprzedni [K]", text: "‹" }),
-      h("button", { class: "nv", onClick: () => step(1), title: "Następny [J]", text: "›" }),
+      h("button", { class: "nv", onClick: () => step(-1), title: "Poprzedni klip [PgUp]", text: "‹" }),
+      h("button", { class: "nv", onClick: () => step(1), title: "Następny klip [PgDn]", text: "›" }),
       h("b", { style: { fontSize: "14px" }, text: App.gameOf(E.clip) }),
       h("span", { class: "mono muted", style: { fontSize: "12px" }, text: App.baseName(E.clip.path) }),
       h("span", { class: "sp" }),
+      h("button", { class: "qm", title: "Skróty klawiszowe", text: "?", onClick: () => ui.kb.hidden = !ui.kb.hidden }),
       h("button", { class: "fav" + (App.P.favs[E.clip.path] ? " on" : ""), id: "edFav",
         onClick: () => App.Lib.toggleFav(E.clip.path), text: App.P.favs[E.clip.path] ? "★" : "☆" }));
   }
@@ -217,6 +226,7 @@
   function renderTransport() {
     if (!E) return;
     ui.big.replaceChildren(E.playing ? "" : h("span", { text: "▶" }));
+    ui.area?.classList.toggle("playing", E.playing);
     const dur = E.info ? E.info.duration : 0;
     ui.transport.replaceChildren(
       h("button", { class: "play", onClick: toggle, text: E.playing ? "❚❚" : "▶" }),
@@ -240,6 +250,8 @@
     const area = h("div", { class: "area" });
     ui.area = area;
     const ruler = h("div", { class: "ruler" });
+    ui.marks = h("div", { class: "marks" });
+    ruler.append(ui.marks);
     for (let i = 0; i < 7; i++) {
       const sp = h("span", { text: App.fmtS((dur * i) / 6), style: { left: `${(i / 6) * 100}%`,
         transform: i === 0 ? "none" : i === 6 ? "translateX(-100%)" : "translateX(-50%)" } });
@@ -277,7 +289,61 @@
     bindTimeline(area);
     ui.lanesWrap.replaceChildren(labels, area);
     layoutSel();
+    renderMarkers();
     requestAnimationFrame(drawLanes);
+  }
+
+  /* markers: thin = loudness peak, diamond = marked while recording or by you (M) */
+  function autoPeaks() {
+    if (!E?.info || App.P.settings.autoMarkers === false) return [];
+    const g = E.tracks.find((t) => t.name === "Game" && t.wave) || E.tracks.find((t) => t.wave);
+    if (!g) return [];
+    const n = g.wave.length, minGap = n * 0.15;
+    const order = [...g.wave.keys()].sort((a, b) => g.wave[b] - g.wave[a]);
+    const picked = [];
+    for (const i of order) {
+      if (picked.length >= 3 || g.wave[i] < 35) break;
+      if (picked.every((j) => Math.abs(j - i) >= minGap)) picked.push(i);
+    }
+    return picked.map((i) => ({ t: ((i + 0.5) / n) * E.info.duration, kind: "auto" }));
+  }
+
+  function allMarkers() {
+    if (!E?.info) return [];
+    const mine = App.P.markers[E.clip.path] || [];
+    return [...autoPeaks(), ...(E.rec || []).map((t) => ({ t, kind: "rec" })), ...mine.map((t) => ({ t, kind: "user" }))]
+      .sort((a, b) => a.t - b.t);
+  }
+
+  function renderMarkers() {
+    if (!ui.marks) return;
+    const titles = { auto: "Szczyt głośności", rec: "Znacznik z nagrania", user: "Twój znacznik (dwuklik usuwa)" };
+    ui.marks.replaceChildren(...allMarkers().map((m) => {
+      const el = h("div", { class: "mk " + m.kind, title: `${titles[m.kind]} ${App.fmt(m.t)}`,
+        style: { left: `${pct(m.t)}%` } }, m.kind === "auto" ? null : h("i"));
+      el.addEventListener("pointerdown", (ev) => { ev.stopPropagation(); seek(m.t); });
+      if (m.kind === "user") el.addEventListener("dblclick", (ev) => {
+        ev.stopPropagation();
+        const list = App.P.markers[E.clip.path] || [];
+        App.P.markers[E.clip.path] = list.filter((t) => Math.abs(t - m.t) > 0.01);
+        App.persist(); renderMarkers();
+      });
+      return el;
+    }));
+  }
+
+  function addMarker() {
+    if (!E?.info) return;
+    const list = App.P.markers[E.clip.path] || (App.P.markers[E.clip.path] = []);
+    list.push(+video.currentTime.toFixed(2));
+    App.persist(); renderMarkers();
+  }
+
+  function jumpMarker(dir) {
+    const now = video.currentTime;
+    const ts = allMarkers().map((m) => m.t);
+    const next = dir > 0 ? ts.find((t) => t > now + 0.25) : [...ts].reverse().find((t) => t < now - 0.25);
+    if (next != null) seek(next);
   }
 
   const pct = (t) => (E?.info ? (t / E.info.duration) * 100 : 0);
@@ -391,30 +457,31 @@
           n, h("br"), h("small", { text: `${mb} MB` })))),
       sum,
       h("div", { class: "opts" },
-        h("div", { class: "opt" }, h("span", { text: "Rozdzielczość" }),
-          h("select", { class: "field", onChange: (e) => { E.res = e.target.value; updateEstimate(); } },
-            [["orig", "oryginał"], ["1080", "1080p"], ["720", "720p"], ["540", "540p"]]
-              .map(([v, t]) => h("option", { value: v, text: t, selected: E.res === v })))),
-        h("div", { class: "opt" }, h("span", { text: "Kodek" }),
-          h("select", { class: "field", onChange: (e) => { E.codec = e.target.value; } },
-            [["auto", "Automatyczny (GPU)"], ["hevc-nvenc", "HEVC NVENC"], ["x264", "H.264 CPU"]]
-              .map(([v, t]) => h("option", { value: v, text: t, selected: E.codec === v })))),
-        h("div", { class: "opt" }, h("span", { text: "Prędkość" }),
-          seg([["0.5×", 0.5], ["1×", 1], ["1.5×", 1.5], ["2×", 2]], E.speed, (v) => {
-            E.speed = v; video.playbackRate = v;
-            for (const t of E.tracks) t.el.playbackRate = v;
-            renderPanel(); updateEstimate();
-          })),
         tog("Kadr 16:9", "wide"),
         E.wide ? h("div", { class: "opt" }, h("span", { text: "Pozycja kadru" }),
           h("input", { type: "range", min: 0, max: 100, value: E.pan, style: { width: "130px" },
-            onInput: (e) => { E.pan = +e.target.value; paintCrop(); } })) : null,
-        tog("Normalizuj (−16 LUFS)", "norm")),
+            onInput: (ev) => { E.pan = +ev.target.value; paintCrop(); } })) : null,
+        tog("Normalizuj (−16 LUFS)", "norm"),
+        h("div", { class: "opt", style: { cursor: "pointer" }, onClick: () => { E.adv = !E.adv; renderPanel(); } },
+          h("span", { text: "Zaawansowane" }), h("span", { class: "muted", text: E.adv ? "▴" : "▾" })),
+        ...(E.adv ? [
+          h("div", { class: "opt" }, h("span", { text: "Rozdzielczość" }),
+            h("select", { class: "field", onChange: (ev) => { E.res = ev.target.value; updateEstimate(); } },
+              [["orig", "oryginał"], ["1080", "1080p"], ["720", "720p"], ["540", "540p"]]
+                .map(([v, t]) => h("option", { value: v, text: t, selected: E.res === v })))),
+          h("div", { class: "opt" }, h("span", { text: "Kodek" }),
+            h("select", { class: "field", onChange: (ev) => { E.codec = ev.target.value; } },
+              [["auto", "Automatyczny (GPU)"], ["hevc-nvenc", "HEVC NVENC"], ["x264", "H.264 CPU"]]
+                .map(([v, t]) => h("option", { value: v, text: t, selected: E.codec === v })))),
+          h("div", { class: "opt" }, h("span", { text: "Prędkość" }),
+            seg([["0.5×", 0.5], ["1×", 1], ["1.5×", 1.5], ["2×", 2]], E.speed, (v) => {
+              E.speed = v; video.playbackRate = v;
+              for (const t of E.tracks) t.el.playbackRate = v;
+              renderPanel(); updateEstimate();
+            })),
+        ] : [])),
       h("div", { class: "sp" }),
-      E.done && !exporting ? doneChip() : null,
-      exporting ? h("div", { class: "prog" },
-        h("div", { class: "r" }, h("span", { text: "Eksportowanie…" }), h("span", { id: "edPct", text: `${Math.round(S.exporting.pct)}%` })),
-        h("div", { class: "b" }, h("div", { id: "edBar", style: { width: `${S.exporting.pct}%` } }))) : null,
+
       E.error ? h("div", { class: "errmsg", text: E.error }) : null,
       h("button", { class: "btn acc", style: { padding: "12px", opacity: exporting ? 0.5 : 1 }, disabled: !!S.exporting || !E.info,
         onClick: doExport, text: exporting ? "Eksportowanie…" : E.done ? "Eksportuj ponownie" : "Eksportuj" })];
@@ -422,19 +489,6 @@
     updateEstimate();
   }
 
-  function doneChip() {
-    const d = E.done;
-    const chip = h("div", { class: "done", title: "Przeciągnij plik do Discorda lub innego okna" },
-      h("span", { class: "ic", text: "⇪" }),
-      h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: d.name }),
-        h("div", { class: "sz", text: `${d.size} MiB · przeciągnij do Discorda` })));
-    chip.addEventListener("pointerdown", (ev) => {
-      if (ev.button !== 0) return;
-      ev.preventDefault();
-      App.api.startDrag(d.path).catch((e) => App.toast(`Nie udało się przeciągnąć pliku: ${e}`, "err"));
-    });
-    return chip;
-  }
 
   function updateEstimate() {
     if (!E || !E.info) return;
@@ -481,8 +535,11 @@
       case "o": case "O": setOut(); return true;
       case "ArrowLeft": seek(video.currentTime - step); return true;
       case "ArrowRight": seek(video.currentTime + step); return true;
-      case "j": case "J": Ed.step?.(1); return true;
-      case "k": case "K": Ed.step?.(-1); return true;
+      case "m": case "M": addMarker(); return true;
+      case "j": case "J": jumpMarker(-1); return true;
+      case "k": case "K": jumpMarker(1); return true;
+      case "PageDown": Ed.step?.(1); return true;
+      case "PageUp": Ed.step?.(-1); return true;
       case "e": case "E": if (ev.ctrlKey) { doExport(); return true; } return false;
       default: return false;
     }

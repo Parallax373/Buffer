@@ -54,6 +54,8 @@ pub struct Config {
     pub audio_offset_ms: i32,
     /// e.g. "Alt+Q". Changing it requires restarting the recorder.
     pub hotkey: String,
+    /// Drops a marker (shown as a diamond on the editor timeline) at this moment of the recording.
+    pub marker_hotkey: String,
     pub game: SourceCfg,
     pub chat: SourceCfg,
     pub mic: SourceCfg,
@@ -84,6 +86,7 @@ impl Default for Config {
             encoder: "auto".into(),
             audio_offset_ms: 0,
             hotkey: "Alt+Q".into(),
+            marker_hotkey: "Alt+M".into(),
             game: SourceCfg::default(),
             chat: SourceCfg::default(),
             mic: SourceCfg::default(),

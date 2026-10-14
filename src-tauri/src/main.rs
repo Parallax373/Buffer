@@ -5,6 +5,7 @@ use ml_core::{
     probe::{self, MediaInfo},
 };
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     collections::hash_map::DefaultHasher,
     fs,
@@ -311,15 +312,27 @@ fn cache_size() -> u64 {
 
 // ───────────────────────── export / files ─────────────────────────
 
+static CANCEL_EXPORT: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+fn cancel_export() {
+    CANCEL_EXPORT.store(true, Ordering::Relaxed);
+}
+
 #[tauri::command]
 async fn export_clip(app: AppHandle, opts: ExportOptions) -> Result<ExportResult, String> {
     if let Some(parent) = opts.output.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    CANCEL_EXPORT.store(false, Ordering::Relaxed);
     tauri::async_runtime::spawn_blocking(move || {
-        export::export(&opts, |p| {
-            let _ = app.emit("export-progress", p);
-        })
+        export::export(
+            &opts,
+            |p| {
+                let _ = app.emit("export-progress", p);
+            },
+            || CANCEL_EXPORT.load(Ordering::Relaxed),
+        )
         .map_err(|e| e.to_string())
     })
     .await
@@ -540,6 +553,76 @@ fn default_clips_dir() -> String {
     home.join("Videos").join("Buffer").to_string_lossy().into_owned()
 }
 
+/// Moments the user marked while recording (marker hotkey), in seconds from the clip start.
+#[tauri::command]
+fn clip_markers(path: String) -> Vec<f64> {
+    let Some(name) = Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()) else {
+        return Vec::new();
+    };
+    fs::read(data_dir().join("markers").join(format!("{name}.json")))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+#[derive(Serialize)]
+struct FoundFolder {
+    path: String,
+    source: String,
+    clips: usize,
+}
+
+fn count_videos(dir: &Path, depth: u32) -> usize {
+    let Ok(rd) = fs::read_dir(dir) else { return 0 };
+    let mut n = 0;
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if depth < 2 {
+                n += count_videos(&p, depth + 1);
+            }
+        } else if p
+            .extension()
+            .and_then(|x| x.to_str())
+            .is_some_and(|x| VIDEO_EXT.iter().any(|v| v.eq_ignore_ascii_case(x)))
+        {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Folders where other recorders keep clips, so the library can be set up without browsing.
+#[tauri::command]
+async fn detect_clip_folders() -> Vec<FoundFolder> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let Some(videos) = std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join("Videos")) else {
+            return Vec::new();
+        };
+        let known = [
+            ("SteelSeries Moments", "SteelSeries Moments"),
+            ("Captures", "Xbox Game Bar / Windows"),
+            ("Medal", "Medal"),
+            ("Radeon ReLive", "AMD ReLive"),
+            ("Overwolf", "Overwolf"),
+            ("Buffer", "Buffer"),
+        ];
+        let mut out = Vec::new();
+        for (dir, source) in known {
+            let p = videos.join(dir);
+            if p.is_dir() {
+                let clips = count_videos(&p, 0);
+                if clips > 0 {
+                    out.push(FoundFolder { path: p.to_string_lossy().into_owned(), source: source.into(), clips });
+                }
+            }
+        }
+        out
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// `None` reports the current state; `Some(on)` changes it. Returns whether autostart is enabled.
 #[tauri::command]
 fn recorder_autostart(enable: Option<bool>) -> Result<bool, String> {
@@ -581,6 +664,9 @@ fn main() {
             recorder_devices,
             recorder_monitors,
             recorder_levels,
+            cancel_export,
+            clip_markers,
+            detect_clip_folders,
             default_clips_dir,
             recorder_autostart,
         ])

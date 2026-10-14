@@ -59,12 +59,12 @@ const App = {};
   /* ───── persisted state (debounced) ───── */
   const DEFAULTS = {
     settings: {
-      theme: "graphite", accent: "#c6f432", brand: 2, anim: true, lite: false, thumb: "M",
+      theme: "ink", autoMarkers: true, anim: true, lite: false, thumb: "M",
       sub: true, auto: true, thumbs: true, cache: true, hw: true,
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false,
     },
     libDirs: ["E:\\Nagrania"],
-    favs: {}, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
+    favs: {}, markers: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
   };
   App.P = structuredClone(DEFAULTS);
 
@@ -98,11 +98,41 @@ const App = {};
   /* ───── theme ───── */
   App.applyTheme = () => {
     const s = App.P.settings, r = document.documentElement;
-    r.dataset.theme = s.theme === "graphite" ? "" : s.theme;
+    // Two themes only (Ink, OLED); the brand lime is fixed. Older saved themes fall back to Ink.
+    r.dataset.theme = s.theme === "oled" ? "oled" : "";
     r.dataset.anim = s.anim ? "on" : "off";
-    r.dataset.lite = s.lite ? "on" : "off";
-    r.style.setProperty("--acc", s.accent);
-    r.style.setProperty("--acc-dim", s.accent + "2e");
+  };
+
+  /* ───── "NOWE" clips: added since the library was last opened, until opened themselves ───── */
+  App.isNew = (path) => App.P.newSet.includes(path);
+  App.markSeen = (path) => {
+    const i = App.P.newSet.indexOf(path);
+    if (i >= 0) { App.P.newSet.splice(i, 1); App.persist(); }
+  };
+  App.computeNew = (clips) => {
+    if (App.newComputed) return;
+    App.newComputed = true;
+    const known = new Set(clips.map((c) => c.path));
+    const keep = App.P.newSet.filter((p) => known.has(p));
+    const since = App.P.libSeenAt;
+    if (since) for (const c of clips) if (c.modified > since && !keep.includes(c.path)) keep.push(c.path);
+    App.P.newSet = keep.slice(-200);
+    App.P.libSeenAt = Math.floor(Date.now() / 1000);
+    App.persist();
+  };
+
+  /** Animated logo trail + message, used for empty and loading states. */
+  App.emptyState = (title, sub, actionLabel, onAction) => {
+    const tails = [30, 10, 38, 18, 26, 6, 34, 14, 40];
+    const rows = tails.map((t, i) => {
+      const w = 12 + (4 - Math.abs(i - 4)) * 14;
+      return h("div", { class: "l" },
+        h("div", { class: "t" }, h("i", { style: { width: `${t}px`, animationDelay: `${i * 0.07}s` } })),
+        h("div", { class: "w" }, h("i", { style: { width: `${w}px` } })));
+    });
+    return h("div", { class: "empty" }, h("div", { class: "lines" }, rows),
+      h("b", { text: title }), sub ? h("div", { class: "muted", text: sub }) : null,
+      actionLabel ? h("button", { class: "btn", text: actionLabel, onClick: onAction }) : null);
   };
 
   /* ───── toast ───── */

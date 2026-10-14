@@ -16,7 +16,7 @@ App.RecUI = (function () {
   const BASE = {
     output_dir: "", per_game_folders: true, post_roll_seconds: 30, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, monitor: 0,
-    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", popup: true, extra_games: [], ignore_apps: [],
+    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", marker_hotkey: "Alt+M", popup: true, extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
   };
 
@@ -286,10 +286,15 @@ App.RecUI = (function () {
             onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) }))),
       h("div", { class: "sec" }, cap("Skrót zapisu klipu"),
         hotkeyInput(cfg.hotkey, (c) => save({ hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania")),
+        h("div", { style: { marginTop: "14px" } }, cap("Znacznik w trakcie gry"),
+          hotkeyInput(cfg.marker_hotkey || "Alt+M", (c) => save({ marker_hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania")),
+          h("div", { class: "muted", style: { fontSize: "12px", marginTop: "6px" }, text: "Pojawia się jako ◆ na osi czasu w edytorze." })),
         h("div", { style: { marginTop: "14px" } }, cap("Dogrywaj po naciśnięciu skrótu"),
           seg(POST_ROLL, cfg.post_roll_seconds, (v) => save({ post_roll_seconds: +v }).then(rerender)),
           h("div", { class: "muted", style: { fontSize: "12px", marginTop: "6px" },
             text: cfg.post_roll_seconds ? `Po skrócie nagrywanie trwa jeszcze ${cfg.post_roll_seconds} s i dopiero wtedy zapisuje klip — w klipie są też chwile tuż po. Drugie naciśnięcie zapisuje od razu.` : "Klip jest zapisywany od razu po naciśnięciu skrótu." }))),
+      toggle("Znaczniki ze szczytów głośności", "Automatyczne kreski na osi czasu w edytorze", App.P.settings.autoMarkers !== false,
+        async (v) => { App.P.settings.autoMarkers = v; App.persist(); rerender(); }),
       toggle("Nagrywaj tylko gry", "Bufor działa tylko, gdy jest uruchomiona gra, a ścieżka Game zawiera wyłącznie dźwięk tej gry (bez muzyki i rozmów)", cfg.game_only,
         async (v) => { await save({ game_only: v }); rerender(); }),
       toggle("Nagrywaj monitor, na którym jest gra", "Przy kilku monitorach Buffer sam przełącza się na ekran z grą", cfg.follow_game_monitor,
@@ -351,11 +356,13 @@ App.RecUI = (function () {
 
   async function wizard() {
     await load();
+    const found = await api.invoke("detect_clip_folders").catch(() => []);
     const w = {
       step: 0,
       dir: App.P.libDirs[0] && !App.fresh ? App.P.libDirs[0] : cfg.output_dir,
       cfg: JSON.parse(JSON.stringify(cfg)),
       autostart: true,
+      libs: new Set(found.map((f) => f.path)),
     };
     // First choices: follow the Windows default output (speakers OR headset, whichever is in use),
     // a dedicated "chat" endpoint if the hardware has one, and the default microphone.
@@ -394,6 +401,15 @@ App.RecUI = (function () {
         case 1:
           body = [
             h("h2", { text: "Gdzie zapisywać klipy?" }),
+            ...(found.length ? [
+              cap("Znalezione foldery z klipami — dodać do biblioteki?"),
+              ...found.map((f) => h("div", { class: "found" + (w.libs.has(f.path) ? " on" : ""),
+                onClick: () => { w.libs.has(f.path) ? w.libs.delete(f.path) : w.libs.add(f.path); render(); } },
+                h("span", { class: "chk", text: w.libs.has(f.path) ? "✓" : "" }),
+                h("div", null, h("div", { class: "mono", text: f.path }), h("div", { class: "muted", text: f.source })),
+                h("span", { class: "mono muted", text: `${f.clips} klipów` }))),
+            ] : []),
+            cap("Nowe klipy zapisuj w"),
             h("div", { class: "pathrow" }, h("input", { class: "field", value: w.dir, readOnly: true }),
               h("button", { class: "btn", text: "Zmień", onClick: async () => { const d = await api.pickFolder(); if (d) { w.dir = d; render(); } } })),
             h("div", { class: "line", onClick: () => { c.per_game_folders = !c.per_game_folders; render(); } },
@@ -471,7 +487,8 @@ App.RecUI = (function () {
       for (const [k] of SRC) if (c[k].secondary && !c[k].secondary.id) c[k].secondary = null;
       cfg = { ...cfg, ...c };
       await api.invoke("set_recorder_config", { config: cfg });
-      App.P.libDirs = [w.dir];
+      App.P.libDirs = [w.dir, ...found.filter((f) => w.libs.has(f.path)).map((f) => f.path)]
+        .filter((p, i, a) => p && a.indexOf(p) === i);
       App.P.settings.onboarded = true;
       App.persist();
       await api.invoke("recorder_autostart", { enable: w.autostart }).catch(() => {});

@@ -13,10 +13,9 @@
   document.addEventListener("keydown", (ev) => {
     const t = ev.target;
     const typing = t instanceof HTMLInputElement && !["range", "checkbox"].includes(t.type);
-    if ((ev.ctrlKey || ev.metaKey) && (ev.key === "f" || ev.key === "F")) {
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === "f" || ev.key === "F" || ev.key === "k" || ev.key === "K")) {
       ev.preventDefault();
-      App.go("lib");
-      App.$(".toolbar .search")?.focus();
+      App.focusSearch();
       return;
     }
     if (typing || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;

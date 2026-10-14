@@ -56,6 +56,12 @@ pub struct Shared {
     /// A save is waiting out its post-roll; a second hotkey press sets `post_roll_skip` to save at once.
     pub post_roll_active: AtomicBool,
     pub post_roll_skip: AtomicBool,
+    /// When the pending post-roll save will happen (for the tray countdown).
+    pub post_roll_until: Mutex<Option<Instant>>,
+    /// Outcome of the last save, shown briefly on the tray icon: (when, succeeded).
+    pub flash: Mutex<Option<(Instant, bool)>>,
+    /// Marker hotkey presses (unix milliseconds); the ones inside a clip are written next to it on save.
+    pub markers: Mutex<Vec<u64>>,
 }
 
 impl Shared {
@@ -452,8 +458,45 @@ pub fn current_game_name(cfg: &Config) -> String {
     }
 }
 
+/// Stores the marker timestamps that fall inside the saved clip as seconds from its start, in
+/// `%APPDATA%\Buffer\markers\<clip file name>.json` (the editor shows them as diamonds).
+fn write_markers(shared: &Shared, picked: &[PathBuf], clip: &std::path::Path) {
+    let ms = |p: &PathBuf| {
+        fs::metadata(p)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+    };
+    let (Some(first), Some(last)) = (picked.first().and_then(ms), picked.last().and_then(ms)) else { return };
+    // a segment's modification time is the moment its last frame was written
+    let start = first.saturating_sub(SEGMENT_SECS as u64 * 1000);
+    let marks: Vec<f64> = shared
+        .markers
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|m| **m >= start && **m <= last)
+        .map(|m| ((*m - start) as f64 / 1000.0 * 10.0).round() / 10.0)
+        .collect();
+    if marks.is_empty() {
+        return;
+    }
+    let Some(name) = clip.file_name().map(|n| n.to_string_lossy().into_owned()) else { return };
+    let dir = crate::config::data_dir().join("markers");
+    if fs::create_dir_all(&dir).is_ok() {
+        let _ = fs::write(dir.join(format!("{name}.json")), serde_json::to_vec(&marks).unwrap_or_default());
+    }
+}
+
 /// Writes the last `buffer_seconds` of the rolling buffer to a finished MP4 in the output folder.
 pub fn save(shared: &Arc<Shared>) -> Result<PathBuf, String> {
+    let result = save_inner(shared);
+    *shared.flash.lock().unwrap() = Some((Instant::now(), result.is_ok()));
+    result
+}
+
+fn save_inner(shared: &Arc<Shared>) -> Result<PathBuf, String> {
     let _guard = shared.save_lock.lock().unwrap();
     let cfg = shared.cfg.lock().unwrap().clone();
 
@@ -505,6 +548,7 @@ pub fn save(shared: &Arc<Shared>) -> Result<PathBuf, String> {
         return Err(String::from_utf8_lossy(&result.stderr).trim().to_string());
     }
     fs::rename(&tmp, &out).map_err(|e| e.to_string())?;
+    write_markers(shared, picked, &out);
     *shared.last_saved.lock().unwrap() = out.to_string_lossy().into_owned();
     log(&format!("saved {}", out.display()));
     Ok(out)
