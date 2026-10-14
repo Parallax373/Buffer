@@ -97,7 +97,7 @@ const App = {};
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false, presets: [10, 50, 500], autoCleanDays: 7,
     },
     libDirs: ["E:\\Nagrania"],
-    favs: {}, titles: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
+    favs: {}, titles: {}, trims: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
   };
   App.P = structuredClone(DEFAULTS);
 

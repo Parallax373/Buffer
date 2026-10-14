@@ -467,7 +467,7 @@
     try {
       await api.invoke("delete_clips", { paths });
       for (const p of paths) {
-        delete App.P.favs[p]; delete App.P.meta[p]; delete App.P.titles[p];
+        delete App.P.favs[p]; delete App.P.meta[p]; delete App.P.titles[p]; delete (App.P.trims || {})[p];
         S.sel.delete(p);
       }
       App.persist();

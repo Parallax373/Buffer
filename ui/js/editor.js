@@ -28,8 +28,8 @@
     teardownTracks();
     E = {
       clip, info: null, start: 0, end: 0, tracks: [], playing: false,
-      target: App.P.settings.defTarget, wide: false, pan: 50, norm: App.P.settings.normDef,
-      speed: 1, codec: "auto", res: "orig", done: null, adv: false, v0: 0, v1: 0,
+      target: App.P.settings.defTarget, wide: !!App.P.settings.cropDef, pan: App.P.settings.cropPan ?? 50, norm: App.P.settings.normDef,
+      speed: 1, codec: App.P.settings.codecDef || "auto", res: App.P.settings.resDef || "orig", done: null, adv: false, v0: 0, v1: 0,
     };
     App.markSeen(path);
     App.go("ed");          // needs E to be set: go() falls back to the library when no clip is open
@@ -45,6 +45,11 @@
       E.info = info;
       E.start = 0;
       E.end = info.duration;
+      const kept = (App.P.trims || {})[path];
+      if (kept && kept.size === clip.size && kept.s >= 0 && kept.e <= info.duration + 0.05 && kept.e - kept.s >= MIN_SEL) {
+        E.start = kept.s;
+        E.end = Math.min(kept.e, info.duration);
+      }
       E.v0 = 0;
       E.v1 = info.duration;
       video.src = api.src(path);
@@ -328,8 +333,26 @@
     th.style.width = `${((E.v1 - E.v0) / dur) * 100}%`;
   }
 
+  /** Keeps this clip's start/end across closing and reopening it (cleared again when the full clip is selected). */
+  function rememberTrim() {
+    if (!E || !E.info) return;
+    const trims = (App.P.trims ||= {});
+    const full = E.start < 0.01 && E.end > E.info.duration - 0.01;
+    const was = trims[E.clip.path];
+    if (full) {
+      if (was) { delete trims[E.clip.path]; App.persist(); }
+      return;
+    }
+    const s = +E.start.toFixed(2), e = +E.end.toFixed(2);
+    if (!was || was.s !== s || was.e !== e) {
+      trims[E.clip.path] = { s, e, size: E.clip.size };
+      App.persist();
+    }
+  }
+
   function layoutSel() {
     if (!E || !ui.selbox) return;
+    rememberTrim();
     const p0 = pct(E.start), p1 = pct(E.end);
     const c0 = clampPct(p0), c1 = clampPct(p1);
     ui.dimL.style.width = `${c0}%`;
@@ -464,7 +487,15 @@
     const seg = (items, cur, on) => h("div", { class: "seg" }, items.map(([label, v]) =>
       h("button", { class: String(cur) === String(v) ? "on" : "", text: label, onClick: () => on(v) })));
     const tog = (label, key, extra) => h("div", { class: "opt", style: { cursor: "pointer" },
-      onClick: () => { E[key] = !E[key]; renderPanel(); paintCrop(); updateEstimate(); } },
+      onClick: () => {
+        E[key] = !E[key];
+        // normalize and the 16:9 crop are saved as the defaults for every clip
+        const s = App.P.settings;
+        if (key === "norm") s.normDef = E.norm;
+        if (key === "wide") s.cropDef = E.wide;
+        App.persist();
+        renderPanel(); paintCrop(); updateEstimate();
+      } },
       h("span", { text: label }), h("span", { class: "toggle" + (E[key] ? " on" : "") }));
 
     const sum = h("div", { class: "sumcard", title: App.t("ed.qualityTip") },
@@ -486,17 +517,18 @@
         tog(App.t("ed.crop"), "wide"),
         E.wide ? h("div", { class: "opt" }, h("span", { text: App.t("ed.cropPos") }),
           h("input", { type: "range", min: 0, max: 100, value: E.pan, style: { width: "130px" },
-            onInput: (ev) => { E.pan = +ev.target.value; paintCrop(); } })) : null,
+            onInput: (ev) => { E.pan = +ev.target.value; paintCrop(); },
+            onChange: () => { App.P.settings.cropPan = E.pan; App.persist(); } })) : null,
         tog(App.t("ed.norm"), "norm"),
         h("div", { class: "opt", style: { cursor: "pointer" }, onClick: () => { E.adv = !E.adv; renderPanel(); } },
           h("span", { text: App.t("adv.cap") }), h("span", { class: "muted", text: E.adv ? "▴" : "▾" })),
         ...(E.adv ? [
           h("div", { class: "opt" }, h("span", { text: App.t("ed.res") }),
-            h("select", { class: "field", onChange: (ev) => { E.res = ev.target.value; updateEstimate(); } },
+            h("select", { class: "field", onChange: (ev) => { E.res = ev.target.value; App.P.settings.resDef = E.res; App.persist(); updateEstimate(); } },
               [["orig", App.t("ed.resOrig")], ["1080", "1080p"], ["720", "720p"], ["540", "540p"]]
                 .map(([v, t]) => h("option", { value: v, text: t, selected: E.res === v })))),
           h("div", { class: "opt" }, h("span", { text: App.t("ed.codec") }),
-            h("select", { class: "field", onChange: (ev) => { E.codec = ev.target.value; } },
+            h("select", { class: "field", onChange: (ev) => { E.codec = ev.target.value; App.P.settings.codecDef = E.codec; App.persist(); } },
               [["auto", App.t("ed.codecAuto")], ["hevc-nvenc", "HEVC NVENC"], ["x264", "H.264 CPU"]]
                 .map(([v, t]) => h("option", { value: v, text: t, selected: E.codec === v })))),
           h("div", { class: "opt" }, h("span", { text: App.t("ed.speed") }),
