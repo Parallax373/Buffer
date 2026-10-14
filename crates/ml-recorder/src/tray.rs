@@ -45,6 +45,8 @@ pub const NEVER_GAMES: &[&str] = &[
     "lockapp", "chrome", "msedge", "firefox", "opera", "brave", "vivaldi", "vlc", "mpv", "potplayer",
     "code", "devenv", "powerpnt", "winword", "excel", "buffer", "buffer-recorder", "obs64", "teams",
     "zoom", "discord", "spotify", "slack", "steamwebhelper", "taskmgr", "mstsc", "vmware", "virtualbox",
+    // screenshot tools cover the whole screen while you pick an area (Win+Shift+S)
+    "snippingtool", "screenclippinghost", "screensketch", "textinputhost", "gamebar", "widgets", "searchapp",
 ];
 
 fn colour(state: State) -> (u8, u8, u8) {
