@@ -12,7 +12,7 @@ $version = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).versi
 $tag = "v$version"
 if (-not $SkipBuild) { & "$root\build-installer.ps1" -Sign }
 
-$installer = Get-ChildItem target\release\bundle\nsis\*.exe | Select-Object -First 1
+$installer = Get-ChildItem target\release\bundle\nsis\*_${version}_*.exe | Select-Object -First 1
 if (-not $installer) { throw "No installer found; run build-installer.ps1 -Sign first." }
 if (-not (Test-Path "$($installer.FullName).sig")) { throw "No update signature next to the installer; build with -Sign." }
 if ($installer.Name -notmatch [regex]::Escape($version)) { throw "Installer $($installer.Name) does not match version $version" }
