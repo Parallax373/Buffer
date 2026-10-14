@@ -30,6 +30,9 @@
   .stat b { font: 700 64px/1 "Instrument Sans", sans-serif; letter-spacing: -.04em; color: var(--acc); }
   .stat b small { font-size: 28px; letter-spacing: 0; }
   .stat span { font-size: 15px; color: var(--muted); }
+  figure { margin: 0; display: flex; flex-direction: column; gap: 14px; }
+  figure img { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 14px; background: #121410; }
+  figcaption { font: 12px "JetBrains Mono", monospace; color: var(--muted); text-align: center; }
   .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 28px; }
   .features div { border-top: 1px solid var(--line); padding-top: 16px; }
   .features h2 { margin: 0 0 6px; font: 600 18px "Instrument Sans", sans-serif; }
@@ -58,11 +61,14 @@
     </div>
   </section>
 
+  <figure><img src="screenshots/library.png" alt="Library"><figcaption>Library. Every clip, sorted by game.</figcaption></figure>
+  <figure><img src="screenshots/editor.png" alt="Editor"><figcaption>Editor. Trim, pick a size, drag it into Discord.</figcaption></figure>
+
   <section class="features">
     <div><h2>Always on</h2><p>Keeps the last minutes in the background. One hotkey saves what just happened.</p></div>
     <div><h2>Three audio tracks</h2><p>Game, voice chat and microphone are saved separately, so you can mute or fix any of them later.</p></div>
     <div><h2>Edit and export to size</h2><p>Trim, crop to 16:9, then export for Discord (10 MB), Boost (50 MB) or Nitro (500 MB) and drag it in.</p></div>
-    <div><h2>Speaks your language</h2><p>English, Polski, Deutsch, Español, Français, Українська, Türkçe, 日本語, 简体中文. AI-translated except Polish.</p></div>
+    <div><h2>Speaks your language</h2><p>English, Polski, Deutsch, Español, Français, Українська, Türkçe, 日本語, 简体中文.</p></div>
   </section>
 
   <footer>

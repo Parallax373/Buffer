@@ -20,6 +20,16 @@ Small on purpose. No launcher, no account, no overlay, nothing to babysit.
 | **0** | questions during install |
 | **1** | hotkey to save a clip |
 
+<p align="center">
+  <img src="docs/screenshots/library.png" alt="Library: every clip, sorted by game" width="780"><br>
+  <sub>Library. Every clip, sorted by game.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/editor.png" alt="Editor: trim, pick a size, drag it into Discord" width="780"><br>
+  <sub>Editor. Trim, pick a size, drag it into Discord.</sub>
+</p>
+
 ## What it does
 
 - **Always-on recorder.** Buffer keeps the last minutes in the background (NVENC when your GPU has it). Press one hotkey and the moment that just happened is saved as an MP4.
@@ -28,7 +38,7 @@ Small on purpose. No launcher, no account, no overlay, nothing to babysit.
 - **Editor.** Trim, 16:9 crop, speed, per-track volume and loudness, a zoomable timeline with markers.
 - **Exports to a size.** Pick Discord (10 MB), Boost (50 MB) or Nitro (500 MB) and drag the result straight into a chat window.
 - **Updates itself.** Signed updates are checked once a day; installing takes a few seconds.
-- **Your language.** English, Polski, Deutsch, Español, Français, Українська, Türkçe, 日本語 and 简体中文. All but Polish are AI-translated, so wording may be off. Corrections are welcome.
+- **Your language.** English, Polski, Deutsch, Español, Français, Українська, Türkçe, 日本語 and 简体中文.
 
 ## Install
 
