@@ -38,7 +38,7 @@ enum State {
 }
 
 /// Programs that are never treated as games even when they cover the whole screen.
-const NEVER_GAMES: &[&str] = &[
+pub const NEVER_GAMES: &[&str] = &[
     "explorer", "searchhost", "shellexperiencehost", "applicationframehost", "startmenuexperiencehost",
     "lockapp", "chrome", "msedge", "firefox", "opera", "brave", "vivaldi", "vlc", "mpv", "potplayer",
     "code", "devenv", "powerpnt", "winword", "excel", "buffer", "buffer-recorder", "obs64", "teams",
@@ -333,6 +333,7 @@ pub fn run(shared: Arc<session::Shared>, hotkey: String, popups: Receiver<Popup>
                 drop(m);
                 hk_shared.popup(Kind::Info, "Znacznik dodany", "Zobaczysz go jako ◆ na osi czasu w edytorze");
             } else {
+                hk_shared.hotkey_hits.fetch_add(1, Ordering::Relaxed);
                 hotkey_save(&hk_shared);
             }
         },

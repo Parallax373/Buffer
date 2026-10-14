@@ -17,7 +17,7 @@
     S.view = view;
     for (const [v, sel] of Object.entries(VIEWS)) App.$(sel).hidden = v !== view;
     if (view === "lib") App.Lib.render(false);
-    if (view === "set") Settings.render();
+    if (view === "set") Settings.render(true);
     renderRail();
     if (changed) wipe(App.$(VIEWS[view]));
   };
@@ -322,113 +322,124 @@
             dragHandle(e.path, "lime", "⇪")))) : [h("div", { class: "muted", text: "Brak eksportów." })]))));
   }
 
-  /* ───── settings ───── */
+  /* ───── settings: Nagrywanie · Biblioteka · Aplikacja ───── */
 
   const Settings = (App.Settings = { tab: "rec", adv: false });
-  const TABS = [["rec", "Nagrywanie"], ["look", "Wygląd"], ["gen", "Ogólne"], ["exp", "Eksport"]];
-  const THEMES = [["ink", "Ink", ["#0b0c0a", "#121410", "#1a1d16", "#262a20"]],
-    ["oled", "OLED czerń", ["#000000", "#0a0b08", "#14160f", "#20231a"]]];
-  let tools = null;
+  const U = App.ui;
+  Settings.paintRecorder = () => App.RecUI.paint();   // called by the recorder poll while the tab is open
+  const TABS = [["rec", "Nagrywanie"], ["lib", "Biblioteka"], ["app", "Aplikacja"]];
+  const THEMES = [["ink", "Ink", "#0b0c0a"], ["oled", "OLED czerń", "#000000"]];
 
-  const cap = (t) => h("div", { class: "cap", text: t });
-  const sec = (title, ...kids) => h("div", { class: "sec" }, cap(title), ...kids);
-  const line = (title, desc, key, after) => h("div", { class: "line", onClick: () => {
-    App.P.settings[key] = !App.P.settings[key];
-    App.persist(); App.applyTheme(); Settings.render(); after?.();
-  } }, h("div", null, h("div", { class: "tt", text: title }), h("div", { class: "ds", text: desc })),
-  h("span", { class: "toggle lg" + (App.P.settings[key] ? " on" : "") }));
-
-  Settings.render = async () => {
+  /** Settings pane; only a tab switch plays the slide-in, edits inside a tab re-render quietly. */
+  Settings.render = async (animate = false) => {
     const root = App.$("#v-set");
-    const body = h("div", { class: "body" });
+    const pane = h("div", { class: "pane" + (animate ? " stepin" : "") });
     root.replaceChildren(h("div", { class: "set" },
       h("div", { class: "tabs" }, h("h1", { text: "Ustawienia" }),
         TABS.map(([k, t]) => h("button", { class: Settings.tab === k ? "on" : "", text: t,
-          onClick: () => { Settings.tab = k; Settings.render(); } }))),
-      body));
+          onClick: () => { Settings.tab = k; Settings.render(true); } })),
+        h("div", { class: "grow" }),
+        h("button", { class: "wizbtn", text: "Uruchom kreator", onClick: () => App.RecUI.wizard() })),
+      h("div", { class: "setscroll" }, pane)));
+    if (Settings.tab === "rec") await App.RecUI.renderTab(pane);
+    else if (Settings.tab === "lib") await renderLibraryTab(pane);
+    else await renderAppTab(pane);
+  };
+
+  const advHead = (label, open, toggle) => h("button", { class: "advhead", onClick: toggle },
+    h("span", { text: label }), h("span", { text: open ? "▴" : "▾" }));
+
+  /* Biblioteka: one folder list (the radio marks where new recordings go), library toggles, export. */
+  async function renderLibraryTab(pane) {
+    await App.RecUI.ensureLoaded();
+    const rc = App.RecUI.cfg();
     const s = App.P.settings;
-    switch (Settings.tab) {
-      case "rec": await App.RecUI.renderTab(body); break;
-      case "look":
-        body.append(
-          sec("Motyw", h("div", { class: "themes" }, THEMES.map(([k, name, c]) =>
-            h("button", { class: "th" + (s.theme === k ? " on" : ""), onClick: () => { s.theme = k; App.persist(); App.applyTheme(); Settings.render(); } },
-              h("div", { class: "pv", style: { background: c[0], borderColor: c[3] } },
-                h("div", { style: { background: c[1] } }),
-                h("div", null, h("i", { style: { width: "60%", background: c[2] } }),
-                  h("i", { style: { width: "30%", background: "var(--acc)", marginTop: "6px" } }))),
-              h("div", { class: "nm", text: name }))))),
-          sec("Rozmiar miniatur", h("div", { class: "seg big" }, ["S", "M", "L"].map((k) =>
-            h("button", { class: s.thumb === k ? "on" : "", text: k, onClick: () => { s.thumb = k; App.persist(); Settings.render(); } })))),
-          line("Animacje interfejsu", "Przejścia i ślady", "anim"));
-        break;
-      case "gen": await renderGeneral(body); break;
-      case "exp":
-        body.append(
-          sec("Domyślny cel", h("div", { class: "seg big" }, [["Discord", 10], ["Boost", 50], ["Nitro", 500]].map(([n, mb]) =>
-            h("button", { class: s.defTarget === mb ? "on" : "", text: `${n} · ${mb} MB`,
-              onClick: () => { s.defTarget = mb; App.persist(); Settings.render(); } })))),
-          sec("Folder wyjściowy", h("div", { class: "pathrow" },
-            h("input", { class: "field", value: App.exportDirFor(), readOnly: true }),
-            h("button", { class: "btn", text: "Zmień", onClick: async () => {
+    const rec = rc.output_dir;
+    const dirs = [...new Set([rec, ...App.P.libDirs])].filter(Boolean);
+    const reload = async () => { App.persist(); await App.Lib.load(); Settings.render(); };
+    const setRecDir = async (d) => {
+      await App.RecUI.save({ output_dir: d });
+      if (!App.P.libDirs.includes(d)) App.P.libDirs.unshift(d);
+      await reload();
+    };
+    const folderRow = (d) => {
+      const isRec = d === rec;
+      return h("div", { class: "frow" },
+        h("button", { class: "radio" + (isRec ? " on" : ""), "aria-label": "Zapisuj tu nowe nagrania", title: isRec ? "Tu zapisują się nowe nagrania" : "Zapisuj tu nowe nagrania",
+          onClick: () => { if (!isRec) setRecDir(d); } }),
+        h("span", { class: "mono path" + (isRec ? "" : " dim"), text: d }),
+        isRec ? h("span", { class: "tag lime", text: "NOWE NAGRANIA" }) : h("span", { class: "tag", text: "tylko biblioteka" }),
+        isRec
+          ? h("button", { class: "linkbtn", text: "Zmień", onClick: async () => {
+            const n = await api.pickFolder();
+            if (!n) return;
+            App.P.libDirs = App.P.libDirs.map((x) => (x === d ? n : x));
+            await setRecDir(n);
+          } })
+          : h("button", { class: "linkbtn", text: "✕", title: "Usuń z biblioteki", onClick: async () => {
+            App.P.libDirs = App.P.libDirs.filter((x) => x !== d); await reload();
+          } }));
+    };
+    pane.append(h("div", { class: "setcol" },
+      h("div", null, U.cap("Foldery klipów"),
+        h("div", { class: "card2 pad folders" }, ...dirs.map(folderRow),
+          h("button", { class: "linkbtn", text: "+ Dodaj folder", onClick: async () => {
+            const n = await api.pickFolder();
+            if (n && !App.P.libDirs.includes(n)) { App.P.libDirs.push(n); await reload(); }
+          } }))),
+      h("div", { class: "card2 tgl" },
+        U.trow("Osobny folder dla każdej gry", "Podfolder z nazwą gry", rc.per_game_folders, async (on) => { await App.RecUI.save({ per_game_folders: on }); Settings.render(); }),
+        U.trow("Skanuj podfoldery", "Bez folderów eksportów", s.sub, async (on) => { s.sub = on; await reload(); }),
+        U.trow("Odświeżaj bibliotekę przy starcie", "Wykrywa nowe klipy", s.auto, (on) => { s.auto = on; App.persist(); Settings.render(); })),
+      h("div", null, U.cap("Eksport"),
+        h("div", { class: "card2" },
+          U.srow("Domyślny cel", U.segc([[10, "Discord · 10 MB"], [50, "Boost · 50 MB"], [500, "Nitro · 500 MB"]], s.defTarget, (mb) => { s.defTarget = mb; App.persist(); Settings.render(); })),
+          U.srow("Folder wyjściowy", h("div", { class: "pathrow" },
+            h("span", { class: "mono path", text: App.exportDirFor() }),
+            h("button", { class: "linkbtn", text: "Zmień", onClick: async () => {
               const d = await api.pickFolder();
               if (d) { s.outDir = d; App.persist(); Settings.render(); }
             } }),
-            s.outDir ? h("button", { class: "btn ghost", text: "Domyślny", onClick: () => { s.outDir = ""; App.persist(); Settings.render(); } }) : null)),
-          line("Normalizuj głośność domyślnie", "−16 LUFS", "normDef"));
-        break;
-    }
-  };
+            s.outDir ? h("button", { class: "linkbtn", text: "Domyślny", onClick: () => { s.outDir = ""; App.persist(); Settings.render(); } }) : null)),
+          U.trow("Normalizuj głośność", "−16 LUFS", s.normDef, (on) => { s.normDef = on; App.persist(); Settings.render(); })))));
+  }
 
-  async function renderGeneral(body) {
-    tools = tools || (await api.invoke("tools_status").catch(() => null));
-    const size = await api.invoke("cache_size").catch(() => 0);
-    body.append(
-      sec("Foldery biblioteki", h("div", { class: "stack" },
-        App.P.libDirs.map((d, i) => h("div", { class: "pathrow" },
-          h("input", { class: "field", value: d, readOnly: true }),
-          h("button", { class: "btn", text: "Zmień", onClick: async () => {
-            const n = await api.pickFolder();
-            if (n) { App.P.libDirs[i] = n; App.persist(); await App.Lib.load(); Settings.render(); }
-          } }),
-          App.P.libDirs.length > 1 ? h("button", { class: "btn danger", text: "Usuń", onClick: async () => {
-            App.P.libDirs.splice(i, 1); App.persist(); await App.Lib.load(); Settings.render();
-          } }) : null)),
-        h("div", null, h("button", { class: "btn", text: "+ Dodaj folder", onClick: async () => {
-          const n = await api.pickFolder();
-          if (n && !App.P.libDirs.includes(n)) { App.P.libDirs.push(n); App.persist(); await App.Lib.load(); Settings.render(); }
-        } })))),
-      line("Skanuj podfoldery", "Bez folderów eksportów", "sub", () => App.Lib.load()),
-      line("Odświeżaj bibliotekę przy starcie", "Wykrywa nowe klipy", "auto"),
-      h("div", { class: "line", onClick: () => { Settings.adv = !Settings.adv; Settings.render(); } },
-        h("div", null, h("div", { class: "tt", text: "Zaawansowane" }), h("div", { class: "ds", text: "Narzędzia i pamięć podręczna" })),
-        h("span", { class: "muted", text: Settings.adv ? "▴" : "▾" })),
-      ...(Settings.adv ? [
-        h("div", { class: "stack" },
-          h("div", { class: "statusbox" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version}` : "ffmpeg" }),
-            h("span", { style: { color: tools?.ffmpeg_found ? "var(--ok)" : "var(--err)" },
-              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? "● wbudowane w aplikację" : "● znaleziono w systemie") : "● nie znaleziono — zainstaluj aplikację ponownie" })),
-          h("div", { class: "statusbox" }, h("span", { text: "Kodowanie wideo" }),
-            h("span", { style: { color: tools?.encoder && tools.encoder !== "libx264" ? "var(--ok)" : "var(--warn)" },
-              text: ({ h264_nvenc: "● NVIDIA NVENC", h264_amf: "● AMD AMF", h264_qsv: "● Intel QuickSync", libx264: "● procesor (CPU) — wolniej" })[tools?.encoder] + (tools?.gpu ? " · " + tools.gpu : "") }))),
-        line("Miniatury w tle", "Tylko widoczne klipy", "thumbs"),
-        line("Pamięć podręczna audio", "Szybsze otwieranie klipów", "cache"),
-        line("Dekodowanie sprzętowe (NVDEC)", "Awaryjnie CPU", "hw"),
-        h("div", { class: "line static" },
-          h("div", null, h("div", { class: "tt", text: "Pamięć podręczna" }), h("div", { class: "ds", text: App.fmtMB(size) })),
-          h("button", { class: "btn", text: "Wyczyść", onClick: async () => {
-            await api.invoke("clear_cache").catch(() => {});
-            App.toast("Wyczyszczono pamięć podręczną", "ok");
-            Settings.render();
-          } })),
-        h("div", { class: "line static" },
-          h("div", null, h("div", { class: "tt", text: "Kreator ustawień" }), h("div", { class: "ds", text: "Folder, dźwięk, jakość" })),
-          h("button", { class: "btn", text: "Uruchom", onClick: () => App.RecUI.wizard() })),
-      ] : []));
+  /* Aplikacja: appearance + system. */
+  async function renderAppTab(pane) {
+    const s = App.P.settings;
+    const [tools, size] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0)]);
+    const encoder = ({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync", libx264: "procesor (CPU)" })[tools?.encoder] || "nieznany";
+    pane.append(h("div", { class: "setcol" },
+      h("div", null, U.cap("Motyw"), h("div", { class: "themes2" }, THEMES.map(([k, name, bg]) =>
+        h("button", { class: "th2" + ((s.theme === "oled" ? "oled" : "ink") === k ? " on" : ""),
+          onClick: () => { s.theme = k; App.persist(); App.applyTheme(); Settings.render(); } },
+          h("div", { class: "pv2", style: { background: bg } }, h("i", { style: { width: "60%", background: "#1a1d16" } }), h("i", { style: { width: "30%", background: "#c6f432" } })),
+          h("div", { class: "nm", text: name }))))),
+      h("div", { class: "card2" },
+        U.srow("Miniatury", U.segc(["S", "M", "L"].map((k) => [k, k]), s.thumb, (k) => { s.thumb = k; App.persist(); Settings.render(); })),
+        U.trow("Animacje interfejsu", "Przejścia i ślady", s.anim, (on) => { s.anim = on; App.persist(); App.applyTheme(); Settings.render(); })),
+      h("div", null,
+        advHead("ZAAWANSOWANE", Settings.adv, () => { Settings.adv = !Settings.adv; Settings.render(); }),
+        Settings.adv ? h("div", { class: "card2 rise pad stackrows" },
+          h("div", { class: "between" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version}` : "ffmpeg" }),
+            h("span", { class: "mono " + (tools?.ffmpeg_found ? "lime" : "err"), style: { fontSize: "12px" },
+              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? "● wbudowany" : "● w systemie") : "● nie znaleziono" })),
+          h("div", { class: "between" }, h("span", { text: "Kodowanie wideo" }),
+            h("span", { class: "mono " + (tools?.encoder && tools.encoder !== "libx264" ? "lime" : "warn"), style: { fontSize: "12px" },
+              text: "● " + encoder + (tools?.gpu ? " · " + tools.gpu : "") })),
+          h("div", { class: "between" }, h("span", { text: `Pamięć podręczna · ${App.fmtMB(size)}` }),
+            h("button", { class: "btn", text: "Wyczyść", onClick: async () => {
+              await api.invoke("clear_cache").catch(() => {});
+              App.toast("Wyczyszczono pamięć podręczną", "ok");
+              Settings.render();
+            } })),
+          U.trow("Dekodowanie sprzętowe (NVDEC)", "Awaryjnie CPU", s.hw, (on) => { s.hw = on; App.persist(); Settings.render(); }),
+          U.trow("Miniatury w tle", "Tylko widoczne klipy", s.thumbs, (on) => { s.thumbs = on; App.persist(); Settings.render(); }),
+          U.trow("Pamięć podręczna audio", "Szybsze otwieranie klipów", s.cache, (on) => { s.cache = on; App.persist(); Settings.render(); })) : null)));
   }
 
   /* The recording tab and the first-run wizard live in recording.js. */
-  Settings.paintRecorder = () => App.RecUI.paint();
+  
 
   App.renderNav = () => { buildTopbar(); renderRail(); };
 })();

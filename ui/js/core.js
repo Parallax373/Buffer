@@ -57,19 +57,22 @@ const App = {};
   };
   /** What the user sees as the clip's name: their own title, else the game derived from the file name. */
   App.titleOf = (clip) => App.P.titles[clip.path] || App.gameOf(clip);
+  /** The clip's own name (empty until the user sets one). The game is shown separately, never edited here. */
+  App.customTitle = (clip) => App.P.titles[clip.path] || "";
+  App.whenOf = (clip) => new Date(clip.modified * 1000).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
   /** Turns `el` into a text field to rename the clip; Enter/blur saves, Esc cancels, empty resets. */
   App.editTitle = (el, path, done) => {
     const clip = App.S.byPath.get(path);
     if (!clip) return;
-    const input = h("input", { class: "field titlein", value: App.titleOf(clip), maxLength: 80, spellcheck: false });
+    const input = h("input", { class: "field titlein", value: App.customTitle(clip), placeholder: "Nazwa klipu", maxLength: 80, spellcheck: false });
     let finished = false;
     const finish = (save) => {
       if (finished) return;
       finished = true;
       if (save) {
         const v = input.value.trim();
-        if (v && v !== App.gameOf(clip)) App.P.titles[path] = v; else delete App.P.titles[path];
+        if (v) App.P.titles[path] = v; else delete App.P.titles[path];
         App.persist();
       }
       done();
@@ -163,6 +166,18 @@ const App = {};
     return h("div", { class: "empty" }, h("div", { class: "lines" }, rows),
       h("b", { text: title }), sub ? h("div", { class: "muted", text: sub }) : null,
       actionLabel ? h("button", { class: "btn", text: actionLabel, onClick: onAction }) : null);
+  };
+
+  /* ───── settings building blocks (used by views.js and recording.js) ───── */
+  App.ui = {
+    cap: (t) => h("div", { class: "cap", text: t }),
+    card: (...kids) => h("div", { class: "card2" }, ...kids),
+    srow: (label, ctrl) => h("div", { class: "srow" }, h("span", { class: "lb", text: label }), ctrl),
+    segc: (items, cur, on) => h("div", { class: "seg" }, items.map(([v, t]) =>
+      h("button", { class: String(cur) === String(v) ? "on" : "", text: t, onClick: () => on(v) }))),
+    trow: (title, desc, on, set) => h("div", { class: "trow", onClick: () => set(!on) },
+      h("div", null, h("div", { class: "tt", text: title }), desc ? h("div", { class: "ds", text: desc }) : null),
+      h("span", { class: "toggle lg" + (on ? " on" : "") })),
   };
 
   /* ───── toast ───── */

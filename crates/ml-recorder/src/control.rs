@@ -30,6 +30,7 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
     json!({
         "recording": shared.recording.load(Ordering::Relaxed),
         "idle": shared.idle.load(Ordering::Relaxed),
+        "hotkey_hits": shared.hotkey_hits.load(Ordering::Relaxed),
         "game": shared.active_game.lock().unwrap().as_ref().map(|g| g.name.clone()),
         "post_roll_s": cfg.post_roll_seconds,
         "monitor": shared.monitor_now.load(Ordering::Relaxed),

@@ -1,16 +1,15 @@
 "use strict";
-/* Recorder settings (Ustawienia → Nagrywanie) and the first-run setup wizard. */
+/* Settings → Nagrywanie and the first-run setup wizard (design: "Settings regroup + Setup wizard"). */
 
 App.RecUI = (function () {
   const { h, S, api } = App;
+  const U = App.ui;
   const FOLLOW = "@default";            // "whatever Windows currently uses" (speakers, headset…)
   const SRC = [
-    ["game", "Game", "Dźwięk gry", "render", "Skąd nagrywać dźwięk z komputera (gry, muzyka, filmy)."],
-    ["chat", "Chat", "Czat głosowy", "render", "Rozmówcy z Discorda, Teamspeaka itp. — osobna ścieżka, żeby dało się ją wyciszyć."],
-    ["mic", "Mic", "Mikrofon", "capture", "Twój głos. Dostaje własną ścieżkę z osobną głośnością."],
+    ["game", "Game", "Dźwięk gry", "render", "#1fb89a", "Dźwięk z komputera: gry, muzyka, filmy."],
+    ["chat", "Chat", "Czat głosowy", "render", "#4a9ae0", "Rozmówcy z Discorda, Teamspeaka itp. na osobnej ścieżce, którą da się wyciszyć."],
+    ["mic", "Mic", "Mikrofon", "capture", "#e0a23a", "Twój głos, z własną głośnością."],
   ];
-  const ROLE = { primary: "główne", secondary: "zapasowe", auto: "automatycznie", waiting: "czeka na urządzenie", default: "domyślne Windows",
-    app: "tylko ta aplikacja", appx: "wszystko poza czatem" };
   const CHAT_APPS = [["", "— nie rozdzielaj —"], ["discord", "Discord"], ["teamspeak", "TeamSpeak"], ["ts3client_win64", "TeamSpeak 3"],
     ["teams", "Microsoft Teams"], ["zoom", "Zoom"], ["telegram", "Telegram"], ["skype", "Skype"]];
   const BASE = {
@@ -19,6 +18,16 @@ App.RecUI = (function () {
     encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", marker_hotkey: "Alt+M", popup: true, extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
   };
+  const RES = [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, "Natywna"]];
+  const FPS = [[30, "30 fps"], [60, "60 fps"]];
+  const QUAL = [[8000, "Oszczędna"], [14000, "Standard"], [30000, "Wysoka"]];
+  const LEN = [[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]];
+  const POST_ROLL = [[0, "Od razu"], [10, "10 s"], [30, "30 s"], [60, "60 s"]];
+  const PRESETS = [
+    ["eco", "Lekki", "Mały klip, minimalne obciążenie", { width: 1920, fps: 30, video_kbps: 14000 }, "1080p · 30 fps"],
+    ["bal", "Zbalansowany ★", "Ostry obraz, mieści się w Nitro", { width: 2560, fps: 30, video_kbps: 30000 }, "1440p · 30 fps"],
+    ["max", "Maksymalny", "Natywna rozdzielczość, płynny ruch", { width: 0, fps: 60, video_kbps: 30000 }, "natywna · 60 fps"],
+  ];
 
   let cfg = { ...BASE };
   let devices = { render: [], capture: [], default: {} };
@@ -26,9 +35,15 @@ App.RecUI = (function () {
   let autostart = false;
   let tools = null;
   let meterTimer = 0;
+  let openKey = null;               // which audio row is expanded
+  let advOpen = false;
 
-  const cap = (t) => h("div", { class: "cap", text: t });
   const nameOf = (list, id) => (list.find((d) => d.id === id) || {}).name || "";
+  const fmtBuf = (s) => `${Math.floor(s / 60)}:${String(Math.round(s) % 60).padStart(2, "0")}`;
+  const fmtMb = (mb) => (mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** replaceChildren that skips null/false (a bare null would be printed as the text "null"). */
+  const put = (el, ...kids) => el.replaceChildren(...kids.filter((k) => k != null && k !== false));
 
   async function load() {
     const [c, d, m, a, dir, t] = await Promise.all([
@@ -58,10 +73,24 @@ App.RecUI = (function () {
     App.Rec.refresh();
   }
 
-  /* ───── audio sources ───── */
+  /* ───────────── shared pieces ───────────── */
 
   const defaultFor = (kind, key) =>
     kind === "capture" ? devices.default.capture : key === "chat" ? devices.default.communications : devices.default.render;
+
+  const hotkeyField = (value, onSet) => h("input", { class: "field keyfield", value: String(value).replaceAll("+", " + "), readOnly: true,
+    placeholder: "Naciśnij skrót",
+    onKeydown: (e) => {
+      e.preventDefault();
+      if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
+      const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+      if (!mods.length) { App.toast("Skrót musi zawierać Ctrl, Alt, Shift lub Win", "err"); return; }
+      const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      if (!/^([A-Z0-9]|F([1-9]|1\d|2[0-4]))$/.test(k)) { App.toast("Dozwolone: litery, cyfry i F1–F24", "err"); return; }
+      const combo = [...mods, k].join("+");
+      e.target.value = combo.replaceAll("+", " + ");
+      onSet(combo);
+    } });
 
   /** Select of devices; `allowNone` adds an empty choice (used for the optional backup device). */
   function deviceSelect(key, kind, cur, onPick, allowNone) {
@@ -72,7 +101,7 @@ App.RecUI = (function () {
     const opts = [];
     if (allowNone) opts.push(h("option", { value: "", text: "— wybierz urządzenie —", selected: !cur || !cur.id }));
     opts.push(h("option", { value: FOLLOW, selected: !!cur && cur.id === FOLLOW,
-      text: `Domyślne urządzenie Windows${defName ? ` (teraz: ${defName})` : ""} — podąża za zmianą` }));
+      text: `Domyślne urządzenie Windows${defName ? ` (teraz: ${defName})` : ""}` }));
     if (real && !match) opts.push(h("option", { value: cur.id, text: `${cur.name} (odłączone)`, selected: true }));
     for (const d of list) opts.push(h("option", { value: d.id, text: d.name, selected: !!match && match.id === d.id }));
     return h("select", { class: "field", onChange: (e) => {
@@ -85,87 +114,73 @@ App.RecUI = (function () {
   }
 
   /** Do the game and chat tracks currently resolve to the same playback device? */
-  function sharedOutput() {
+  function sharedOutput(c = cfg) {
     const idOf = (key) => {
-      const p = cfg[key].primary;
+      const p = c[key].primary;
       if (!p || !p.id) return "";
       if (p.id !== FOLLOW) return p.id;
       return key === "chat" ? devices.default.communications : devices.default.render;
     };
-    const g = idOf("game"), c = idOf("chat");
-    return !!g && g === c;
+    const g = idOf("game"), ch = idOf("chat");
+    return !!g && g === ch;
   }
 
-  /** One card per audio source: main device, live level, optional (hidden by default) backup device. */
-  function sourceCards(onChange) {
-    const wrap = h("div", { class: "stack", id: "recSources" });
-    const draw = () => {
-      const shared = sharedOutput();
-      const callout = (shared || cfg.chat_app) ? h("div", { class: "callout",
-        title: "Gra i czat dzielą jedno wyjście. Wskaż aplikację czatu, a jej dźwięk trafi tylko na ścieżkę Czat, a ścieżka Gra dostanie całą resztę." },
-        h("span", { text: "Wspólne wyjście · aplikacja czatu" }),
-        h("select", { class: "field", onChange: (e) => { cfg.chat_app = e.target.value; onChange("chat_app"); draw(); } },
-          CHAT_APPS.map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.chat_app || "") === v })))) : null;
-      wrap.replaceChildren(...SRC.flatMap(([key, name, label, kind, desc]) => {
-        const c = cfg[key];
-        const showBackup = !!c.secondary;
-        const card = h("div", { class: "src", "data-src": name, title: desc },
-          h("div", { class: "nm", text: label }),
-          h("div", { class: "meter" }, h("div")),
-          h("div", { class: "st", text: "—" }),
-          h("div", { class: "pick" },
-            deviceSelect(key, kind, c.primary, (v) => { cfg[key] = { ...cfg[key], primary: v }; onChange(key); draw(); }, false)),
-          showBackup
-            ? h("div", { class: "pick pathrow", title: "Zapasowe: włączy się, gdy główne urządzenie zostanie odłączone" },
-              deviceSelect(key, kind, c.secondary, (v) => { cfg[key] = { ...cfg[key], secondary: v }; onChange(key); draw(); }, true),
-              h("button", { class: "btn ghost", text: "✕", title: "Usuń urządzenie zapasowe", onClick: () => { cfg[key] = { ...cfg[key], secondary: null }; onChange(key); draw(); } }))
-            : h("button", { class: "linkbtn", text: "+ zapasowe", title: "Urządzenie, które włączy się, gdy główne zostanie odłączone", onClick: () => {
-              cfg[key] = { ...cfg[key], secondary: { id: "", name: "" } };   // placeholder until a device is picked
-              draw();
-            } }));
-        return key === "chat" && callout ? [card, callout] : [card];
-      }));
-      pollMeters();
-    };
-    draw();
-    return wrap;
+  /** Name of the device a source will use, plus a short note when something needs attention. */
+  function deviceLabel(c, key, kind) {
+    const list = kind === "render" ? devices.render : devices.capture;
+    if (key === "chat" && c.chat_app) return { text: `${c.chat_app} (osobna ścieżka)`, note: "" };
+    const p = c[key].primary;
+    let text = "nie ustawiono";
+    if (p && p.id === FOLLOW) text = nameOf(list, defaultFor(kind, key)) || "domyślne Windows";
+    else if (p && p.name) text = p.name;
+    let note = "";
+    if (key === "game" && c.chat_app) note = "bez czatu";
+    if (key === "chat" && !c.chat_app && sharedOutput(c)) note = "wspólne wyjście";
+    return { text, note };
   }
 
-  /** Live level of each configured source (works with or without the recorder running). */
-  function pollMeters() {
-    clearInterval(meterTimer);
-    const tick = async () => {
-      const rows = [...document.querySelectorAll("#recSources .src")];
-      if (!rows.length) { clearInterval(meterTimer); return; }
-      const ids = SRC.map(([key, , , kind]) => {
-        if (cfg.chat_app && key === "chat") return "@app:" + cfg.chat_app;
-        if (cfg.chat_app && key === "game") return "@appx:" + cfg.chat_app;
-        const p = cfg[key].primary;
-        if (!p || !p.id) return "";
-        if (p.id !== FOLLOW) return p.id;
-        return kind === "capture" ? "@default:capture" : key === "chat" ? "@default:comm" : "@default:render";
-      });
-      const levels = await api.invoke("recorder_levels", { ids: ids.filter(Boolean) }).catch(() => ({}));
+  /** 10-bar live level meter; `big` = wizard size. */
+  const meterEl = (color, big) => h("span", { class: "mtr" + (big ? " big" : "") },
+    Array.from({ length: 10 }, (_, j) => h("i", { style: { height: `${35 + ((j + 1) / 10) * 65}%`, background: color } })));
+  const paintMeter = (el, level) => {
+    const lv = Math.min(1, level * 1.4);
+    [...el.children].forEach((b, j) => { b.style.opacity = lv * 0.9 + 0.1 > (j + 1) / 10 ? 0.95 : 0.15; });
+  };
+
+  /** Tokens for the level meter of each source (works with or without the recorder running). */
+  function meterTokens(c) {
+    return SRC.map(([key, , , kind]) => {
+      if (c.chat_app && key === "chat") return "@app:" + c.chat_app;
+      if (c.chat_app && key === "game") return "@appx:" + c.chat_app;
+      const p = c[key].primary;
+      if (!p || !p.id) return "";
+      if (p.id !== FOLLOW) return p.id;
+      return kind === "capture" ? "@default:capture" : key === "chat" ? "@default:comm" : "@default:render";
+    });
+  }
+
+  /** Polls levels and paints `[data-src] .mtr` under `rootSel`; `ms` = measuring window, `gap` = pause between rounds. */
+  function pollMeters(getCfg, rootSel, ms, gap) {
+    clearTimeout(meterTimer);
+    let alive = true;
+    const run = async () => {
+      const rows = [...document.querySelectorAll(`${rootSel} [data-src]`)];
+      if (!alive || !rows.length) return;
+      const ids = meterTokens(getCfg());
+      const levels = await api.invoke("recorder_levels", { ids: ids.filter(Boolean), ms }).catch(() => ({}));
+      if (!alive) return;
       for (const row of rows) {
         const i = SRC.findIndex((s) => s[1] === row.dataset.src);
-        const lv = levels[ids[i]] ?? 0;
-        const bar = row.querySelector(".meter div");
-        if (bar) bar.style.width = `${Math.min(100, lv * 140)}%`;
+        const m = row.querySelector(".mtr");
+        if (m) paintMeter(m, levels[ids[i]] ?? 0);
       }
+      meterTimer = setTimeout(run, gap);
     };
-    meterTimer = setInterval(tick, 700);
-    tick();
+    run();
+    return () => { alive = false; clearTimeout(meterTimer); };
   }
 
-  /* ───── video quality with live estimates ───── */
-
-  const RES = [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, "Natywna"]];
-  const QUAL = [[8000, "Oszczędna"], [14000, "Standard"], [30000, "Wysoka"]];
-  const LEN = [[30, "30 s"], [60, "1 min"], [120, "2 min"], [300, "5 min"]];
-  const POST_ROLL = [[0, "Od razu"], [10, "10 s"], [30, "30 s"], [60, "60 s"]];
-
-  const seg = (items, cur, on) => h("div", { class: "seg wrap" }, items.map(([v, t]) =>
-    h("button", { class: String(cur) === String(v) ? "on" : "", text: t, onClick: () => on(v) })));
+  /* ───────────── video: rows, sizes ───────────── */
 
   function outputSize(c) {
     const mon = monitors.find((m) => m.index === c.monitor) || monitors[0] || { width: 1920, height: 1080 };
@@ -175,311 +190,458 @@ App.RecUI = (function () {
 
   function estimates(c) {
     const [w, hgt] = outputSize(c);
-    const audioKbps = 3 * 192;
-    const clipMb = ((c.video_kbps + audioKbps) * c.buffer_seconds) / 8000;
+    const clipMb = ((c.video_kbps + 3 * 192) * c.buffer_seconds) / 8000;
     const diskMb = clipMb * (1 + 8 / c.buffer_seconds);                  // plus the segments being written
     const ramMb = 200 + 170 * ((w * hgt * c.fps) / (1920 * 804 * 30));   // calibrated on one measurement (367 MB @ 1080p30)
     return { w, hgt, clipMb, diskMb, ramMb };
   }
 
-  const fmtMb = (mb) => (mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`);
+  const hw = () => !!(tools && tools.encoder && tools.encoder !== "libx264");
 
-  function meterBar(label, value, scaleMax, ticks, val, text, quiet) {
-    return h("div", { class: "est", title: quiet ? text : "" },
-      h("div", { class: "top" }, h("span", { text: label }), h("b", { text: value })),
-      h("div", { class: "bar" }, h("i", { style: { width: `${Math.min(100, (val / scaleMax) * 100)}%` } }),
-        ...ticks.map(([at, t]) => h("u", { style: { left: `${(at / scaleMax) * 100}%` }, title: t }))),
-      quiet ? null : h("div", { class: "note muted", text }));
+  /** The five video rows; `set(patch)` applies a change. Used by Settings and by the wizard's "Dostosuj". */
+  function videoRows(c, set) {
+    const customQ = !QUAL.some(([v]) => v === c.video_kbps);
+    const rows = [
+      U.srow("Rozdzielczość", U.segc(RES, c.width, (v) => set({ width: +v }))),
+      U.srow("Klatki na sekundę", U.segc(FPS, c.fps, (v) => set({ fps: +v }))),
+      U.srow("Jakość obrazu", U.segc([...QUAL, ...(customQ ? [[c.video_kbps, `${c.video_kbps / 1000} Mb/s`]] : [])], c.video_kbps, (v) => set({ video_kbps: +v }))),
+      U.srow("Długość klipu", U.segc(LEN, c.buffer_seconds, (v) => set({ buffer_seconds: +v }))),
+    ];
+    if (monitors.length) {
+      rows.push(U.srow("Ekran", U.segc(monitors.map((m) => [m.index, `${m.index + 1}: ${m.width}×${m.height}${m.primary ? " ★" : ""}`]), c.monitor, (v) => set({ monitor: +v }))));
+    }
+    return rows;
   }
 
-  /** Controls on the left, what they will cost on the right. `onChange(patch)` persists. */
-  function qualityBlock(c, onChange) {
-    const root = h("div", { class: "qual" });
-    const draw = () => {
+  const bars20 = (v, max) => {
+    const n = Math.round(Math.min(1, v / max) * 20);
+    return Array.from({ length: 20 }, (_, i) => (i < n ? 0.35 + (i / 20) * 0.65 : 0.12));
+  };
+
+  /** Sticky "Co to zajmie" card; call update(c) after any video change. */
+  function summaryCard() {
+    const defs = [["Jeden klip", 500], ["Bufor na dysku", 700], ["Pamięć RAM", 1400]];
+    const refs = defs.map(([label]) => ({
+      val: h("span", { class: "sv" }),
+      bars: Array.from({ length: 20 }, () => h("i")),
+      note: h("div", { class: "sn" }),
+      label,
+    }));
+    const loadEl = h("span", { class: "mono lime", style: { fontWeight: 600 } });
+    const capEl = h("div", { class: "sc" });
+    const el = h("div", { class: "sumside" }, U.cap("Co to zajmie"),
+      ...refs.map((r) => h("div", null,
+        h("div", { class: "sh" }, h("b", { text: r.label }), r.val),
+        h("div", { class: "sb" }, r.bars), r.note)),
+      h("div", { class: "sl" }, h("b", { text: "Obciążenie" }), loadEl), capEl);
+    const update = (c) => {
       const e = estimates(c);
-      const fits = e.clipMb <= 10 ? "mieści się w Discordzie (10 MB)"
-        : e.clipMb <= 50 ? "mieści się w Discordzie z boostem (50 MB)"
-          : e.clipMb <= 500 ? "mieści się w Discordzie z Nitro (500 MB)"
-            : "większy niż limity Discorda — przy eksporcie zostanie zmniejszony";
-      const hw = tools && tools.encoder && tools.encoder !== "libx264";
-      const set = (patch) => { Object.assign(c, patch); onChange(patch); draw(); };
-      const customQ = !QUAL.some(([v]) => v === c.video_kbps);
-      root.replaceChildren(
-        h("div", { class: "controls" },
-          h("div", null, cap("Rozdzielczość"), seg(RES, c.width, (v) => set({ width: +v }))),
-          h("div", null, cap("Klatki na sekundę"), seg([[30, "30 fps"], [60, "60 fps"]], c.fps, (v) => set({ fps: +v }))),
-          h("div", null, cap("Jakość obrazu"),
-            seg([...QUAL, ...(customQ ? [[c.video_kbps, `${c.video_kbps / 1000} Mb/s`]] : [])], c.video_kbps, (v) => set({ video_kbps: +v }))),
-          h("div", null, cap("Długość zapisywanego klipu"), seg(LEN, c.buffer_seconds, (v) => set({ buffer_seconds: +v }))),
-          monitors.length > 1
-            ? h("div", null, cap("Który ekran nagrywać"),
-              seg(monitors.map((m) => [m.index, `${m.index + 1}: ${m.width}×${m.height}${m.primary ? " ★" : ""}`]), c.monitor, (v) => set({ monitor: +v })))
-            : null),
-        h("div", { class: "estimates" },
-          h("div", { class: "cap", text: "Co to zajmie" }),
-          meterBar("Jeden klip", fmtMb(e.clipMb), 500, [[10, "Discord 10 MB"], [50, "Discord 50 MB"]], e.clipMb, fits),
-          meterBar("Bufor na dysku", fmtMb(e.diskMb), 1000, [], e.diskMb, "tymczasowy, nadpisywany"),
-          meterBar("Pamięć RAM", `≈ ${fmtMb(e.ramMb)}`, 2000, [], e.ramMb, "szacunek"),
-          h("div", { class: "est" },
-            h("div", { class: "top" }, h("span", { text: "Obciążenie" }), h("b", { text: hw ? "GPU" : "CPU" })),
-            h("div", { class: "note muted", text: hw ? "nie obciąża gry" : "może obniżyć FPS" })),
-          h("div", { class: "note muted", text: `Obraz zapisywany w ${e.w}×${e.hgt} px, ${c.fps} fps. 10 klipów ≈ ${fmtMb(e.clipMb * 10)}.` })));
+      const vals = [e.clipMb, e.diskMb, e.ramMb];
+      const notes = [
+        e.clipMb <= 10 ? "mieści się w Discordzie (10 MB)" : e.clipMb <= 50 ? "mieści się z Boost (50 MB)"
+          : e.clipMb <= 500 ? "mieści się w Discordzie z Nitro (500 MB)" : "za duży na Discord — wyeksportuj",
+        "tymczasowy, nadpisywany", "szacunek"];
+      refs.forEach((r, i) => {
+        r.val.textContent = (i === 2 ? "≈ " : "") + fmtMb(vals[i]);
+        bars20(vals[i], defs[i][1]).forEach((o, j) => { r.bars[j].style.opacity = o; });
+        r.note.textContent = notes[i];
+      });
+      loadEl.textContent = hw() ? "GPU" : "CPU";
+      capEl.textContent = `Obraz zapisywany w ${e.w}×${e.hgt} px, ${c.fps} fps. 10 klipów ≈ ${fmtMb(e.clipMb * 10)}.`;
     };
-    draw();
-    return root;
+    update(cfg);
+    return { el, update };
   }
 
-  /* ───── hotkey field ───── */
+  /* ───────────── Settings → Nagrywanie ───────────── */
 
-  const hotkeyInput = (value, onSet) => h("input", { class: "field", value, readOnly: true,
-    placeholder: "Kliknij i naciśnij skrót",
-    onKeydown: (e) => {
-      e.preventDefault();
-      if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
-      const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
-      if (!mods.length) { App.toast("Skrót musi zawierać Ctrl, Alt, Shift lub Win", "err"); return; }
-      const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-      if (!/^([A-Z0-9]|F([1-9]|1\d|2[0-4]))$/.test(k)) { App.toast("Dozwolone: litery, cyfry i F1–F24", "err"); return; }
-      const combo = [...mods, k].join("+");
-      e.target.value = combo;
-      onSet(combo);
-    } });
-
-  /* ───── settings tab ───── */
-
-  async function renderTab(body) {
+  async function renderTab(pane) {
     await load();
-    const toggle = (title, desc, on, set) => h("div", { class: "line", onClick: () => set(!on) },
-      h("div", null, h("div", { class: "tt", text: title }), h("div", { class: "ds", text: desc })),
-      h("span", { class: "toggle lg" + (on ? " on" : "") }));
-    const rerender = () => App.Settings.render();
-    const persistSources = () => save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic, chat_app: cfg.chat_app });
+    const sum = summaryCard();
 
-    body.append(
-      h("div", { class: "sec" }, cap("Stan"),
-        h("div", { class: "statusbox", id: "recState" }),
-        h("div", { style: { display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" } },
-          h("button", { class: "btn acc", id: "recSave", text: "Zapisz klip teraz", onClick: async () => {
-            try {
-              const r = await api.invoke("recorder_cmd", { cmd: "save" });
-              if (r.ok) { App.toast(`Zapisano: ${App.baseName(r.path)}`, "ok"); setTimeout(() => App.Lib.load(), 800); }
-              else App.toast(`Nie zapisano: ${r.error}`, "err");
-            } catch (e) { App.toast(`Nagrywanie nie działa: ${e}`, "err"); }
-          } }),
-          h("button", { class: "btn", id: "recToggle", onClick: async () => {
-            if (S.recorder) await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {});
-            else await api.invoke("recorder_launch").catch((e) => App.toast(String(e), "err"));
-            setTimeout(App.Rec.refresh, 1500);
-          } }),
-          h("button", { class: "btn ghost", text: "Uruchom kreator ustawień", onClick: () => wizard() }))),
-      h("div", { class: "sec" }, cap("Źródła dźwięku"), sourceCards(persistSources)),
-      h("div", { class: "sec" }, cap("Jakość nagrywania"),
-        qualityBlock(cfg, (patch) => save(patch)),
-        h("div", { style: { marginTop: "14px", maxWidth: "260px" } }, cap("Przesunięcie dźwięku (ms)"),
-          h("input", { class: "field", type: "number", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms, style: { width: "100%" },
-            title: "Dodatnie opóźnia dźwięk względem obrazu. Dostrój, jeśli głos nie pasuje do ust.",
-            onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) }))),
-      h("div", { class: "sec" }, cap("Skrót zapisu klipu"),
-        hotkeyInput(cfg.hotkey, (c) => save({ hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania")),
-        h("div", { style: { marginTop: "14px" }, title: "Pojawia się jako ◆ na osi czasu w edytorze." }, cap("Znacznik w trakcie gry"),
-          hotkeyInput(cfg.marker_hotkey || "Alt+M", (c) => save({ marker_hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania"))),
-        h("div", { style: { marginTop: "14px" }, title: "Po skrócie nagrywanie trwa jeszcze tyle sekund i dopiero wtedy zapisuje klip, więc w klipie są też chwile tuż po. Drugie naciśnięcie zapisuje od razu." }, cap("Dogrywaj po naciśnięciu skrótu"),
-          seg(POST_ROLL, cfg.post_roll_seconds, (v) => save({ post_roll_seconds: +v }).then(rerender)),
-          null)),
-      toggle("Nagrywaj tylko gry", "Bufor i dźwięk tylko podczas gry", cfg.game_only,
-        async (v) => { await save({ game_only: v }); rerender(); }),
-      toggle("Nagrywaj monitor, na którym jest gra", "Przełącza się na ekran z grą", cfg.follow_game_monitor,
-        async (v) => { await save({ follow_game_monitor: v }); rerender(); }),
-      h("div", { class: "sec" }, cap("Folder zapisu"), h("div", { class: "pathrow" },
-        h("input", { class: "field", value: cfg.output_dir, readOnly: true }),
-        h("button", { class: "btn", text: "Zmień", onClick: async () => {
-          const d = await api.pickFolder();
-          if (d) { await save({ output_dir: d }); rerender(); }
-        } }))),
-      toggle("Osobny folder dla każdej gry", "Podfolder z nazwą gry", cfg.per_game_folders,
-        async (v) => { await save({ per_game_folders: v }); rerender(); }),
-      toggle("Okienko „Buffer aktywny”", "Przy starcie gry i zapisie klipu", cfg.popup,
-        async (v) => { await save({ popup: v }); rerender(); }),
-      h("div", { class: "sec" }, cap("Dodatkowe gry (nazwy procesów, po przecinku)"),
-        h("input", { class: "field", style: { width: "100%" }, placeholder: "np. leagueclient, valorant",
-          value: (cfg.extra_games || []).join(", "),
-          title: "Gry uruchamiane w oknie wykrywamy tylko po nazwie procesu. Pełnoekranowe wykrywane są automatycznie.",
-          onChange: (e) => save({ extra_games: e.target.value.split(",").map((x) => x.trim().toLowerCase().replace(/\.exe$/, "")).filter(Boolean) }) })),
-      toggle("Uruchamiaj nagrywanie z systemem", "Startuje po zalogowaniu", autostart, async (v) => {
-        autostart = await api.invoke("recorder_autostart", { enable: v }).catch(() => autostart);
-        rerender();
+    // sticky status bar
+    const dot = h("span", { class: "sdot" });
+    const title = h("b", { text: "…" });
+    const line = h("div", { class: "mono muted", style: { fontSize: "11.5px" } });
+    const saveBtn = h("button", { class: "btn acc", text: "Zapisz klip teraz", onClick: async () => {
+      try {
+        const r = await api.invoke("recorder_cmd", { cmd: "save" });
+        if (r.ok) { App.toast(`Zapisano: ${App.baseName(r.path)}`, "ok"); setTimeout(() => App.Lib.load(), 800); }
+        else App.toast(`Nie zapisano: ${r.error}`, "err");
+      } catch (e) { App.toast(`Nagrywanie nie działa: ${e}`, "err"); }
+    } });
+    const toggleBtn = h("button", { class: "btn", onClick: async () => {
+      if (S.recorder) await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {});
+      else await api.invoke("recorder_launch").catch((e) => App.toast(String(e), "err"));
+      setTimeout(App.Rec.refresh, 1500);
+    } });
+    const bar = h("div", { class: "statusbar", id: "recState" }, dot, h("div", null, title, line), h("span", { class: "sp" }), saveBtn, toggleBtn);
+    bar._refs = { dot, title, line, saveBtn, toggleBtn };
+
+    // WIDEO
+    const videoBox = h("div", { class: "card2" });
+    const drawVideo = () => {
+      videoBox.replaceChildren(...videoRows(cfg, (patch) => { save(patch); drawVideo(); sum.update(cfg); }));
+    };
+    drawVideo();
+
+    // DŹWIĘK
+    const audioBox = h("div", { class: "card2 audio", id: "recSources" });
+    const persistSources = () => save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic, chat_app: cfg.chat_app });
+    const drawAudio = () => {
+      audioBox.replaceChildren(...SRC.map(([key, name, label, kind, color, tip]) => {
+        const open = openKey === key;
+        const dev = deviceLabel(cfg, key, kind);
+        const head = h("div", { class: "arow", onClick: () => { openKey = open ? null : key; drawAudio(); } },
+          h("span", { class: "sq", style: { background: color } }),
+          h("b", { text: label, title: tip }),
+          h("span", { class: "dev" }, dev.text, dev.note ? h("em", { text: dev.note }) : null),
+          meterEl(color, false),
+          h("span", { class: "arr", text: open ? "▴" : "▾" }));
+        let body = null;
+        if (open) {
+          const c = cfg[key];
+          body = h("div", { class: "abody" },
+            deviceSelect(key, kind, c.primary, (v) => { cfg[key] = { ...cfg[key], primary: v }; persistSources(); drawAudio(); }, false),
+            c.secondary
+              ? h("div", { class: "pathrow", title: "Zapasowe: włączy się, gdy główne urządzenie zostanie odłączone" },
+                deviceSelect(key, kind, c.secondary, (v) => { cfg[key] = { ...cfg[key], secondary: v }; persistSources(); drawAudio(); }, true),
+                h("button", { class: "btn ghost", text: "✕", title: "Usuń urządzenie zapasowe", onClick: () => { cfg[key] = { ...cfg[key], secondary: null }; persistSources(); drawAudio(); } }))
+              : h("button", { class: "linkbtn", text: "+ urządzenie zapasowe", title: "Włączy się, gdy główne zostanie odłączone",
+                onClick: () => { cfg[key] = { ...cfg[key], secondary: { id: "", name: "" } }; drawAudio(); } }),
+            key === "chat" && (sharedOutput() || cfg.chat_app)
+              ? h("div", { class: "srow", title: "Gra i czat dzielą jedno wyjście. Wskaż aplikację czatu: jej dźwięk trafi tylko na ścieżkę Czat, a Gra dostanie resztę." },
+                h("span", { class: "lb", text: "Aplikacja czatu" }),
+                h("select", { class: "field", onChange: (e) => { cfg.chat_app = e.target.value; persistSources(); drawAudio(); } },
+                  CHAT_APPS.map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.chat_app || "") === v }))))
+              : null);
+        }
+        return h("div", { class: "aitem", "data-src": name }, head, body);
       }));
+      pollMeters(() => cfg, "#recSources", 350, 350);
+    };
+    drawAudio();
+
+    // SKRÓTY
+    const keysBox = h("div", { class: "card2" });
+    const drawKeys = () => {
+      const roll = U.srow("Dogrywaj po skrócie", U.segc(POST_ROLL, cfg.post_roll_seconds, (v) => { save({ post_roll_seconds: +v }); drawKeys(); }));
+      roll.title = "Po skrócie nagrywanie trwa jeszcze tyle sekund i dopiero wtedy zapisuje klip, więc w klipie są też chwile tuż po. Drugie naciśnięcie zapisuje od razu.";
+      keysBox.replaceChildren(
+        U.srow("Zapisz klip", hotkeyField(cfg.hotkey, (c) => save({ hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania"))),
+        U.srow("Znacznik w grze", hotkeyField(cfg.marker_hotkey || "Alt+M", (c) => save({ marker_hotkey: c }, "Skrót zadziała po ponownym uruchomieniu nagrywania"))),
+        roll);
+    };
+    drawKeys();
+
+    // ZACHOWANIE
+    const behBox = h("div", { class: "card2 tgl" });
+    const drawBeh = () => {
+      behBox.replaceChildren(
+        U.trow("Nagrywaj tylko gry", "Bufor i dźwięk tylko podczas gry", cfg.game_only, async (v) => { await save({ game_only: v }); drawBeh(); }),
+        U.trow("Nagrywaj monitor, na którym jest gra", "Przełącza się na ekran z grą", cfg.follow_game_monitor, async (v) => { await save({ follow_game_monitor: v }); drawBeh(); }),
+        U.trow("Okienko „Buffer aktywny”", "Przy starcie gry i zapisie klipu", cfg.popup, async (v) => { await save({ popup: v }); drawBeh(); }),
+        U.trow("Uruchamiaj z systemem", "Startuje po zalogowaniu", autostart, async (v) => {
+          autostart = await api.invoke("recorder_autostart", { enable: v }).catch(() => autostart);
+          drawBeh();
+        }));
+    };
+    drawBeh();
+
+    // ZAAWANSOWANE
+    const advBox = h("div");
+    const drawAdv = () => {
+      put(advBox,
+        h("button", { class: "advhead", onClick: () => { advOpen = !advOpen; drawAdv(); } }, h("span", { text: "ZAAWANSOWANE" }), h("span", { text: advOpen ? "▴" : "▾" })),
+        advOpen ? h("div", { class: "card2 rise" },
+          U.srow("Przesunięcie dźwięku", h("input", { class: "field monoin", type: "number", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms,
+            title: "Dodatnie opóźnia dźwięk względem obrazu (ms). Dostrój, jeśli głos nie pasuje do ust.",
+            onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) })),
+          U.srow("Dodatkowe gry", h("input", { class: "field", placeholder: "procesy po przecinku: leagueclient, valorant",
+            title: "Gry w oknie wykrywamy tylko po nazwie procesu. Pełnoekranowe wykrywane są automatycznie.",
+            value: (cfg.extra_games || []).join(", "),
+            onChange: (e) => save({ extra_games: e.target.value.split(",").map((x) => x.trim().toLowerCase().replace(/\.exe$/, "")).filter(Boolean) }) })),
+          U.srow("Diagnostyka", h("span", { class: "mono muted", id: "recDiag", style: { fontSize: "12px" } }))) : null);
+      paint();
+    };
+    drawAdv();
+
+    pane.append(bar, h("div", { class: "setgrid" },
+      h("div", { class: "setmain" },
+        h("div", null, U.cap("Wideo"), videoBox),
+        h("div", null, U.cap("Dźwięk · 3 ścieżki"), audioBox),
+        h("div", null, U.cap("Skróty"), keysBox),
+        h("div", null, U.cap("Zachowanie"), behBox),
+        advBox),
+      sum.el));
     paint();
   }
 
-  /** Updates the live parts (state line, active device per source) without rebuilding the tab. */
+  /** Updates the live parts (status bar, device names, diagnostics) without rebuilding the tab. */
   function paint() {
+    const bar = App.$("#recState");
+    if (!bar || !bar._refs) return;
+    const { dot, title, line, saveBtn, toggleBtn } = bar._refs;
     const r = S.recorder;
-    const st = App.$("#recState");
-    if (!st) return;
     const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
-    const color = r && r.idle ? "var(--muted)" : !r || !r.recording ? "var(--err)" : down.length ? "var(--warn)" : "var(--ok)";
-    const text = !r ? "● Nagrywanie nie działa"
-      : r.idle ? "● Czeka na grę — nagrywa tylko, gdy gra jest uruchomiona"
-      : !r.recording ? `● Zatrzymane${r.last_error ? ": " + r.last_error : ""}`
-        : down.length ? `● Nagrywa, ale nie działa: ${down.join(", ")}`
-          : `● Nagrywa · bufor ${r.buffer_s} / ${r.buffer_target_s} s`;
-    st.replaceChildren(h("span", { style: { color }, text }),
-      h("span", { class: "mono muted", text: r ? `skrót ${r.hotkey} · restarty ${r.restarts}` : "" }));
-    const tgl = App.$("#recToggle");
-    if (tgl) tgl.textContent = r ? "Zatrzymaj nagrywanie" : "Uruchom nagrywanie";
-    const sv = App.$("#recSave");
-    if (sv) sv.disabled = !r || (!r.recording && !r.idle);
-    for (const row of document.querySelectorAll("#recSources .src")) {
+    let state = "on", t = "Nagrywa", l = "";
+    if (!r) { state = "off"; t = "Nagrywanie nie działa"; l = "kliknij Uruchom"; }
+    else if (r.idle) { state = "idle"; t = "Czeka na grę"; l = "nagrywa tylko podczas gry"; }
+    else if (!r.recording) { state = "off"; t = "Zatrzymane"; l = r.last_error || ""; }
+    else if (down.length) { state = "warn"; t = "Nagrywa — uwaga"; l = `nie działa: ${down.join(", ")}`; }
+    if (r && !l) l = `bufor ${fmtBuf(r.buffer_s)} / ${fmtBuf(r.buffer_target_s)} · skrót ${String(r.hotkey).replaceAll("+", " + ")}`;
+    dot.className = `sdot ${state}`;
+    title.textContent = t;
+    line.textContent = l;
+    saveBtn.disabled = !r || (!r.recording && !r.idle);
+    toggleBtn.textContent = r ? "Zatrzymaj" : "Uruchom";
+    const diag = App.$("#recDiag");
+    if (diag) diag.textContent = r ? `restarty ${r.restarts} · koder ${r.encoder || "?"} · ${r.capture || "?"}` : "—";
+    for (const row of document.querySelectorAll("#recSources .aitem")) {
       const src = r && r.sources.find((s) => s.name === row.dataset.src);
-      const stEl = row.querySelector(".st");
-      stEl.textContent = !src ? "—"
-        : src.live ? `działa · ${ROLE[src.role] || src.role}`
-          : src.status.replace(/^down: /, "brak: ");
-      stEl.classList.toggle("bad", !!src && !src.live);
-      stEl.title = src ? src.device : "";
+      const dev = row.querySelector(".dev");
+      if (!src || !dev) continue;
+      const base = dev.firstChild ? dev.firstChild.textContent : "";
+      const note = !src.live ? src.status.replace(/^down: /, "brak: ") : (src.role === "secondary" ? "zapasowe" : "");
+      dev.replaceChildren(...[src.device || base, note ? h("em", { class: src.live ? "" : "bad", text: note }) : null].filter(Boolean));   // replaceChildren(null) would print "null"
     }
   }
 
-  /* ───── first-run wizard ───── */
+  /* ───────────── first-run wizard ───────────── */
 
-  const STEPS = ["Witaj", "Folder", "Dźwięk", "Obraz", "Skróty", "Gotowe"];
+  const STEPS = ["Start", "Dźwięk", "Obraz", "Gotowe"];
 
   async function wizard() {
     await load();
     const found = await api.invoke("detect_clip_folders").catch(() => []);
+    const fresh = !App.P.settings.onboarded;
     const w = {
-      step: 0,
-      dir: App.P.libDirs[0] && !App.fresh ? App.P.libDirs[0] : cfg.output_dir,
-      cfg: JSON.parse(JSON.stringify(cfg)),
-      autostart: true,
-      libs: new Set(found.map((f) => f.path)),
+      step: 0, dir: cfg.output_dir, cfg: JSON.parse(JSON.stringify(cfg)), autostart: true, adv: false,
+      checks: [], checksDone: false, running: false, hits0: null, tested: false, editKey: false,
     };
-    // First choices: follow the Windows default output (speakers OR headset, whichever is in use),
-    // a dedicated "chat" endpoint if the hardware has one, and the default microphone.
+    // First choices: follow the Windows default output, a dedicated "chat" endpoint if there is one, the default mic.
     const hasChat = devices.render.find((d) => /chat|czat|communic/i.test(d.name));
     const follow = { id: FOLLOW, name: "Domyślne urządzenie Windows" };
     if (!w.cfg.game.primary) w.cfg.game.primary = follow;
     if (!w.cfg.chat.primary) w.cfg.chat.primary = hasChat ? { id: hasChat.id, name: hasChat.name } : follow;
     if (!w.cfg.mic.primary) w.cfg.mic.primary = follow;
-    // One shared output is the common case: split the chat app out of the game track by default.
-    cfg = { ...cfg, game: w.cfg.game, chat: w.cfg.chat, mic: w.cfg.mic, chat_app: w.cfg.chat_app };
-    if (sharedOutput() && !w.cfg.chat_app) w.cfg.chat_app = "discord";
+    if (fresh) Object.assign(w.cfg, PRESETS[1][3]);
+    // One shared output is the common case: split a chat app out of the game track by default.
+    if (sharedOutput(w.cfg) && !w.cfg.chat_app) w.cfg.chat_app = "discord";
 
-    const overlay = h("div", { class: "wiz" });
+    const overlay = h("div", { class: "wz" });
     document.body.append(overlay);
-    const close = () => { clearInterval(meterTimer); overlay.remove(); };
+    let stopMeters = () => {};
+    let statusTimer = 0;
+    const close = () => { stopMeters(); clearInterval(statusTimer); overlay.remove(); };
+    const presetOf = () => PRESETS.find((p) => p[3].width === w.cfg.width && p[3].fps === w.cfg.fps && p[3].video_kbps === w.cfg.video_kbps);
 
-    const render = () => {
-      const c = w.cfg;
-      clearInterval(meterTimer);
-      let body;
-      switch (w.step) {
-        case 0:
-          body = [
-            h("div", { style: { display: "flex", alignItems: "center", gap: "14px" } }, App.logo(64),
-              h("h2", { text: "Witaj w Buffer" })),
-            h("p", { class: "muted", text: "Buffer nagrywa w tle ostatnie minuty. Jeden skrót zapisuje klip." }),
-            h("div", { class: "stack" },
-              h("div", { class: "statusbox" }, h("span", { text: "Nagrywanie i eksport (ffmpeg)" }),
-                h("span", { style: { color: tools?.ffmpeg_found ? "var(--ok)" : "var(--err)" },
-                  text: tools?.ffmpeg_found ? "● gotowe — wbudowane w aplikację" : "● brak ffmpeg — zainstaluj ponownie aplikację" })),
-              h("div", { class: "statusbox" }, h("span", { text: "Kodowanie wideo" }),
-                h("span", { style: { color: "var(--ok)" },
-                  text: ({ h264_nvenc: "● karta NVIDIA (NVENC)", h264_amf: "● karta AMD (AMF)", h264_qsv: "● Intel (QuickSync)", libx264: "● procesor (CPU)" })[tools?.encoder] || "● wykrywanie…" }))),
-          ];
-          break;
-        case 1:
-          body = [
-            h("h2", { text: "Gdzie zapisywać klipy?" }),
-            ...(found.length ? [
-              cap("Znalezione foldery z klipami — dodać do biblioteki?"),
-              ...found.map((f) => h("div", { class: "found" + (w.libs.has(f.path) ? " on" : ""),
-                onClick: () => { w.libs.has(f.path) ? w.libs.delete(f.path) : w.libs.add(f.path); render(); } },
-                h("span", { class: "chk", text: w.libs.has(f.path) ? "✓" : "" }),
-                h("div", null, h("div", { class: "mono", text: f.path }), h("div", { class: "muted", text: f.source })),
-                h("span", { class: "mono muted", text: `${f.clips} klipów` }))),
-            ] : []),
-            cap("Nowe klipy zapisuj w"),
-            h("div", { class: "pathrow" }, h("input", { class: "field", value: w.dir, readOnly: true }),
-              h("button", { class: "btn", text: "Zmień", onClick: async () => { const d = await api.pickFolder(); if (d) { w.dir = d; render(); } } })),
-            h("div", { class: "line", onClick: () => { c.per_game_folders = !c.per_game_folders; render(); } },
-              h("div", null, h("div", { class: "tt", text: "Osobny folder dla każdej gry" }),
-                h("div", { class: "ds", text: "Podfolder z nazwą gry" })),
-              h("span", { class: "toggle lg" + (c.per_game_folders ? " on" : "") })),
-          ];
-          break;
-        case 2:
-          cfg = { ...cfg, game: c.game, chat: c.chat, mic: c.mic, chat_app: c.chat_app };   // the shared meter code reads `cfg`
-          body = [
-            h("h2", { text: "Skąd nagrywać dźwięk?" }),
-            h("p", { class: "muted", text: "Domyślnie to, czego używasz w Windows. Każde źródło ma osobną ścieżkę." }),
-            sourceCards(() => { c.game = cfg.game; c.chat = cfg.chat; c.mic = cfg.mic; c.chat_app = cfg.chat_app; }),
-          ];
-          break;
-        case 3:
-          body = [h("h2", { text: "Jakość obrazu" }), qualityBlock(c, () => {})];
-          break;
-        case 4:
-          body = [
-            h("h2", { text: "Skrót i zachowanie" }),
-            cap("Skrót zapisu klipu"),
-            hotkeyInput(c.hotkey, (k) => { c.hotkey = k; }),
-            cap("Dogrywaj po naciśnięciu skrótu"),
-            seg(POST_ROLL, c.post_roll_seconds, (v) => { c.post_roll_seconds = +v; render(); }),
-            h("div", { class: "line", onClick: () => { c.game_only = !c.game_only; render(); } },
-              h("div", null, h("div", { class: "tt", text: "Nagrywaj tylko gry" }),
-                h("div", { class: "ds", text: "Bufor i dźwięk tylko podczas gry" })),
-              h("span", { class: "toggle lg" + (c.game_only ? " on" : "") })),
-            h("div", { class: "line", onClick: () => { c.popup = !c.popup; render(); } },
-              h("div", null, h("div", { class: "tt", text: "Okienko „Buffer aktywny”" }),
-                h("div", { class: "ds", text: "Skrót i ostrzeżenia o dźwięku" })),
-              h("span", { class: "toggle lg" + (c.popup ? " on" : "") })),
-            h("div", { class: "line", onClick: () => { w.autostart = !w.autostart; render(); } },
-              h("div", null, h("div", { class: "tt", text: "Uruchamiaj z Windows" }),
-                h("div", { class: "ds", text: "Startuje po zalogowaniu" })),
-              h("span", { class: "toggle lg" + (w.autostart ? " on" : "") })),
-          ];
-          break;
-        default: {
-          const e = estimates(c);
-          body = [
-            h("h2", { text: "Wszystko gotowe" }),
-            h("div", { class: "stack" },
-              h("div", { class: "statusbox" }, h("span", { text: "Folder" }), h("span", { class: "mono", text: w.dir })),
-              h("div", { class: "statusbox" }, h("span", { text: "Skrót zapisu" }), h("span", { class: "mono", text: c.hotkey })),
-              h("div", { class: "statusbox" }, h("span", { text: "Obraz" }),
-                h("span", { class: "mono", text: `${e.w}×${e.hgt} · ${c.fps} fps · klip ${c.buffer_seconds} s ≈ ${fmtMb(e.clipMb)}` })),
-              h("div", { class: "statusbox" }, h("span", { text: "Dźwięk" }),
-                h("span", { class: "mono", text: SRC.map(([k, n]) => `${n}: ${c[k].primary ? (c[k].primary.id === FOLLOW ? "domyślne" : "ok") : "brak"}`).join(" · ") }))),
-            h("p", { class: "muted", text: "Wszystko zmienisz później w Ustawieniach." }),
-          ];
-        }
-      }
+    /* ----- pieces ----- */
+    const rail = () => h("div", { class: "wzrail" }, STEPS.map((label, i) => h("div", { class: "wzstep" },
+      h("div", { class: "bars" }, Array.from({ length: 6 }, (_, j) => h("i", { style: {
+        opacity: i < w.step ? 0.5 : i === w.step ? 1 : 0.12, transitionDelay: `${j * 0.04}s` } }))),
+      h("span", { text: label, style: { color: i === w.step ? "#c6f432" : i < w.step ? "#8e9484" : "#4a5040" } }))));
 
-      const last = w.step === STEPS.length - 1;
-      overlay.replaceChildren(h("div", { class: "wizcard" },
-        h("div", { class: "wizsteps" }, STEPS.map((t, i) => h("span", { class: "s" + (i === w.step ? " on" : i < w.step ? " ok" : "") }, t))),
-        h("div", { class: "wizbody" }, body),
-        h("div", { class: "wizfoot" },
-          h("button", { class: "btn ghost", text: "Użyj ustawień domyślnych",
-            title: "Domyślne urządzenia Windows, folder Wideo/Buffer, skrót Alt+Q", onClick: async () => { await finish(); } }),
-          h("span", { style: { flex: 1 } }),
-          w.step > 0 ? h("button", { class: "btn", text: "Wstecz", onClick: () => { w.step--; render(); } }) : null,
-          h("button", { class: "btn acc", text: last ? "Zakończ i włącz nagrywanie" : "Dalej", onClick: async () => {
-            if (!last) { w.step++; render(); return; }
-            await finish();
-          } }))));
+    const bigLogo = () => {
+      const tails = [30, 10, 38, 18, 26, 6, 34, 14, 40, 22, 8, 32, 16];
+      return h("div", { class: "biglogo" }, tails.map((t, i) => {
+        const d = Math.abs(i - 6), wd = 10 + (6 - d) * 11, dl = `${i * 0.045}s`;
+        return h("div", { class: "l" },
+          h("div", { class: "t" }, h("i", { style: { width: `${t * 0.8}px`, animationDelay: dl } })),
+          h("i", { class: "w", style: { width: `${wd}px`, animationDelay: dl } }));
+      }));
     };
 
-    async function finish() {
-      const c = w.cfg;
+    const stepStart = () => {
+      const rows = [
+        ["ffmpeg", () => tools?.ffmpeg_found ? ["ok", tools.ffmpeg_bundled ? "✓ wbudowany" : "✓ w systemie"] : ["warn", "Brak ffmpeg — zainstaluj aplikację ponownie"]],
+        ["Kodowanie wideo", () => {
+          const e = tools?.encoder;
+          return e && e !== "libx264"
+            ? ["ok", `✓ ${({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync" })[e] || e}`]
+            : ["warn", "Użyję procesora zamiast karty"];
+        }],
+        ["Urządzenia audio", () => {
+          const n = (devices.render.length ? 2 : 0) + (devices.capture.length ? 1 : 0);
+          return n >= 3 ? ["ok", "✓ 3 źródła"] : n ? ["warn", `${n} z 3 — resztę wskażesz w Ustawieniach`] : ["warn", "Nie wykryto — wskażesz w Ustawieniach"];
+        }],
+      ];
+      const els = rows.map(([label]) => {
+        const dot = h("span", { class: "cdot" }), val = h("span", { class: "mono cval" });
+        return { dot, val, row: h("div", { class: "crow wait" }, dot, h("span", { text: label }), val) };
+      });
+      const paintRow = (i) => {
+        const st = w.checks[i] || { state: "wait", val: "" };
+        const e = els[i];
+        e.row.className = `crow ${st.state}`;
+        e.dot.textContent = st.state === "ok" ? "✓" : st.state === "warn" ? "!" : "";
+        e.val.textContent = st.state === "active" ? "sprawdzam…" : st.val || "";
+      };
+      const run = async () => {
+        if (w.checksDone || w.running) return;
+        w.running = true;
+        for (let i = 0; i < rows.length; i++) {
+          w.checks[i] = { state: "active", val: "" };
+          paintRow(i);
+          const started = Date.now();
+          const [st, val] = rows[i][1]();
+          await sleep(Math.max(0, 700 - (Date.now() - started)));
+          if (!overlay.isConnected) return;
+          w.checks[i] = { state: st, val };
+          paintRow(i);
+        }
+        w.checksDone = true;
+        w.running = false;
+        if (w.step === 0) renderFooter();
+      };
+      els.forEach((_, i) => paintRow(i));
+      if (!w.checksDone) setTimeout(run, 900);          // let the logo build first
+      return h("div", { class: "stack16" },
+        h("div", { class: "wzhero" }, bigLogo(),
+          h("div", { class: "wzhello" }, h("div", { class: "big", text: "Witaj w Buffer" }),
+            h("div", { class: "muted", text: "Buffer nagrywa w tle ostatnie minuty. Jeden skrót zapisuje klip." }))),
+        h("div", { class: "stack8" }, els.map((e) => e.row)));
+    };
+
+    const stepAudio = () => {
+      const rows = SRC.map(([key, name, label, kind, color, tip], i) => {
+        const dev = deviceLabel(w.cfg, key, kind);
+        return h("div", { class: "wzaudio", "data-src": name, title: tip, style: { animationDelay: `${0.1 + i * 0.1}s` } },
+          h("span", { class: "sq", style: { background: color } }), h("b", { text: label }),
+          h("span", { class: "dev" }, dev.text, dev.note ? h("em", { text: dev.note }) : null), meterEl(color, true));
+      });
+      setTimeout(() => { if (w.step === 1) stopMeters = pollMeters(() => w.cfg, ".wzbody", 140, 40); }, 400);
+      return h("div", { class: "stack12" },
+        h("div", null, h("div", { class: "big", text: "Skąd nagrywać dźwięk?" }),
+          h("div", { class: "muted", text: "Wykryliśmy urządzenia z Windows. Każde źródło ma osobną ścieżkę. Zmienisz je w Ustawieniach." })),
+        ...rows,
+        h("div", { class: "faint", text: "Poruszaj się w grze lub powiedz coś — paski powinny się ruszać." }));
+    };
+
+    const stepPicture = () => {
+      const sumBars = Array.from({ length: 20 }, () => h("i"));
+      const valEl = h("b", { class: "mono" }), noteEl = h("div", { class: "muted", style: { fontSize: "12px", marginTop: "6px" } });
+      const lenEl = h("span");
+      const cardsBox = h("div", { class: "presets3" });
+      const advBox = h("div");
+      const refresh = () => {
+        const e = estimates(w.cfg);
+        valEl.textContent = fmtMb(e.clipMb);
+        lenEl.textContent = `Jeden klip (${fmtBuf(w.cfg.buffer_seconds)})`;
+        bars20(e.clipMb, 500).forEach((o, j) => { sumBars[j].style.opacity = o; });
+        noteEl.textContent = `${e.clipMb <= 10 ? "mieści się w Discordzie" : e.clipMb <= 50 ? "mieści się z Boost" : e.clipMb <= 500 ? "mieści się z Nitro" : "większy niż limity Discorda"} · ${hw() ? "obciąża GPU, nie grę" : "obciąża procesor"}`;
+        const cur = presetOf();
+        [...cardsBox.children].forEach((c, i) => c.classList.toggle("on", cur === PRESETS[i]));
+      };
+      PRESETS.forEach((p, i) => {
+        cardsBox.append(h("div", { class: "pcard", style: { animationDelay: `${0.05 + i * 0.07}s` }, onClick: () => { Object.assign(w.cfg, p[3]); refresh(); drawAdv(); } },
+          h("b", { text: p[1] }), h("div", { class: "muted", text: p[2] }), h("div", { class: "mono spec", text: p[4] })));
+      });
+      const drawAdv = () => {
+        put(advBox,
+          h("button", { class: "advlink", text: `Dostosuj ${w.adv ? "▴" : "▾"}`, onClick: () => { w.adv = !w.adv; drawAdv(); } }),
+          w.adv ? h("div", { class: "card2 rise compact" }, ...videoRows(w.cfg, (patch) => { Object.assign(w.cfg, patch); refresh(); drawAdv(); })) : null);
+      };
+      refresh(); drawAdv();
+      return h("div", { class: "stack12" },
+        h("div", null, h("div", { class: "big", text: "Jakość obrazu" }), h("div", { class: "muted", text: "Wybierz profil. Szczegóły zmienisz poniżej lub później." })),
+        cardsBox,
+        h("div", { class: "card2 pad" }, h("div", { class: "between" }, lenEl, valEl), h("div", { class: "sb" }, sumBars), noteEl),
+        advBox);
+    };
+
+    const stepDone = () => {
+      const e = estimates(w.cfg);
+      const hotVal = h("span", { class: "mono" }), strip = h("div", { class: "keystrip" });
+      const drawKey = () => {
+        hotVal.replaceChildren(...(w.editKey
+          ? [hotkeyField(w.cfg.hotkey, (c) => { w.cfg.hotkey = c; w.editKey = false; w.tested = false; applyKey().then(drawKey); drawKey(); })]
+          : [String(w.cfg.hotkey).replaceAll("+", " + ")]));
+        strip.className = `keystrip${w.tested ? " ok" : ""}`;
+        strip.textContent = w.tested ? "✓ Skrót działa" : `Naciśnij ${String(w.cfg.hotkey).replaceAll("+", " + ")}, aby przetestować`;
+      };
+      const rows = [
+        ["Folder", h("span", { class: "mono", text: w.dir }), h("button", { class: "linkbtn", text: "Zmień", onClick: async () => {
+          const d = await api.pickFolder(); if (d) { w.dir = d; renderStep(); } } })],
+        ["Skrót zapisu", hotVal, h("button", { class: "linkbtn", text: "Zmień", onClick: () => { w.editKey = true; drawKey(); } })],
+        ["Obraz", h("span", { class: "mono", text: `${e.w}×${e.hgt} · ${w.cfg.fps} fps · klip ${fmtBuf(w.cfg.buffer_seconds)} ≈ ${fmtMb(e.clipMb)}` }),
+          h("button", { class: "linkbtn", text: "Zmień", onClick: () => { w.step = 2; renderAll(); } })],
+        ["Dźwięk", h("span", { class: "mono", text: "Game · Chat · Mic ✓" }), h("span")],
+      ];
+      drawKey();
+      return h("div", { class: "stack12" },
+        h("div", { class: "donehead" }, h("span", { class: "tickc", text: "✓" }), h("div", { class: "big", text: "Wszystko gotowe" })),
+        ...rows.map(([label, val, act], i) => h("div", { class: "sumrow", style: { animationDelay: `${0.15 + i * 0.07}s` } },
+          h("span", { class: "muted", text: label }), val, act)),
+        strip,
+        h("div", { class: "faint", text: "Skróty, zachowanie i motyw zmienisz w Ustawieniach." }));
+    };
+
+    /* ----- shell ----- */
+    const body = h("div", { class: "wzbody" });
+    const foot = h("div", { class: "wzfoot" });
+    const railBox = h("div");
+    overlay.append(h("div", { class: "wzcard" }, h("div", { class: "wzsweep" }, h("div")), railBox, body, foot));
+
+    const nextReady = () => w.step !== 0 || w.checksDone;
+    function renderFooter() {
+      const last = w.step === STEPS.length - 1;
+      const ready = nextReady();
+      put(foot,
+        h("button", { class: "btn ghost", text: "Użyj ustawień domyślnych", onClick: () => finish() }),
+        h("span", { class: "sp" }),
+        w.step > 0 ? h("button", { class: "btn", text: "Wstecz", onClick: () => { w.step--; renderAll(); } }) : null,
+        h("button", { class: "btn nextbtn" + (ready ? " acc" : " off"), disabled: !ready, text: last ? "Zakończ i włącz nagrywanie" : "Dalej",
+          onClick: () => { if (!ready) return; if (last) finish(); else { w.step++; renderAll(); } } }));
+    }
+
+    function renderStep() {
+      stopMeters();
+      clearInterval(statusTimer);
+      const el = h("div", { class: "stepbox stepin" }, [stepStart, stepAudio, stepPicture, stepDone][w.step]());
+      body.replaceChildren(el);                // a new node each time restarts the animation
+      if (w.step === 3) armRecorder();
+    }
+
+    function renderAll() { railBox.replaceChildren(rail()); renderFooter(); renderStep(); }
+
+    /* The last step arms the recorder with the chosen settings so the shortcut can really be tested. */
+    async function persist() {
+      const c = JSON.parse(JSON.stringify(w.cfg));
       c.output_dir = w.dir;
       for (const [k] of SRC) if (c[k].secondary && !c[k].secondary.id) c[k].secondary = null;
       cfg = { ...cfg, ...c };
-      await api.invoke("set_recorder_config", { config: cfg });
-      App.P.libDirs = [w.dir, ...found.filter((f) => w.libs.has(f.path)).map((f) => f.path)]
-        .filter((p, i, a) => p && a.indexOf(p) === i);
+      await api.invoke("set_recorder_config", { config: c });
+    }
+    async function applyKey() {
+      await persist();
+      if (S.recorder) { await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {}); await sleep(1200); }
+      await api.invoke("recorder_launch").catch(() => {});
+      await sleep(1500);
+      await App.Rec.refresh();
+      w.hits0 = S.recorder ? S.recorder.hotkey_hits : null;
+    }
+    async function armRecorder() {
+      await persist();
+      if (S.recorder) await api.invoke("recorder_cmd", { cmd: "reload" }).catch(() => {});
+      else { await api.invoke("recorder_launch").catch((e) => App.toast(String(e), "err")); await sleep(1500); }
+      await App.Rec.refresh();
+      if (w.hits0 == null) w.hits0 = S.recorder ? S.recorder.hotkey_hits : 0;
+      clearInterval(statusTimer);
+      statusTimer = setInterval(async () => {
+        await App.Rec.refresh();
+        if (S.recorder && w.hits0 != null && S.recorder.hotkey_hits > w.hits0 && !w.tested) {
+          w.tested = true;
+          const s = body.querySelector(".keystrip");
+          if (s) { s.className = "keystrip ok"; s.textContent = "✓ Skrót działa"; }
+        }
+      }, 400);
+    }
+
+    async function finish() {
+      w.cfg.output_dir = w.dir;
+      await persist();
+      App.P.libDirs = [...new Set([w.dir, ...found.map((f) => f.path), ...App.P.libDirs.filter((d) => !fresh || d === w.dir)])].filter(Boolean);
       App.P.settings.onboarded = true;
       App.persist();
       await api.invoke("recorder_autostart", { enable: w.autostart }).catch(() => {});
@@ -492,8 +654,14 @@ App.RecUI = (function () {
       if (S.view === "set") App.Settings.render();
     }
 
-    render();
+    renderAll();
   }
 
-  return { renderTab, paint, wizard };
+  return {
+    renderTab, paint, wizard,
+    ensureLoaded: load,
+    cfg: () => cfg,
+    save,
+    toolsInfo: () => tools,
+  };
 })();

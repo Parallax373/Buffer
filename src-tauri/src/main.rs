@@ -522,12 +522,16 @@ async fn recorder_devices() -> Result<serde_json::Value, String> {
 
 /// Peak level (0..1) per endpoint id / "@default:*" token, for the live meters in the audio settings.
 #[tauri::command]
-async fn recorder_levels(ids: Vec<String>) -> Result<serde_json::Value, String> {
+async fn recorder_levels(ids: Vec<String>, ms: Option<u64>) -> Result<serde_json::Value, String> {
     if ids.is_empty() {
         return Ok(serde_json::json!({}));
     }
     tauri::async_runtime::spawn_blocking(move || {
+        let window = ms.map(|m| format!("--ms={m}"));
         let mut args: Vec<&str> = vec!["levels"];
+        if let Some(w) = &window {
+            args.push(w);
+        }
         args.extend(ids.iter().map(|s| s.as_str()));
         let raw = recorder_cli(&args)?;
         serde_json::from_str(&raw).map_err(|e| e.to_string())

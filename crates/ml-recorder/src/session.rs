@@ -62,6 +62,8 @@ pub struct Shared {
     pub flash: Mutex<Option<(Instant, bool)>>,
     /// Marker hotkey presses (unix milliseconds); the ones inside a clip are written next to it on save.
     pub markers: Mutex<Vec<u64>>,
+    /// How many times the save hotkey was pressed (the setup wizard uses it to test the shortcut).
+    pub hotkey_hits: AtomicU32,
 }
 
 impl Shared {
@@ -449,9 +451,8 @@ fn clean_name(s: &str) -> String {
 /// Display name of the game that is in the foreground (or "Desktop").
 pub fn current_game_name(cfg: &Config) -> String {
     let stem = win::foreground_exe_stem().unwrap_or_default().to_lowercase();
-    if stem.is_empty()
-        || ["explorer", "searchhost", "shellexperiencehost", "buffer", "buffer-recorder"].contains(&stem.as_str())
-    {
+    // Browsers, chat apps and the shell are not games: such clips are filed under "Desktop".
+    if stem.is_empty() || crate::tray::NEVER_GAMES.contains(&stem.as_str()) {
         "Desktop".to_string()
     } else {
         cfg.game_names.get(&stem).cloned().unwrap_or_else(|| clean_name(&stem))

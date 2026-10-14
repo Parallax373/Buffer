@@ -90,10 +90,13 @@ fn devices_json() {
 }
 
 /// Peak level of the given endpoints (ids or "@default:*" tokens), measured in parallel for ~350 ms.
-fn levels_json(tokens: Vec<String>) {
+fn levels_json(args: Vec<String>) {
+    // optional first argument "--ms=N" sets the measuring window (default 350 ms)
+    let ms: u64 = args.iter().find_map(|a| a.strip_prefix("--ms=").and_then(|v| v.parse().ok())).unwrap_or(350).clamp(50, 2000);
+    let tokens: Vec<String> = args.into_iter().filter(|a| !a.starts_with("--ms=")).collect();
     let handles: Vec<_> = tokens
         .into_iter()
-        .map(|t| std::thread::spawn(move || (t.clone(), audio::measure_peak(&t, 350))))
+        .map(|t| std::thread::spawn(move || (t.clone(), audio::measure_peak(&t, ms))))
         .collect();
     let mut map = serde_json::Map::new();
     for h in handles {
@@ -161,6 +164,7 @@ fn run() {
         post_roll_until: Mutex::new(None),
         flash: Mutex::new(None),
         markers: Mutex::new(Vec::new()),
+        hotkey_hits: AtomicU32::new(0),
     });
     tray::apply_app_sources(&shared);
     log(&format!("recorder starting (ffmpeg: {})", ml_core::tools::ffmpeg().display()));

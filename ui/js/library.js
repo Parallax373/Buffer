@@ -273,7 +273,8 @@
     th.querySelector(".dur").hidden = !m;
     const tg = th.querySelector(".tg");
     tg.replaceChildren(...(isExported(clip.path) ? [h("span", { text: "✓ wyeksp." })] : []));
-    el.querySelector(".info span").textContent = `${App.date(clip.modified)} · ${App.fmtMB(clip.size)}`;
+    // a clip with its own name shows the game next to the date, so the card still says what it is
+    el.querySelector(".info span").textContent = `${App.customTitle(clip) ? App.gameOf(clip) + " · " : ""}${App.date(clip.modified)} · ${App.fmtMB(clip.size)}`;
   }
 
   function refreshCards() {
@@ -395,7 +396,9 @@
     els.details.replaceChildren(
       pv,
       h("div", null,
-        h("h2", { class: "ttl", title: "Zmień nazwę", text: App.titleOf(c), onClick: (ev) => {
+        h("div", { class: "gamechip", title: "Gra", text: App.gameOf(c) }),
+        h("h2", { class: "ttl" + (App.customTitle(c) ? "" : " ph"), title: "Nazwa klipu — kliknij, aby zmienić",
+          text: App.customTitle(c) || App.whenOf(c), onClick: (ev) => {
           App.editTitle(ev.currentTarget, c.path, () => { refreshCards(); Lib.renderSide(); Lib.renderDetails(); });
         } }),
         h("div", { class: "file", text: App.baseName(c.path) })),

@@ -192,12 +192,13 @@
     Ed.step = step;
     const rename = (ev) => App.editTitle(ev.currentTarget.closest(".edhead").querySelector(".ttl"), E.clip.path, () => renderHead());
     ui.head.replaceChildren(
-      h("button", { class: "backbtn", title: "Wróć do biblioteki", onClick: () => App.go("lib") }, "← Biblioteka"),
       h("button", { class: "nv", onClick: () => step(-1), title: "Poprzedni klip [PgUp]", text: "‹" }),
       h("button", { class: "nv", onClick: () => step(1), title: "Następny klip [PgDn]", text: "›" }),
-      h("b", { class: "ttl", style: { fontSize: "14px" }, title: "Zmień nazwę", text: App.titleOf(E.clip),
+      h("span", { class: "gamechip", title: "Gra", text: App.gameOf(E.clip) }),
+      h("b", { class: "ttl" + (App.customTitle(E.clip) ? "" : " ph"), style: { fontSize: "14px" }, title: "Nazwa klipu — kliknij, aby zmienić",
+        text: App.customTitle(E.clip) || App.whenOf(E.clip),
         onClick: (ev) => App.editTitle(ev.currentTarget, E.clip.path, () => renderHead()) }),
-      h("button", { class: "ren", title: "Zmień nazwę", text: "✎", onClick: rename }),
+      h("button", { class: "ren", title: "Zmień nazwę klipu", text: "✎", onClick: rename }),
       h("span", { class: "mono muted", style: { fontSize: "12px" }, text: App.baseName(E.clip.path) }),
       h("span", { class: "sp" }),
       h("button", { class: "qm", title: "Skróty klawiszowe", text: "?", onClick: () => ui.kb.hidden = !ui.kb.hidden }),
