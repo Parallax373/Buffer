@@ -12,6 +12,8 @@ App.Update = (function () {
   let busy = null;                            // { done, total } while downloading
   let open = false;
   let version = "";
+  let live = null;                            // the nodes that change during the download (patched, never rebuilt)
+  let chipFor = "";                           // version the chip currently shows
 
   const plugin = () => window.__TAURI__ && window.__TAURI__.updater;
   const chip = h("button", { class: "updchip", hidden: true, onClick: () => { open = !open; paint(); } });
@@ -55,7 +57,7 @@ App.Update = (function () {
       await pending.downloadAndInstall((ev) => {
         if (ev.event === "Started") busy.total = ev.data.contentLength || 0;
         else if (ev.event === "Progress") busy.done += ev.data.chunkLength;
-        paint();
+        patchProgress();
       });
       // on Windows the installer takes over from here: it closes this window and starts the new version
     } catch (e) {
@@ -65,27 +67,54 @@ App.Update = (function () {
     }
   }
 
+  /** Download progress tick: only numbers and the bar width change. Rebuilding the popover on every tick restarted
+   *  its entrance animation, which is what made it blink. */
+  let lastPatch = 0;
+  function patchProgress() {
+    if (!live || !live.bar.isConnected || !busy) return;
+    const now = performance.now();
+    if (now - lastPatch < 80 && busy.done < busy.total) return;
+    lastPatch = now;
+    const pct = busy.total ? Math.min(100, (busy.done / busy.total) * 100) : null;
+    live.bar.style.width = `${pct ?? 5}%`;
+    live.num.textContent = pct == null ? "" : `${Math.round(pct)}%`;
+    const label = pct == null ? App.t("upd.dl") : App.t("upd.dlInstall");
+    if (live.label.textContent !== label) live.label.textContent = label;
+  }
+
   function paint() {
     chip.hidden = !pending;
-    if (pending) chip.replaceChildren(h("span", { text: "⬆" }), ` ${pending.version}`);
+    const want = pending ? pending.version : "";
+    if (chipFor !== want) {
+      chipFor = want;
+      if (pending) chip.replaceChildren(h("span", { text: "⬆" }), ` ${pending.version}`);
+    }
     chip.title = pending ? App.t("upd.tip") : "";
+    live = null;
     const host = App.$("#updpop");
     if (!host) return;
     if (!pending || !open) { host.replaceChildren(); return; }
-    const pct = busy && busy.total ? Math.min(100, Math.round((busy.done / busy.total) * 100)) : null;
     const notes = String(pending.body || "").trim();
-    host.replaceChildren(h("div", { class: "popover updpopover" },
+    const wasOpen = !!host.firstChild;          // a rebuild of an open popover must not replay the entrance animation
+    host.replaceChildren(h("div", { class: "popover updpopover", style: wasOpen ? { animation: "none" } : null },
       h("div", { class: "pr1" }, h("b", { text: `Buffer ${pending.version}` }),
         h("span", { class: "mono muted", text: pending.date ? String(pending.date).slice(0, 10) : "" })),
       notes ? h("div", { class: "muted notes", text: notes.length > 400 ? notes.slice(0, 400) + "…" : notes }) : null,
       busy
-        ? h("div", { class: "prog" },
-          h("div", { class: "r" }, h("span", { text: pct == null ? App.t("upd.dl") : App.t("upd.dlInstall") }), h("span", { text: pct == null ? "" : `${pct}%` })),
-          h("div", { class: "b" }, h("div", { style: { width: `${pct ?? 5}%` } })))
+        ? progressBlock()
         : h("div", { class: "updactions" },
           h("button", { class: "btn acc", text: App.t("upd.now"),
             title: App.t("upd.nowTip"), onClick: install }),
           h("button", { class: "btn ghost", text: App.t("upd.later"), onClick: () => { open = false; paint(); } }))));
+  }
+
+  function progressBlock() {
+    live = { label: h("span"), num: h("span"), bar: h("div") };
+    const block = h("div", { class: "prog" },
+      h("div", { class: "r" }, live.label, live.num), h("div", { class: "b" }, live.bar));
+    lastPatch = 0;
+    patchProgress();
+    return block;
   }
 
   /** Background checks: shortly after start, then every few hours; respects the setting. */
