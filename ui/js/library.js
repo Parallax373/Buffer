@@ -307,7 +307,7 @@
     return [...new Set(Lib.visible().map((c) => bucketOf(c).key))];
   }
 
-  /** "Expand all" shows only while some group is collapsed, "Collapse all" while some group is open;
+  /** Both buttons appear once at least one group is collapsed ("Collapse all" only while one is still open);
       nothing at all unless grouping by date. */
   function updateFold() {
     if (!els.fold) return;
@@ -315,8 +315,8 @@
     const closed = keys.filter((k) => S.collapsed.has(k)).length;
     const [expand, collapse] = els.fold.children;
     expand.hidden = closed === 0;
-    collapse.hidden = closed === keys.length;
-    els.fold.hidden = !keys.length;
+    collapse.hidden = closed === 0 || closed === keys.length;
+    els.fold.hidden = closed === 0;
   }
 
   function layout(list, g) {
