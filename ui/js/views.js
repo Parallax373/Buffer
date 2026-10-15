@@ -111,8 +111,12 @@
     else if (!r.recording) { cls = "bad"; text = App.t("rec.pill.stopped"); }
     else if (down.length) { cls = "warn"; text = App.t("rec.pill.warn"); }
     else { cls = "on"; text = App.t("rec.pill.on", { t: fmtBuf(r.buffer_s) }); }
-    recPill.className = `recpill ${cls}`;
+    // rebuilt only when it changes: a new dot element restarts its pulse animation, and this runs on every poll
+    const sig = cls + "|" + text;
     recPill.title = recTooltip();
+    if (recPill._sig === sig) return;
+    recPill._sig = sig;
+    recPill.className = `recpill ${cls}`;
     recPill.replaceChildren(h("span", { class: "dot" }), text);
   }
 
@@ -584,7 +588,7 @@
 
   // fill the version label once the settings page is on screen
   const showVersion = () => App.Update.version().then((ver) => { const el = App.$("#appVersion"); if (el && el.textContent !== (ver || "?")) el.textContent = ver || "?"; });   // only on change: writing the text is itself a DOM mutation, so an unconditional write loops forever
-  new MutationObserver(showVersion).observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(() => { if (App.S.view === "set") showVersion(); }).observe(document.body, { childList: true, subtree: true });
 
   /* The recording tab and the first-run wizard live in recording.js. */
   
