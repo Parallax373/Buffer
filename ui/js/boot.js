@@ -28,13 +28,14 @@
 
   // Mouse "Back" (button 4): closes the export popover, else leaves the editor / settings for the library.
   const onBack = (ev) => {
-    if (ev.button !== 3) return;
+    if (ev.button !== 3 && ev.button !== 4) return;
     ev.preventDefault();
-    if (ev.type === "mouseup" || ev.type === "auxclick") App.back();
+    if (ev.type === "mouseup" || ev.type === "auxclick") (ev.button === 3 ? App.back : App.forward)();
   };
   for (const t of ["mousedown", "mouseup", "auxclick"]) window.addEventListener(t, onBack, true);
   window.addEventListener("keydown", (ev) => {
     if (ev.key === "BrowserBack" || (ev.altKey && ev.key === "ArrowLeft")) { ev.preventDefault(); App.back(); }
+    if (ev.key === "BrowserForward" || (ev.altKey && ev.key === "ArrowRight")) { ev.preventDefault(); App.forward(); }
   }, true);
 
   // Pick up clips the recorder saved while the window was in the background.

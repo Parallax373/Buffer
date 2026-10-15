@@ -24,9 +24,15 @@
   };
 
   /** The "back" action shared by the mouse Back button and Alt+Left. */
+  let forwardTo = null;                       // the view Back just left: Forward returns to it
   App.back = () => {
     if (App.Exports.closeAny()) return;
-    if (S.view !== "lib") App.go("lib");
+    if (S.view !== "lib") { forwardTo = S.view; App.go("lib"); }
+  };
+  /** Mouse Forward / Alt+Right: back into the editor or settings that Back just closed. */
+  App.forward = () => {
+    if (forwardTo && S.view === "lib") App.go(forwardTo);
+    forwardTo = null;
   };
 
   /** The view being left stays on screen under the one fading in, so a switch is a dissolve and not a dark gap
