@@ -273,6 +273,24 @@ App.RecUI = (function () {
 
   /* ───────────── video: rows, sizes ───────────── */
 
+  /** The presets for this screen: none asks for more than the monitor has, so a 1080p screen is offered 1080p,
+      and the label is the real output size (an ultrawide's "1080p" is 1920×804). */
+  function presetsFor(c) {
+    const mw = outputSize({ ...c, width: 0 })[0];
+    const steps = RES().map(([v]) => v).filter((v) => v > 0 && v <= mw);   // resolutions this screen can use, ascending
+    const fitW = (v) => (v > mw ? steps[steps.length - 1] || 0 : v);
+    const balW = fitW(PRESETS[1][3].width);
+    return PRESETS.map(([id, name, desc, p]) => {
+      let width = fitW(p.width);
+      // Light must stay lighter than Balanced: when the screen squeezed them to the same size, go one step down
+      if (id === "eco" && width >= balW) { const below = steps.filter((v) => v < balW).pop(); if (below) width = below; }
+      if (!width) return [id, name, desc, { ...p, width }, null];
+      const [ow, oh] = outputSize({ ...c, width });
+      const size = Math.abs(ow / oh - 16 / 9) < 0.02 ? `${oh}p` : `${ow}×${oh}`;
+      return [id, name, desc, { ...p, width }, `${size} · ${p.fps} fps`];
+    });
+  }
+
   function outputSize(c) {
     const mon = monitors.find((m) => m.index === c.monitor) || monitors[0] || { width: 1920, height: 1080 };
     const w = c.width > 0 ? Math.min(c.width, mon.width) : mon.width;
@@ -633,7 +651,8 @@ App.RecUI = (function () {
     if (!w.cfg.game.primary) w.cfg.game.primary = follow;
     if (!w.cfg.chat.primary) w.cfg.chat.primary = hasChat ? { id: hasChat.id, name: hasChat.name } : follow;
     if (!w.cfg.mic.primary) w.cfg.mic.primary = follow;
-    if (fresh) Object.assign(w.cfg, PRESETS[1][3]);
+    const presets = presetsFor(w.cfg);
+    if (fresh) Object.assign(w.cfg, presets[1][3]);
     // One shared output is the common case: split a chat app out of the game track by default.
     if (sharedOutput(w.cfg) && !w.cfg.chat_app) w.cfg.chat_app = "discord";
 
@@ -642,7 +661,7 @@ App.RecUI = (function () {
     let stopMeters = () => {};
     let statusTimer = 0;
     const close = () => { stopMeters(); clearInterval(statusTimer); overlay.remove(); };
-    const presetOf = () => PRESETS.find((p) => p[3].width === w.cfg.width && p[3].fps === w.cfg.fps && p[3].quality === w.cfg.quality);
+    const presetOf = () => presets.find((p) => p[3].width === w.cfg.width && p[3].fps === w.cfg.fps && p[3].quality === w.cfg.quality);
 
     /* ----- pieces ----- */
     const rail = () => h("div", { class: "wzrail" }, STEPS.map((step, i) => h("div", { class: "wzstep" },
@@ -757,9 +776,9 @@ App.RecUI = (function () {
       const refresh = () => {
         drawLen();
         const cur = presetOf();
-        [...cardsBox.children].forEach((c, i) => c.classList.toggle("on", cur === PRESETS[i]));
+        [...cardsBox.children].forEach((c, i) => c.classList.toggle("on", cur === presets[i]));
       };
-      PRESETS.forEach((p, i) => {
+      presets.forEach((p, i) => {
         cardsBox.append(h("div", { class: "pcard", style: { animationDelay: `${0.05 + i * 0.07}s` }, onClick: () => { Object.assign(w.cfg, p[3]); refresh(); drawAdv(); } },
           h("b", { text: App.t(p[1]) + (p[0] === "bal" ? " ★" : "") }), h("div", { class: "muted", text: App.t(p[2]) }), h("div", { class: "mono spec", text: p[4] || `${App.t("res.native").toLocaleLowerCase(App.tag())} · ${p[3].fps} fps` })));
       });

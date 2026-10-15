@@ -115,6 +115,8 @@ fn levels_json(args: Vec<String>) {
 
 /// Monitors in enumeration order (index = the "monitor" setting), with their resolution.
 fn monitors_json() {
+    // physical pixels like the capture sees them, not the scaled size (a 1080p screen at 125% is not 1536x864)
+    win::make_dpi_aware();
     println!(
         "{}",
         serde_json::json!(win::monitors()
