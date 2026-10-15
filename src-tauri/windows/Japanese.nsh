@@ -1,4 +1,4 @@
-﻿LangString addOrReinstall ${LANG_JAPANESE} "コンポーネントの追加/再インストール"
+LangString addOrReinstall ${LANG_JAPANESE} "コンポーネントの追加/再インストール"
 LangString alreadyInstalled ${LANG_JAPANESE} "インストール済み"
 LangString alreadyInstalledLong ${LANG_JAPANESE} "${PRODUCTNAME} ${VERSION} は既にインストールされています。操作を選択して［次へ］をクリックしてください。"
 LangString appRunning ${LANG_JAPANESE} "${PRODUCTNAME} が実行中です。閉じてからもう一度お試しください。"

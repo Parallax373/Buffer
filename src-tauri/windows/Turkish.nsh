@@ -1,4 +1,4 @@
-﻿LangString addOrReinstall ${LANG_TURKISH} "Bileşen ekle/yeniden yükle"
+LangString addOrReinstall ${LANG_TURKISH} "Bileşen ekle/yeniden yükle"
 LangString alreadyInstalled ${LANG_TURKISH} "Zaten yüklü"
 LangString alreadyInstalledLong ${LANG_TURKISH} "${PRODUCTNAME} ${VERSION} zaten yüklü. İstediğiniz işlemi seçin ve devam etmek için İleri'ye tıklayın."
 LangString appRunning ${LANG_TURKISH} "${PRODUCTNAME} çalışıyor! Lütfen kapatıp tekrar deneyin."

@@ -1,4 +1,4 @@
-﻿LangString addOrReinstall ${LANG_SIMPCHINESE} "添加/重新安装组件"
+LangString addOrReinstall ${LANG_SIMPCHINESE} "添加/重新安装组件"
 LangString alreadyInstalled ${LANG_SIMPCHINESE} "已安装"
 LangString alreadyInstalledLong ${LANG_SIMPCHINESE} "${PRODUCTNAME} ${VERSION} 已安装。请选择要执行的操作，然后单击“下一步”。"
 LangString appRunning ${LANG_SIMPCHINESE} "${PRODUCTNAME} 正在运行！请先关闭它，然后重试。"

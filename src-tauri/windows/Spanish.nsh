@@ -1,4 +1,4 @@
-﻿LangString addOrReinstall ${LANG_SPANISH} "Añadir/reinstalar componentes"
+LangString addOrReinstall ${LANG_SPANISH} "Añadir/reinstalar componentes"
 LangString alreadyInstalled ${LANG_SPANISH} "Ya instalado"
 LangString alreadyInstalledLong ${LANG_SPANISH} "${PRODUCTNAME} ${VERSION} ya está instalado. Elige la operación y haz clic en Siguiente para continuar."
 LangString appRunning ${LANG_SPANISH} "¡${PRODUCTNAME} se está ejecutando! Ciérralo e inténtalo de nuevo."

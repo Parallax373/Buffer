@@ -1,4 +1,4 @@
-﻿LangString addOrReinstall ${LANG_UKRAINIAN} "Додати/перевстановити компоненти"
+LangString addOrReinstall ${LANG_UKRAINIAN} "Додати/перевстановити компоненти"
 LangString alreadyInstalled ${LANG_UKRAINIAN} "Уже встановлено"
 LangString alreadyInstalledLong ${LANG_UKRAINIAN} "${PRODUCTNAME} ${VERSION} уже встановлено. Виберіть дію та натисніть «Далі»."
 LangString appRunning ${LANG_UKRAINIAN} "${PRODUCTNAME} запущено! Закрийте його й повторіть спробу."
