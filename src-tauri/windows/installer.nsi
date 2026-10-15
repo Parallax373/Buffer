@@ -884,6 +884,10 @@ Section Uninstall
     SetShellVarContext current
     RmDir /r "$APPDATA\${BUNDLEID}"
     RmDir /r "$LOCALAPPDATA\${BUNDLEID}"
+    ; Buffer keeps its own data outside the bundle-id folders: settings in %APPDATA%\Buffer, and the rolling buffer,
+    ; caches and logs in %LOCALAPPDATA%\BufferData. Clips in the user's Videos folder are never touched.
+    RmDir /r "$APPDATA\Buffer"
+    RmDir /r "$LOCALAPPDATA\BufferData"
   ${EndIf}
 
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL

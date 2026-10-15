@@ -54,12 +54,30 @@
       "nsis": {
         "installMode": "currentUser",
         "languages": [
+          "English",
           "Polish",
-          "English"
+          "German",
+          "Spanish",
+          "French",
+          "Ukrainian",
+          "Turkish",
+          "Japanese",
+          "SimpChinese"
         ],
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installerHooks": "windows/hooks.nsh",
+        "customLanguageFiles": {
+          "English": "windows/English.nsh",
+          "Polish": "windows/Polish.nsh",
+          "German": "windows/German.nsh",
+          "Spanish": "windows/Spanish.nsh",
+          "French": "windows/French.nsh",
+          "Ukrainian": "windows/Ukrainian.nsh",
+          "Turkish": "windows/Turkish.nsh",
+          "Japanese": "windows/Japanese.nsh",
+          "SimpChinese": "windows/SimpChinese.nsh"
+        },
         "template": "windows/installer.nsi",
         "compression": "lzma"
       }
