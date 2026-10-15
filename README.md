@@ -35,9 +35,9 @@ Small on purpose. No launcher, no account, no overlay, nothing to babysit.
 - **Always-on recorder.** Buffer keeps the last minutes in the background (NVENC when your GPU has it). Press one hotkey and the moment that just happened is saved as an MP4.
 - **Three audio tracks.** Game, voice chat and microphone are saved separately, so you can mute your friends or fix your mic afterwards. Devices that disappear are picked up again automatically, and Buffer warns you when your mic is also playing through the speakers and ending up in the game track.
 - **Library.** Every clip, sorted by game or grouped by date (collapse or expand all with one click), with favorites, search and bulk actions. Stays smooth with thousands of clips, and clips from other recorders are filed by their folder.
-- **Editor.** Trim, 16:9 crop, speed, per-track volume and loudness, a zoomable timeline with markers.
+- **Editor.** Trim, 16:9 crop, speed, per-track volume and loudness, a zoomable timeline.
 - **Exports to a size.** Pick Discord (10 MB), Boost (50 MB) or Nitro (500 MB) and drag the result straight into a chat window.
-- **Updates itself.** Signed updates are checked once a day; installing takes a few seconds, and the bundled FFmpeg is only rewritten when it changed.
+- **Updates itself.** Signed updates are checked in the background; installing takes a few seconds, and the bundled FFmpeg is only rewritten when it changed.
 - **Your language.** English, Polski, Deutsch, Español, Français, Українська, Türkçe, 日本語 and 简体中文.
 
 ## Install
@@ -54,14 +54,6 @@ Rust workspace plus a [Tauri v2](https://tauri.app) app with a plain HTML/CSS/JS
 ```
 
 Architecture notes are in [STATE.md](STATE.md), release steps in [RELEASING.md](RELEASING.md), and translations live in `ui/js/locales/` (`node scripts/check-i18n.js` checks them).
-
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-- Only releases built by GitHub Actions from this repository's tagged commits are signed.
-- Maintainer, committer and approver: [Wheatlay](https://github.com/Wheatlay).
-- Privacy: Buffer records and edits clips locally. The only network request is the daily update check against this repository's GitHub releases; nothing else is sent anywhere.
 
 ## License
 
