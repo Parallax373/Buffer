@@ -586,6 +586,30 @@ pub fn current_game_name(cfg: &Config) -> String {
     }
 }
 
+/// The newest run of segments with no gap between them, and only if it is recent (the recorder is still
+/// writing, or stopped moments ago). Segments are written every 2 s, so a bigger hole means a pause.
+fn fresh_tail(all: Vec<PathBuf>) -> Vec<PathBuf> {
+    const MAX_GAP: Duration = Duration::from_secs(8);
+    const MAX_AGE: Duration = Duration::from_secs(60);
+    let times: Vec<SystemTime> = all
+        .iter()
+        .map(|p| fs::metadata(p).and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH))
+        .collect();
+    let Some(&newest) = times.last() else { return all };
+    if newest.elapsed().map_or(false, |age| age > MAX_AGE) {
+        return Vec::new();
+    }
+    let mut start = times.len() - 1;
+    while start > 0 {
+        let gap = times[start].duration_since(times[start - 1]).unwrap_or_default();
+        if gap > MAX_GAP {
+            break;
+        }
+        start -= 1;
+    }
+    all[start..].to_vec()
+}
+
 /// Keeps the foreground game's icon as `%APPDATA%\Buffer\icons\<game>.png` (once per game) for the library sidebar.
 fn remember_game_icon(game: &str) {
     if game == "Desktop" {
@@ -623,6 +647,9 @@ fn save_inner(shared: &Arc<Shared>) -> Result<PathBuf, String> {
         .into_iter()
         .filter(|p| fs::metadata(p).map(|m| m.len() > 4096).unwrap_or(false))
         .collect();
+    // Only the unbroken, recent tail counts: after a pause (no game running in game-only mode, a restart) the
+    // older files are footage from an earlier session and must never be glued to the clip.
+    all = fresh_tail(all);
     // The newest segment is still being written and its audio is usually shorter than its video.
     if all.len() > 1 {
         all.pop();
@@ -676,4 +703,37 @@ fn save_inner(shared: &Arc<Shared>) -> Result<PathBuf, String> {
     *shared.last_saved.lock().unwrap() = out.to_string_lossy().into_owned();
     log(&format!("saved {}", out.display()));
     Ok(out)
+}
+
+#[cfg(test)]
+mod fresh_tail_tests {
+    use super::*;
+
+    fn seg(dir: &std::path::Path, name: &str, age_s: u64) -> PathBuf {
+        let p = dir.join(name);
+        let f = File::create(&p).unwrap();
+        f.set_modified(SystemTime::now() - Duration::from_secs(age_s)).unwrap();
+        p
+    }
+
+    #[test]
+    fn drops_footage_from_before_a_pause() {
+        let dir = std::env::temp_dir().join(format!("fresh_tail_{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        // an old game session (an hour ago), then a new one that just started
+        let v = vec![
+            seg(&dir, "seg_1.ts", 3600),
+            seg(&dir, "seg_2.ts", 3598),
+            seg(&dir, "seg_3.ts", 6),
+            seg(&dir, "seg_4.ts", 4),
+            seg(&dir, "seg_5.ts", 2),
+        ];
+        let kept = fresh_tail(v);
+        assert_eq!(kept.len(), 3);
+        assert!(kept[0].ends_with("seg_3.ts"));
+        // nothing recent at all (idle for minutes): nothing to save
+        let old = vec![seg(&dir, "seg_9.ts", 600)];
+        assert!(fresh_tail(old).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
