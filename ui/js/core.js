@@ -64,9 +64,19 @@ const App = {};
   App.baseName = (p) => p.slice(Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/")) + 1);
 
   /** `Risk-of-Rain-2__2025-04-22__14-41-40` -> "Risk of Rain 2" */
+  const gameCache = new WeakMap();      // clip object -> game (asked for every clip on each sort, filter and render)
   App.gameOf = (clip) => {
-    const raw = clip.name.split("__")[0] || clip.name;
-    return raw.replace(/-+/g, " ").replace(/\s+/g, " ").trim() || App.t("clip.unknown");
+    let g = gameCache.get(clip);
+    if (g === undefined) {
+      // Buffer names the file `Game__date__time`; anything else (SteelSeries Moments' "Moments clip from …", OBS dates)
+      // takes the game from its folder, so a folder of foreign clips does not become one "game" per file
+      const own = clip.name.includes("__");
+      const folder = !own && (clip.group || "").split(/[\\/]/).filter(Boolean).pop();
+      const raw = own ? clip.name.split("__")[0] : folder || (/^moments\s*clip/i.test(clip.name) ? "" : clip.name);
+      g = raw.replace(/-+/g, " ").replace(/\s+/g, " ").trim();
+      gameCache.set(clip, g);
+    }
+    return g || App.t("clip.unknown");
   };
   /** What the user sees as the clip's name: their own title, else the game derived from the file name. */
   App.titleOf = (clip) => App.customTitle(clip) || App.gameOf(clip);

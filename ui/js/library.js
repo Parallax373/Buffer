@@ -11,7 +11,8 @@
   const cards = new Map();            // path -> element currently in the DOM
   const thumbUrls = new Map();        // path -> asset URL once generated
   const thumbQ = App.queue(3);
-  const probeQ = App.queue(2);
+  const probeQ = App.queue(1);        // background: every clip without metadata
+  const probeNowQ = App.queue(2);     // the cards in view
   let animBudget = 0;
   let els = {};                       // cached DOM nodes of the built view
 
@@ -50,21 +51,31 @@
     return m && m.size === c.size ? m : null;
   };
 
+  // path -> "queued" | "running": a card that comes into view jumps the background queue, and whichever job starts
+  // first does the probe (the other one finds it running or done and returns)
+  const probing = new Map();
+  const probe = (c, q) => {
+    const st = probing.get(c.path);
+    if (Lib.meta(c) || st === "running" || st === "failed@" + c.size || (q === probeQ && st && !st.startsWith("failed"))) return;
+    probing.set(c.path, "queued");
+    q(async () => {
+      if (Lib.meta(c) || probing.get(c.path) !== "queued") return;
+      probing.set(c.path, "running");
+      try {
+        const i = await api.invoke("probe_clip", { path: c.path });
+        App.P.meta[c.path] = { size: c.size, dur: i.duration, w: i.width, h: i.height, fps: i.fps, tracks: i.audio.length };
+        App.persist();
+        const el = cards.get(c.path);
+        if (el) updateCard(el, c);
+        if (S.active === c.path) Lib.renderDetails();
+        probing.delete(c.path);
+      } catch { probing.set(c.path, "failed@" + c.size); /* unreadable: no metadata, retried only once the file changes */ }
+    });
+  };
+  /** Cards on screen get their duration first; the rest of a big folder is probed one file at a time behind them. */
   Lib.probeMissing = () => {
     if (!App.P.settings.thumbs) return;
-    for (const c of S.clips) {
-      if (Lib.meta(c)) continue;
-      probeQ(async () => {
-        try {
-          const i = await api.invoke("probe_clip", { path: c.path });
-          App.P.meta[c.path] = { size: c.size, dur: i.duration, w: i.width, h: i.height, fps: i.fps, tracks: i.audio.length };
-          App.persist();
-          const el = cards.get(c.path);
-          if (el) updateCard(el, c);
-          if (S.active === c.path) Lib.renderDetails();
-        } catch { /* unreadable file: leave without metadata */ }
-      });
-    }
+    for (const c of S.clips) probe(c, probeQ);
   };
 
   const isExported = (() => {
@@ -79,9 +90,14 @@
   })();
 
   /** Timestamp of the 20th newest clip: "recent" always shows something, however long ago you played. */
+  let recentFor = null, recentAt = 0;
   const recentCutoff = () => {
-    const mods = S.clips.map((c) => c.modified).sort((a, b) => b - a);
-    return mods.length ? mods[Math.min(19, mods.length - 1)] : 0;
+    if (recentFor !== S.clips) {            // a sort of every clip: once per listing, not on every render
+      const mods = S.clips.map((c) => c.modified).sort((a, b) => b - a);
+      recentFor = S.clips;
+      recentAt = mods.length ? mods[Math.min(19, mods.length - 1)] : 0;
+    }
+    return recentAt;
   };
 
   const isFav = (c) => !!App.P.favs[c.path];
@@ -164,7 +180,11 @@
       group: h("select", { class: "field", title: App.t("group.date"),
         onChange: (e) => { App.P.settings.groupBy = e.target.value; App.persist(); Lib.render(true); } },
       ["none", "date"].map((v) => h("option", { value: v, text: App.t("group." + v), selected: (App.P.settings.groupBy || "none") === v }))),
-      grid: h("div", { class: "grid", onScroll: () => layoutGrid(),
+      grid: h("div", { class: "grid", onScroll: () => {
+        // scroll fires many times per frame; only the cards in view change, so the cached layout is reused
+        if (scrollFrame) return;
+        scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; layoutGrid(false, true); });
+      },
         // a click on the empty background clears the selection (the details panel can hide the cards under it)
         onClick: (e) => { if ((e.target === els.grid || e.target === els.spacer) && (S.sel.size || S.active)) Lib.clearSel(); } }),
       spacer: h("div", { class: "spacer" }),
@@ -299,10 +319,13 @@
     return { items, groups, height: Math.max(0, y - GAP) };
   }
 
-  function layoutGrid(force = false) {
+  let scrollFrame = 0;
+  let laid = null;                   // { list, lay, cols, cardW } of the last full layout, reused while scrolling
+  function layoutGrid(force = false, scrollOnly = false) {
     if (!els.grid || !els.grid.isConnected || !els.grid.clientWidth) return;
-    const list = Lib.visible();
     const g = geometry();
+    const reuse = scrollOnly && laid && laid.cols === g.cols && laid.cardW === g.cardW;
+    const list = reuse ? laid.list : Lib.visible();
 
     if (!list.length) {
       els.spacer.style.height = "0px";
@@ -314,17 +337,23 @@
         () => { S.q = ""; S.cat = "all"; const i = App.$("#topSearch"); if (i) i.value = ""; Lib.render(false); }));
       cards.clear();
       heads.clear();
+      laid = null;
       return;
     }
     els.spacer.querySelector(":scope > .empty")?.remove();
 
-    const lay = layout(list, g);
+    const lay = reuse ? laid.lay : layout(list, g);
+    laid = { list, lay, cols: g.cols, cardW: g.cardW };
     els.spacer.style.height = `${lay.height}px`;
     const top = els.grid.scrollTop, vh = els.grid.clientHeight;
     const lo = top - g.rowH, hi = top + vh + g.rowH;
+    // items are in y order: binary-search the first one in view instead of walking all of them
+    let a = 0, b = lay.items.length;
+    while (a < b) { const m = (a + b) >> 1; if (lay.items[m].y + g.rowH < lo) a = m + 1; else b = m; }
     const wanted = new Set();
-    for (const it of lay.items) {
-      if (it.y + g.rowH < lo || it.y > hi) continue;
+    for (let i = a; i < lay.items.length; i++) {
+      const it = lay.items[i];
+      if (it.y > hi) break;
       const clip = it.clip;
       wanted.add(clip.path);
       let el = cards.get(clip.path);
@@ -333,6 +362,7 @@
         cards.set(clip.path, el);
         els.spacer.append(el);
         requestThumb(clip, el);
+        if (App.P.settings.thumbs) probe(clip, probeNowQ);
       }
       el.style.left = `${it.x}px`;
       el.style.top = `${it.y}px`;

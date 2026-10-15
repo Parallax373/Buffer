@@ -676,13 +676,23 @@ App.RecUI = (function () {
     };
 
     const stepAudio = () => {
+      // a pick only updates the notes (the meters read w.cfg each round), so the step does not replay its animation
+      const notes = {};
+      const paintNotes = () => {
+        for (const [key, , , kind] of SRC) {
+          const n = deviceLabel(w.cfg, key, kind).note;
+          notes[key].textContent = n;
+          notes[key].hidden = !n;
+        }
+      };
       const rows = SRC.map(([key, name, label, kind, color, tip], i) => {
-        const dev = deviceLabel(w.cfg, key, kind);
+        notes[key] = h("em", { class: "wznote" });
         return h("div", { class: "wzaudio", "data-src": name, title: App.t(tip), style: { animationDelay: `${0.1 + i * 0.1}s` } },
           h("span", { class: "sq", style: { background: color } }), h("b", { text: App.t(label) }),
-          deviceSelect(key, kind, w.cfg[key].primary, (v) => { w.cfg[key] = { ...w.cfg[key], primary: v }; renderStep(); }, false),
-          dev.note ? h("em", { class: "wznote", text: dev.note }) : null, meterEl(color, true));
+          deviceSelect(key, kind, w.cfg[key].primary, (v) => { w.cfg[key] = { ...w.cfg[key], primary: v }; paintNotes(); }, false),
+          notes[key], meterEl(color, true));
       });
+      paintNotes();
       setTimeout(() => { if (w.step === 1) stopMeters = pollMeters(() => w.cfg, ".wzbody", 140, 40); }, 400);
       return h("div", { class: "stack12" },
         h("div", null, h("div", { class: "big", text: App.t("wz.audioQ") }),
@@ -696,7 +706,16 @@ App.RecUI = (function () {
       const dirEl = h("span", { class: "mono path", text: w.dir });
       const cardsBox = h("div", { class: "presets3" });
       const advBox = h("div");
-      const drawLen = () => put(lenBox, U.srow(App.t("v.len"), U.segc(LEN(), w.cfg.buffer_seconds, (v) => { w.cfg.buffer_seconds = +v; refresh(); })));
+      const drawLen = () => {
+        const roll = U.srow(App.t("key.roll"), U.segc(POST_ROLL(), w.cfg.post_roll_seconds, (v) => { w.cfg.post_roll_seconds = +v; refresh(); drawAdv(); }));
+        roll.title = App.t("key.rollTip");
+        put(lenBox,
+          U.srow(App.t("v.len"), U.segc(LEN(), w.cfg.buffer_seconds, (v) => { w.cfg.buffer_seconds = +v; refresh(); drawAdv(); })),
+          roll);
+      };
+      const gameBox = h("div");
+      const drawGame = () => put(gameBox, U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), w.cfg.game_only, (v) => { w.cfg.game_only = v; drawGame(); }));
+      drawGame();
       const refresh = () => {
         drawLen();
         const cur = presetOf();
@@ -719,7 +738,8 @@ App.RecUI = (function () {
           U.srow(App.t("wz.folder"), h("div", { class: "pathrow" }, dirEl, h("button", { class: "linkbtn", text: App.t("common.change"), onClick: async () => {
             const d = await api.pickFolder();
             if (d) { w.dir = d; dirEl.textContent = d; }
-          } })))),
+          } }))),
+          gameBox),
         advBox);
     };
 
