@@ -4,10 +4,17 @@
 #   .\scripts\release.ps1 0.3.0      # a specific version
 #   .\scripts\release.ps1 -DryRun    # run every check and show what would happen, change nothing
 #   .\scripts\release.ps1 -Local     # build here (tests, thin LTO, ~3 min) and publish from this machine instead of GitHub
-param([string]$Version = "", [switch]$DryRun, [switch]$Local, [string]$Notes = "")
+param([string]$Version = "", [switch]$DryRun, [switch]$Local, [string]$Notes = "", [switch]$Ask)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+
+# -Ask: used by the VS Code status bar buttons, so a stray click cannot release anything
+if ($Ask -and -not $DryRun) {
+    $what = if ($Local) { "built on this PC (about 3 minutes)" } else { "built by GitHub (about 10 minutes)" }
+    $answer = Read-Host "Release the committed state as the next version, $what. Type YES to continue"
+    if ($answer -ne "YES") { Write-Host "Cancelled, nothing was released." -ForegroundColor Yellow; exit 0 }
+}
 
 function Fail($msg) { Write-Host ""; Write-Host "NOT RELEASED: $msg" -ForegroundColor Red; exit 1 }
 function Invoke-Git([string[]]$a) {

@@ -635,6 +635,14 @@ fn is_dev_build() -> bool {
     cfg!(debug_assertions)
 }
 
+/// The window starts hidden (no blank frame while the page loads); the UI calls this once it has drawn.
+#[tauri::command]
+fn show_main_window(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+    }
+}
+
 /// Where clips go on a fresh install: the user's Videos\Buffer folder.
 #[tauri::command]
 fn default_clips_dir() -> String {
@@ -731,6 +739,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             is_dev_build,
+            show_main_window,
             list_clips,
             probe_clip,
             prepare_audio,
@@ -759,6 +768,16 @@ fn main() {
             default_clips_dir,
             recorder_autostart,
         ])
+        .setup(|app| {
+            // safety net: if the UI never reports in (a script error), the window still appears
+            if let Some(w) = app.get_webview_window("main") {
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(4));
+                    let _ = w.show();
+                });
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running Buffer");
 }

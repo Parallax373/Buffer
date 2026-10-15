@@ -42,7 +42,9 @@ if ($Sign) {
 npx tauri build @tauriArgs
 if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
-$installer = Get-ChildItem target\release\bundle\nsis\*.exe | Select-Object -First 1
+$version = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
+# the folder keeps older installers: take the one of this version
+$installer = Get-ChildItem target\release\bundle\nsis\*_${version}_*.exe | Select-Object -First 1
 if (-not $installer) { throw "installer not found" }
 Write-Host ("Installer: {0} ({1:N1} MB)" -f $installer.FullName, ($installer.Length / 1MB))
 if ($Sign) {

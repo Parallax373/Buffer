@@ -44,6 +44,8 @@
   App.Update.start();
   await App.Lib.load();
   App.go("lib");
+  // the window starts hidden; show it now that the first screen is there (the host shows it after 4 s anyway)
+  requestAnimationFrame(() => App.api.invoke("show_main_window").catch(() => {}));
   App.Exports.autoClean();            // only does anything when "Delete old exports" is set
 
   // First run: walk the user through the settings that matter.
