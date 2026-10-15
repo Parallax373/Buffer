@@ -5,9 +5,15 @@
 #   .\build-installer.ps1          # plain installer (what you test locally)
 #   .\build-installer.ps1 -Sign    # release build: also produces the signed update package (.sig) that the
 #                                  # in-app updater verifies. Needs the updater key, see RELEASING.md.
-param([switch]$Sign)
+#   .\build-installer.ps1 -Fast   # thin LTO + parallel codegen: several times faster to build, a few % slower code.
+#                                  # For quick local releases; CI and signed releases use the full profile.
+param([switch]$Sign, [switch]$Fast)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+if ($Fast) {
+    $env:CARGO_PROFILE_RELEASE_LTO = "thin"
+    $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "16"
+}
 
 & "$PSScriptRoot\scripts\fetch-ffmpeg.ps1"
 
