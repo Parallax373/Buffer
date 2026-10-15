@@ -16,7 +16,7 @@ Small on purpose. No launcher, no account, no overlay, nothing to babysit.
 
 | | |
 |---|---|
-| **30 MB** | the whole installer |
+| **9 MB** | the whole installer |
 | **0** | questions during install |
 | **1** | hotkey to save a clip |
 
@@ -33,11 +33,11 @@ Small on purpose. No launcher, no account, no overlay, nothing to babysit.
 ## What it does
 
 - **Always-on recorder.** Buffer keeps the last minutes in the background (NVENC when your GPU has it). Press one hotkey and the moment that just happened is saved as an MP4.
-- **Three audio tracks.** Game, voice chat and microphone are saved separately, so you can mute your friends or fix your mic afterwards. Devices that disappear are picked up again automatically.
-- **Library.** Every clip, sorted by game, with favorites, search and bulk actions.
+- **Three audio tracks.** Game, voice chat and microphone are saved separately, so you can mute your friends or fix your mic afterwards. Devices that disappear are picked up again automatically, and Buffer warns you when your mic is also playing through the speakers and ending up in the game track.
+- **Library.** Every clip, sorted by game or grouped by date (collapse or expand all with one click), with favorites, search and bulk actions. Stays smooth with thousands of clips, and clips from other recorders are filed by their folder.
 - **Editor.** Trim, 16:9 crop, speed, per-track volume and loudness, a zoomable timeline with markers.
 - **Exports to a size.** Pick Discord (10 MB), Boost (50 MB) or Nitro (500 MB) and drag the result straight into a chat window.
-- **Updates itself.** Signed updates are checked once a day; installing takes a few seconds.
+- **Updates itself.** Signed updates are checked once a day; installing takes a few seconds, and the bundled FFmpeg is only rewritten when it changed.
 - **Your language.** English, Polski, Deutsch, Español, Français, Українська, Türkçe, 日本語 and 简体中文.
 
 ## Install

@@ -31,9 +31,16 @@ Favourites/exports/settings persist in `%APPDATA%\moments-lite\app-state.json`.
 
 ## Distribution
 - `build-installer.ps1` fetches a checksum-verified static ffmpeg (vendor/, not committed), builds the recorder and app,
-  and produces a ~30 MB NSIS installer: per-user, no questions asked, ffmpeg + recorder inside, app opens its first-run
+  and produces a ~9 MB NSIS installer: per-user, no questions asked, ffmpeg + recorder inside, app opens its first-run
   wizard when done. Custom template: `src-tauri/windows/installer.nsi` (forced passive mode + auto-launch).
-- Publish: `scripts/publish.ps1` (GitHub Release via gh) or push a `v*` tag (`.github/workflows/release.yml`).
+- ffmpeg is our own trimmed build of FFmpeg 9.0.2 (~18 MB; `scripts/build-ffmpeg-min.sh`, MSYS2), published as the
+  `ffmpeg-9.0.2-min-1` release and pinned by SHA-256 in `scripts/fetch-ffmpeg.ps1`. `fetch-ffmpeg.ps1 -Essentials` falls
+  back to the full gyan.dev build (100 MB). A needed component missing from the trimmed build shows up as a runtime
+  "decoder/encoder/filter not found": add it to the script, rebuild, bump the release tag and the pinned hash.
+- The installer writes `ffmpeg.exe` itself (`src-tauri/windows/hooks.nsh`, hash marker `ffmpeg.id`): an update skips the
+  write when the installed copy is the same build. `build-installer.ps1` generates `ffmpeg.nsh` (hash + path).
+- Publish: `scripts/release.ps1 -Local` (build here, ~3 min, thin LTO, tests first) or `scripts/release.ps1` (tag; GitHub
+  Actions builds it, ~10 min, full LTO). Only the CI path can be Authenticode-signed (SignPath).
 - ffmpeg is GPL; `FFMPEG-LICENSE.txt` is shipped next to it.
 
 ## Encoders, bindings, long recording
