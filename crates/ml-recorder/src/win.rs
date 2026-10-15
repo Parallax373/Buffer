@@ -400,7 +400,7 @@ pub enum Sound {
     RecStart,
     /// A long recording ended.
     RecStop,
-    /// A game came to the foreground and Buffer is active (off by default).
+    /// A game came to the foreground and Buffer is active.
     Game,
 }
 

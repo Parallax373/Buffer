@@ -107,7 +107,7 @@ impl Default for Config {
             mic: SourceCfg::default(),
             popup: true,
             sounds: true,
-            game_sound: false,
+            game_sound: true,
             ignore_apps: Vec::new(),
             extra_games: Vec::new(),
             game_names: Default::default(),

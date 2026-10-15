@@ -11,7 +11,7 @@ rebuild; nothing else needs to change. The files that are here now are placehold
 | `rec-stop.wav` | a long recording ended | falling, the mirror of `rec-start` | about 0.3 s |
 | `game.wav` | a game came to the foreground and Buffer is active | very quiet, subtle | 0.15 - 0.25 s |
 
-Settings -> Recording has "Sounds" (everything) and "Game detected" (only `game.wav`, off by default).
+Settings -> Recording has "Sounds" (everything) and "Game detected" (only `game.wav`, on by default).
 
 ## Format
 - WAV, PCM 16-bit, mono, 44.1 or 48 kHz.
