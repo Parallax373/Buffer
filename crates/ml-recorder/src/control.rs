@@ -43,6 +43,7 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
         "restarts": shared.restarts.load(Ordering::Relaxed),
         "last_error": *shared.last_error.lock().unwrap(),
         "last_saved": *shared.last_saved.lock().unwrap(),
+        "saving": shared.saving.load(Ordering::Relaxed) || shared.post_roll_active.load(Ordering::Relaxed),
         "buffer_s": buffered_seconds().min(cfg.buffer_seconds),
         "buffer_target_s": cfg.buffer_seconds,
         "hotkey": cfg.hotkey,

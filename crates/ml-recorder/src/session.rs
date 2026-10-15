@@ -38,6 +38,8 @@ pub struct Shared {
     pub restarts: AtomicU32,
     pub last_error: Mutex<String>,
     pub last_saved: Mutex<String>,
+    /// A clip is being joined and written right now.
+    pub saving: AtomicBool,
     pub started: Instant,
     pub save_lock: Mutex<()>,
     pub job: Option<Job>,
@@ -45,6 +47,7 @@ pub struct Shared {
     pub popups: Mutex<Sender<Popup>>,
     /// Encoder actually in use (resolved from the "auto" setting).
     pub encoder: Mutex<String>,
+    /// "gfxcapture" (Windows Graphics Capture: keeps delivering frames from games that flip straight to the screen),
     /// "ddagrab" (GPU desktop duplication) or "gdigrab" (slower, works almost everywhere).
     pub capture: Mutex<&'static str>,
     pub fast_failures: AtomicU32,
@@ -194,6 +197,8 @@ fn encoder_args(encoder: &str, kbps: u32, fps: u32) -> Vec<String> {
         "h264_qsv" => ["-c:v", "h264_qsv", "-preset", "medium", "-look_ahead", "0", "-forced_idr", "1"].map(String::from).to_vec(),
         _ => ["-c:v", "libx264", "-preset", "veryfast", "-sc_threshold", "0"].map(String::from).to_vec(),
     };
+    // no B-frames: reordered frames give negative DTS / edit lists that several players stutter on (SteelSeries clips have none)
+    v.extend(["-bf".to_string(), "0".to_string()]);
     v.extend(rate);
     v.extend(["-force_key_frames".to_string(), format!("expr:gte(t,n_forced*{SEGMENT_SECS})")]);
     v
@@ -266,7 +271,14 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
         let _ = fs::remove_file(old);
     }
     *shared.encoder.lock().unwrap() = encoder.clone();
-    let capture = *shared.capture.lock().unwrap();
+    let capture = {
+        let mut cap = shared.capture.lock().unwrap();
+        // an ffmpeg without the filter (older build) goes straight to desktop duplication
+        if *cap == "gfxcapture" && !gfxcapture_supported() {
+            *cap = "ddagrab";
+        }
+        *cap
+    };
 
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -284,7 +296,16 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
     }
     let monitor = desired_monitor(shared, &cfg);
     shared.monitor_now.store(monitor, Ordering::Relaxed);
-    if capture == "ddagrab" {
+    // output frame size: the bitrate follows what is actually captured (frame size, fps and the quality level)
+    let (mon_w, mon_h) = crate::win::monitors().get(monitor as usize).map_or((1920, 1080), |m| (m.width as u32, m.height as u32));
+    let (out_w, out_h) = ml_core::bitrate::output_size(cfg.width, mon_w, mon_h);
+    if capture == "gfxcapture" {
+        // the scaling happens on the GPU, so only the small picture is copied back to the CPU
+        cmd.args(["-f", "lavfi", "-i"]).arg(format!(
+            "gfxcapture=monitor_idx={}:max_framerate={}:capture_cursor=1:width={}:height={}:resize_mode=scale:scale_mode=bilinear",
+            monitor, cfg.fps, out_w, out_h
+        ));
+    } else if capture == "ddagrab" {
         cmd.args(["-f", "lavfi", "-i"]).arg(format!(
             "ddagrab=output_idx={}:framerate={}:draw_mouse=1",
             monitor, cfg.fps
@@ -299,19 +320,16 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
         cmd.args(["-thread_queue_size", "1024", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i"])
             .arg(format!("tcp://127.0.0.1:{port}"));
     }
-    let scale = if cfg.width > 0 {
+    let scale = if cfg.width > 0 && capture != "gfxcapture" {
         format!("scale={}:-2:flags=fast_bilinear,", cfg.width)
     } else {
         String::new()
     };
     // `fps` makes the stream constant-frame-rate (desktop capture is otherwise variable).
-    let download = if capture == "ddagrab" { "hwdownload,format=bgra," } else { "format=bgra," };
+    let download = if capture == "ddagrab" || capture == "gfxcapture" { "hwdownload,format=bgra," } else { "format=bgra," };
     cmd.args(["-filter_complex"])
         .arg(format!("[0:v]{download}{scale}fps={},format=nv12[v]", cfg.fps));
     cmd.args(["-map", "[v]", "-map", "1:a", "-map", "2:a", "-map", "3:a"]);
-    // The bitrate follows what is actually captured: frame size, fps and the quality level.
-    let (mon_w, mon_h) = crate::win::monitors().get(monitor as usize).map_or((1920, 1080), |m| (m.width as u32, m.height as u32));
-    let (out_w, out_h) = ml_core::bitrate::output_size(cfg.width, mon_w, mon_h);
     let kbps = match ml_core::bitrate::Quality::parse(&cfg.quality) {
         Some(q) => ml_core::bitrate::recording_kbps(out_w, out_h, cfg.fps, q),
         None => cfg.video_kbps,
@@ -340,7 +358,10 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
     }
 
     let stop = Arc::new(AtomicBool::new(false));
-    let go = Arc::new(AtomicBool::new(false));
+    // Audio flows from the start. (It used to wait for the first video frame to line the two up, but ffmpeg only
+    // produces that frame once audio arrives, so video sat blocked for seconds and then ran in freeze/burst mode
+    // for the whole session. Started together, the streams are within ~20 ms of each other.)
+    let go = Arc::new(AtomicBool::new(true));
     let finish = |child: &mut std::process::Child, stop: &AtomicBool| {
         stop.store(true, Ordering::Relaxed);
         let _ = child.kill();
@@ -387,7 +408,19 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
         let go = go.clone();
         thread::spawn(move || {
             if let Some(out) = stdout {
+                let (mut last_log, mut stats) = (Instant::now(), String::new());
                 for line in BufReader::new(out).lines().map_while(Result::ok) {
+                    if ["frame=", "fps=", "dup_frames=", "drop_frames=", "speed="].iter().any(|k| line.starts_with(k)) {
+                        stats.push_str(&line);
+                        stats.push(' ');
+                        if line.starts_with("speed=") {
+                            if last_log.elapsed() > Duration::from_secs(5) {
+                                log(&format!("ffmpeg progress: {}", stats.trim()));
+                                last_log = Instant::now();
+                            }
+                            stats.clear();
+                        }
+                    }
                     if let Some(n) = line.strip_prefix("frame=") {
                         if n.trim().parse::<u64>().unwrap_or(0) > 0 {
                             go.store(true, Ordering::Relaxed);
@@ -491,13 +524,19 @@ pub fn supervise(shared: Arc<Shared>) {
                     shared.fast_failures.store(0, Ordering::Relaxed);
                 } else {
                     let n = shared.fast_failures.fetch_add(1, Ordering::Relaxed) + 1;
-                    if n == 3 {
+                    if n == 2 {
+                        let mut cap = shared.capture.lock().unwrap();
+                        if *cap == "gfxcapture" {
+                            *cap = "ddagrab";
+                            log("falling back to desktop duplication");
+                        }
+                    } else if n == 4 {
                         let mut cap = shared.capture.lock().unwrap();
                         if *cap == "ddagrab" {
                             *cap = "gdigrab";
                             log("falling back to GDI capture");
                         }
-                    } else if n == 5 {
+                    } else if n == 6 {
                         let mut forced = shared.encoder_override.lock().unwrap();
                         if forced.as_deref() != Some("libx264") {
                             *forced = Some("libx264".into());
@@ -515,6 +554,17 @@ pub fn supervise(shared: Arc<Shared>) {
             }
         }
     }
+}
+
+/// Whether the ffmpeg in use has the Windows Graphics Capture source (ffmpeg 8+); asked once.
+fn gfxcapture_supported() -> bool {
+    static C: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *C.get_or_init(|| {
+        let mut cmd = Command::new(ml_core::tools::ffmpeg());
+        cmd.args(["-hide_banner", "-filters"]).stdin(Stdio::null()).stderr(Stdio::null());
+        ml_core::export::hide_window(&mut cmd);
+        cmd.output().map(|o| String::from_utf8_lossy(&o.stdout).contains("gfxcapture")).unwrap_or(false)
+    })
 }
 
 fn clean_name(s: &str) -> String {
@@ -536,9 +586,30 @@ pub fn current_game_name(cfg: &Config) -> String {
     }
 }
 
+/// Keeps the foreground game's icon as `%APPDATA%\Buffer\icons\<game>.png` (once per game) for the library sidebar.
+fn remember_game_icon(game: &str) {
+    if game == "Desktop" {
+        return;
+    }
+    let Some(base) = std::env::var_os("APPDATA") else { return };
+    let dir = PathBuf::from(base).join("Buffer").join("icons");
+    let file: String = game.chars().map(|c| if r#"<>:"/\|?*"#.contains(c) { '-' } else { c }).collect();
+    let png = dir.join(format!("{file}.png"));
+    if png.exists() {
+        return;
+    }
+    let Some(fg) = win::foreground() else { return };
+    if let Some(bytes) = win::exe_icon_png(&fg.exe) {
+        let _ = fs::create_dir_all(&dir);
+        let _ = fs::write(&png, bytes);
+    }
+}
+
 /// Writes the last `buffer_seconds` of the rolling buffer to a finished MP4 in the output folder.
 pub fn save(shared: &Arc<Shared>) -> Result<PathBuf, String> {
+    shared.saving.store(true, Ordering::Relaxed);
     let result = save_inner(shared);
+    shared.saving.store(false, Ordering::Relaxed);
     *shared.flash.lock().unwrap() = Some((Instant::now(), result.is_ok()));
     result
 }
@@ -564,6 +635,7 @@ fn save_inner(shared: &Arc<Shared>) -> Result<PathBuf, String> {
     let picked = &all[all.len() - take..];
 
     let game = current_game_name(&cfg);
+    remember_game_icon(&game);
     let mut out_dir = PathBuf::from(&cfg.output_dir);
     if cfg.per_game_folders {
         out_dir = out_dir.join(&game);

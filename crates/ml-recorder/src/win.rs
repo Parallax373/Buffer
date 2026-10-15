@@ -177,6 +177,8 @@ pub fn pump_messages(mut f: impl FnMut(Pump)) {
 
 pub struct Foreground {
     pub pid: u32,
+    /// Full path of the executable.
+    pub exe: String,
     /// Lower-case executable stem, e.g. "cs2".
     pub stem: String,
     /// The window covers its whole monitor (exclusive or borderless fullscreen).
@@ -229,13 +231,135 @@ pub fn foreground() -> Option<Foreground> {
                 fullscreen = r.left <= m.left && r.top <= m.top && r.right >= m.right && r.bottom >= m.bottom;
             }
         }
-        Some(Foreground { pid, stem, fullscreen, monitor })
+        Some(Foreground { pid, exe: path, stem, fullscreen, monitor })
     }
 }
 
 /// File stem of the executable owning the foreground window.
 pub fn foreground_exe_stem() -> Option<String> {
     foreground().map(|f| f.stem)
+}
+
+/// The executable's large icon as a PNG (32 px), or None when it has none.
+pub fn exe_icon_png(exe: &str) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
+    };
+    use windows_sys::Win32::UI::Shell::ExtractIconExW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, ICONINFO};
+    unsafe {
+        let mut large = std::ptr::null_mut();
+        if ExtractIconExW(wide(exe).as_ptr(), 0, &mut large, std::ptr::null_mut(), 1) < 1 || large.is_null() {
+            return None;
+        }
+        let mut ii: ICONINFO = std::mem::zeroed();
+        if GetIconInfo(large, &mut ii) == 0 {
+            DestroyIcon(large);
+            return None;
+        }
+        let mut out = None;
+        let mut bm: BITMAP = std::mem::zeroed();
+        if !ii.hbmColor.is_null()
+            && GetObjectW(ii.hbmColor, std::mem::size_of::<BITMAP>() as i32, &mut bm as *mut _ as *mut c_void) != 0
+            && bm.bmWidth > 0
+            && bm.bmHeight > 0
+        {
+            let (w, h) = (bm.bmWidth as usize, bm.bmHeight as usize);
+            let dc = CreateCompatibleDC(std::ptr::null_mut());
+            let mut bmi: BITMAPINFO = std::mem::zeroed();
+            bmi.bmiHeader = BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w as i32,
+                biHeight: -(h as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                ..std::mem::zeroed()
+            };
+            let mut px = vec![0u8; w * h * 4];
+            let got = GetDIBits(dc, ii.hbmColor, 0, h as u32, px.as_mut_ptr() as *mut c_void, &mut bmi, DIB_RGB_COLORS);
+            if got != 0 {
+                // icons without an alpha channel: transparency comes from the AND mask
+                if px.chunks_exact(4).all(|p| p[3] == 0) {
+                    let mut ok = false;
+                    if !ii.hbmMask.is_null() {
+                        let mut mask = vec![0u8; w * h * 4];
+                        let mut mi = bmi;
+                        if GetDIBits(dc, ii.hbmMask, 0, h as u32, mask.as_mut_ptr() as *mut c_void, &mut mi, DIB_RGB_COLORS) != 0 {
+                            for (p, m) in px.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
+                                p[3] = if m[0] == 0 { 255 } else { 0 };
+                            }
+                            ok = true;
+                        }
+                    }
+                    if !ok {
+                        px.chunks_exact_mut(4).for_each(|p| p[3] = 255);
+                    }
+                }
+                for p in px.chunks_exact_mut(4) {
+                    p.swap(0, 2); // BGRA -> RGBA
+                }
+                out = Some(png_rgba(w as u32, h as u32, &px));
+            }
+            DeleteDC(dc);
+        }
+        if !ii.hbmColor.is_null() {
+            DeleteObject(ii.hbmColor);
+        }
+        if !ii.hbmMask.is_null() {
+            DeleteObject(ii.hbmMask);
+        }
+        DestroyIcon(large);
+        out
+    }
+}
+
+/// Minimal PNG writer (uncompressed deflate blocks): enough for a 32 px icon, no extra dependency.
+fn png_rgba(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+    fn crc(data: &[u8]) -> u32 {
+        let mut c = !0u32;
+        for &b in data {
+            c ^= b as u32;
+            for _ in 0..8 {
+                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+        }
+        !c
+    }
+    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend((data.len() as u32).to_be_bytes());
+        let mut body = kind.to_vec();
+        body.extend(data);
+        out.extend(&body);
+        out.extend(crc(&body).to_be_bytes());
+    }
+    let mut raw = Vec::with_capacity((w as usize * 4 + 1) * h as usize);
+    for row in rgba.chunks_exact(w as usize * 4) {
+        raw.push(0);
+        raw.extend(row);
+    }
+    let mut z = vec![0x78, 0x01];
+    let mut blocks = raw.chunks(65535).peekable();
+    while let Some(b) = blocks.next() {
+        z.push(if blocks.peek().is_none() { 1 } else { 0 });
+        z.extend((b.len() as u16).to_le_bytes());
+        z.extend((!(b.len() as u16)).to_le_bytes());
+        z.extend(b);
+    }
+    let (mut a, mut s) = (1u32, 0u32);
+    for &b in &raw {
+        a = (a + b as u32) % 65521;
+        s = (s + a) % 65521;
+    }
+    z.extend(((s << 16) | a).to_be_bytes());
+    let mut ihdr = Vec::new();
+    ihdr.extend(w.to_be_bytes());
+    ihdr.extend(h.to_be_bytes());
+    ihdr.extend([8, 6, 0, 0, 0]);
+    let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    chunk(&mut out, b"IHDR", &ihdr);
+    chunk(&mut out, b"IDAT", &z);
+    chunk(&mut out, b"IEND", &[]);
+    out
 }
 
 pub fn local_stamp() -> String {
@@ -249,9 +373,15 @@ pub fn local_stamp() -> String {
     }
 }
 
+/// The "saved" sound (a short shutter click, embedded in the exe); falls back to the system beep.
 pub fn beep() {
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
+    static SAVED: &[u8] = include_bytes!("../assets/saved.wav");
     unsafe {
-        MessageBeep(MB_OK);
+        // SND_ASYNC with SND_MEMORY needs the buffer to outlive the call: it is a 'static
+        if PlaySoundW(SAVED.as_ptr() as *const u16, std::ptr::null_mut(), SND_MEMORY | SND_ASYNC | SND_NODEFAULT) == 0 {
+            MessageBeep(MB_OK);
+        }
     }
 }
 
@@ -369,4 +499,14 @@ pub fn find_root_pid(stem: &str) -> Option<u32> {
         .find(|(_, parent)| !same.iter().any(|(pid, _)| pid == parent))
         .or(same.first())
         .map(|(pid, _)| *pid)
+}
+
+#[cfg(test)]
+mod icon_tests {
+    #[test]
+    fn exe_icon_is_png() {
+        let png = super::exe_icon_png(r"C:\Windows\System32\notepad.exe").expect("icon");
+        assert_eq!(&png[1..4], b"PNG");
+        std::fs::write(std::env::temp_dir().join("icon_test.png"), png).unwrap();
+    }
 }
