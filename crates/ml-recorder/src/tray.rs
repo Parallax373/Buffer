@@ -214,6 +214,14 @@ fn clock(secs: u64) -> String {
     }
 }
 
+/// Asks a running editor window to close (WM_CLOSE through taskkill, not a kill: it saves its state).
+fn close_editor() {
+    let mut c = Command::new("taskkill");
+    c.args(["/IM", "buffer.exe"]);
+    ml_core::export::hide_window(&mut c);
+    let _ = c.spawn();
+}
+
 fn open_editor() {
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
         let _ = Command::new(dir.join("buffer.exe")).spawn();
@@ -399,8 +407,11 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
             }
             // Left click opens the app; the context menu belongs to the right button.
             while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
+                // the icon can outlive the quit by a few seconds (the recording is finalised first): a click then must not reopen the app
                 if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
-                    open_editor();
+                    if !tick_shared.quit.load(Ordering::Relaxed) {
+                        open_editor();
+                    }
                 }
             }
             while let Ok(ev) = MenuEvent::receiver().try_recv() {
@@ -412,6 +423,11 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
                     open_editor();
                 } else if ev.id == *quit_i.id() {
                     tick_shared.quit.store(true, Ordering::Relaxed);
+                    // "Quit Buffer" quits it all: the icon goes at once and an open editor window is asked to close
+                    if let Some(tray) = &tray {
+                        let _ = tray.set_visible(false);
+                    }
+                    close_editor();
                 }
             }
             if let Some(tray) = &tray {
