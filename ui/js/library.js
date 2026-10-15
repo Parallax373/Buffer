@@ -18,6 +18,7 @@
   /* ───── data ───── */
 
   Lib.load = async () => {
+    Lib.loadIcons();
     const dirs = App.P.libDirs.filter(Boolean);
     let clips = [], listError = "";
     try {
@@ -94,6 +95,32 @@
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   };
 
+  /* Game logos: the recorder saves the game's exe icon the first time it records that game. */
+  const gameKey = (s) => s.replace(/-+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  let gameIcons = new Map();          // normalised game name -> asset URL
+  Lib.loadIcons = async () => {
+    try {
+      const list = await api.invoke("game_icons");
+      const next = new Map(list.map(([name, p]) => [gameKey(name), api.src(p)]));
+      const same = next.size === gameIcons.size && [...next].every(([k, v]) => gameIcons.get(k) === v);
+      gameIcons = next;
+      if (!same && S.view === "lib") { Lib.renderSide(); refreshCards(); Lib.renderDetails(); }
+    } catch { /* older backend: swatches only */ }
+  };
+
+  /** Small logo <img> for a game, or null when the recorder has not saved one. */
+  Lib.gameIcon = (game) => {
+    const url = gameIcons.get(gameKey(game));
+    return url ? h("img", { class: "gi", src: url, alt: "" }) : null;
+  };
+
+  /** Logo of a game in the sidebar; a colour swatch when the game has none yet. */
+  function gameThumb(game) {
+    const url = gameIcons.get(gameKey(game));
+    if (url) return h("img", { class: "gt", src: url, alt: "" });
+    return h("span", { class: "gt sw", style: { background: `hsl(${App.hueOf(game)} 60% 55%)` } });
+  }
+
   Lib.visible = () => {
     const cat = S.cat, q = S.q.trim().toLowerCase();
     const recentCut = recentCutoff();
@@ -137,7 +164,9 @@
       group: h("select", { class: "field", title: App.t("group.date"),
         onChange: (e) => { App.P.settings.groupBy = e.target.value; App.persist(); Lib.render(true); } },
       ["none", "date"].map((v) => h("option", { value: v, text: App.t("group." + v), selected: (App.P.settings.groupBy || "none") === v }))),
-      grid: h("div", { class: "grid", onScroll: () => layoutGrid() }),
+      grid: h("div", { class: "grid", onScroll: () => layoutGrid(),
+        // a click on the empty background clears the selection (the details panel can hide the cards under it)
+        onClick: (e) => { if ((e.target === els.grid || e.target === els.spacer) && (S.sel.size || S.active)) Lib.clearSel(); } }),
       spacer: h("div", { class: "spacer" }),
       bulk: h("div"),
       details: h("div", { class: "details" }),
@@ -167,11 +196,11 @@
     if (!els.side) return;
     const item = (key, label, count, extra = {}) =>
       h("div", { class: "row" + (S.cat === key ? " on" : ""), onClick: () => { S.cat = key; Lib.render(false); } },
-        extra.sq ? h("span", { class: "sq", style: { background: extra.sq } }) : null,
+        extra.game ? gameThumb(extra.game) : null,
         extra.dot ? h("span", { class: "ci", style: { background: extra.dot } }) : null,
         h("span", { class: "nm", text: label }), h("span", { class: "n", text: count }));
     const recentCut = recentCutoff();
-    // the five biggest games, the rest behind "show more"; an opened game that is not among them stays visible
+    // the five biggest games; the "Games" caption opens the full list. An opened game outside the top five stays visible.
     const GAMES_SHOWN = 5;
     const games = Lib.games();
     let shown = S.gamesOpen ? games : games.slice(0, GAMES_SHOWN);
@@ -185,12 +214,12 @@
       item("recent", App.t("cat.recent"), S.clips.filter((c) => c.modified >= recentCut).length),
       item("fav", "★ " + App.t("cat.fav"), S.clips.filter(isFav).length),
       item("exp", App.t("cat.exp"), S.clips.filter((c) => isExported(c.path)).length),
-      h("div", { class: "cap", text: App.t("cat.games") }),
-      ...shown.map(([g, n]) => item("g:" + g, g, n, { sq: `hsl(${App.hueOf(g)} 60% 55%)` })),
-      games.length > GAMES_SHOWN
-        ? h("div", { class: "row more", onClick: () => { S.gamesOpen = !S.gamesOpen; Lib.renderSide(); } },
-          h("span", { class: "nm", text: S.gamesOpen ? App.t("cat.less") : App.t("cat.more", { n: games.length - GAMES_SHOWN }) }))
-        : null,
+      h("button", { class: "cap capbtn", disabled: games.length <= GAMES_SHOWN,
+        title: games.length > GAMES_SHOWN ? (S.gamesOpen ? App.t("cat.less") : App.t("cat.more", { n: games.length - GAMES_SHOWN })) : "",
+        onClick: () => { S.gamesOpen = !S.gamesOpen; Lib.renderSide(); } },
+        h("span", { text: App.t("cat.games") }),
+        games.length > GAMES_SHOWN ? h("span", { class: "gar", text: S.gamesOpen ? "▾" : "▸" }) : null),
+      ...shown.map(([g, n]) => item("g:" + g, g, n, { game: g })),
     ].filter(Boolean);
     els.side.replaceChildren(...frag);
   };
@@ -261,7 +290,7 @@
     let y = 0;
     for (const e of [...byKey.values()].sort((a, b) => a.order - b.order)) {
       const closed = S.collapsed.has(e.key);
-      groups.push({ key: e.key, label: e.label, y, count: e.clips.length, closed });
+      groups.push({ key: e.key, label: e.label, y, count: e.clips.length, closed, clips: e.clips });
       y += GROUP_H;
       if (closed) continue;
       e.clips.forEach((clip, i) => items.push({ clip, ...at(i, y) }));
@@ -327,10 +356,17 @@
         els.spacer.append(el);
       }
       el.style.top = `${gr.y}px`;
-      const sig = `${gr.count}|${gr.closed}|${gr.label}`;
+      el._gr = gr;
+      const picked = gr.clips.reduce((n, c) => n + (S.sel.has(c.path) ? 1 : 0), 0);
+      const sig = `${gr.count}|${gr.closed}|${gr.label}|${picked}`;
       if (el._sig !== sig) {
         el._sig = sig;
-        el.replaceChildren(h("span", { class: "gl", text: gr.label }), h("span", { class: "gc", text: String(gr.count) }),
+        // the box selects (or clears) every clip of the group
+        const all = picked === gr.count;
+        el.replaceChildren(
+          h("span", { class: "gsel" + (picked ? " on" : ""), title: App.t("group.selectAll"),
+            onClick: (ev) => { ev.stopPropagation(); Lib.selectGroup(el._gr.clips); } }, all ? "✓" : picked ? "–" : ""),
+          h("span", { class: "gl", text: gr.label }), h("span", { class: "gc", text: String(gr.count) }),
           h("span", { class: "gar", text: gr.closed ? "▸" : "▾" }));
       }
     }
@@ -340,7 +376,8 @@
   }
 
   function createCard(clip) {
-    const el = h("div", { class: "card", onClick: () => App.Ed.open(clip.path) });
+    const el = h("div", { class: "card", onClick: () => App.Ed.open(clip.path),
+      onContextmenu: (e) => { e.preventDefault(); api.invoke("reveal", { path: clip.path }); } });
     if (animBudget > 0) animBudget--; else el.style.animation = "none";
     el.append(
       h("div", { class: "th" },
@@ -349,7 +386,7 @@
         h("div", { class: "dur" }),
         h("div", { class: "now", text: App.t("badge.new") }),
         h("div", { class: "tg" })),
-      h("div", { class: "info" }, h("b", { text: App.gameOf(clip) }), h("span")));
+      h("div", { class: "info" }, h("div", { class: "gl" }, h("b", { text: App.gameOf(clip) })), h("span")));
     updateCard(el, clip);
     return el;
   }
@@ -367,6 +404,13 @@
     star.textContent = isFav(clip) ? "★" : "☆";
     star.classList.toggle("on", isFav(clip));
     el.querySelector(".info b").textContent = App.titleOf(clip);
+    // the game's logo next to the name (only when the recorder saved one)
+    const gl = el.querySelector(".info .gl"), want = gameIcons.get(gameKey(App.gameOf(clip))) || "";
+    if (gl._icon !== want) {
+      gl._icon = want;
+      gl.querySelector("img")?.remove();
+      if (want) gl.prepend(h("img", { class: "gi", src: want, alt: "" }));
+    }
     const m = Lib.meta(clip);
     th.querySelector(".dur").textContent = m ? App.fmtS(m.dur) : "";
     th.querySelector(".dur").hidden = !m;
@@ -428,6 +472,22 @@
     for (const p of [prev, S.active]) { const e2 = cards.get(p), c2 = S.byPath.get(p); if (e2 && c2) updateCard(e2, c2); }
     Lib.renderDetails();
     Lib.renderBulk();
+    layoutGrid();
+  };
+
+  /** Checks every clip of a date group, or clears them when they are all checked already. */
+  Lib.selectGroup = (clips) => {
+    const all = clips.every((c) => S.sel.has(c.path));
+    for (const c of clips) { if (all) S.sel.delete(c.path); else S.sel.add(c.path); }
+    const prev = S.active;
+    S.active = S.sel.size === 1 ? [...S.sel][0] : null;
+    for (const p of new Set([prev, S.active, ...clips.map((c) => c.path)])) {
+      const el = cards.get(p), c = S.byPath.get(p);
+      if (el && c) updateCard(el, c);
+    }
+    Lib.renderDetails();
+    Lib.renderBulk();
+    layoutGrid();
   };
 
   Lib.clearSel = () => {
@@ -437,6 +497,7 @@
     for (const p of old) { const el = cards.get(p), c = S.byPath.get(p); if (el && c) updateCard(el, c); }
     Lib.renderDetails();
     Lib.renderBulk();
+    layoutGrid();
   };
 
   Lib.renderBulk = () => {
@@ -458,10 +519,6 @@
 
   Lib.remove = async (paths) => {
     if (!paths.length) return;
-    const msg = paths.length === 1
-      ? App.t("rm.one", { name: App.baseName(paths[0]) })
-      : App.t("rm.many", { n: paths.length });
-    if (!confirm(msg)) return;
     try {
       await api.invoke("delete_clips", { paths });
       for (const p of paths) {
@@ -491,9 +548,10 @@
     const pv = h("div", { class: "pv" }, h("div", { class: "go", onClick: () => App.Ed.open(c.path) }, h("span", { text: "▶" })));
     Lib.thumbUrl(c.path).then((u) => { if (u && S.active === c.path) pv.prepend(h("img", { src: u, alt: "" })); });
     els.details.replaceChildren(
+      h("button", { class: "dclose", title: App.t("common.close"), "aria-label": App.t("common.close"), text: "✕", onClick: Lib.clearSel }),
       pv,
       h("div", null,
-        h("div", { class: "gamechip", title: App.t("det.game"), text: App.gameOf(c) }),
+        h("div", { class: "gamechip", title: App.t("det.game") }, Lib.gameIcon(App.gameOf(c)), App.gameOf(c)),
         h("h2", { class: "ttl" + (App.customTitle(c) ? "" : " ph"), title: App.t("det.rename"),
           text: App.customTitle(c) || App.whenOf(c), onClick: (ev) => {
           App.editTitle(ev.currentTarget, c.path, () => { refreshCards(); Lib.renderSide(); Lib.renderDetails(); });

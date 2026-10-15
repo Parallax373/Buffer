@@ -69,9 +69,42 @@ const App = {};
     return raw.replace(/-+/g, " ").replace(/\s+/g, " ").trim() || App.t("clip.unknown");
   };
   /** What the user sees as the clip's name: their own title, else the game derived from the file name. */
-  App.titleOf = (clip) => App.P.titles[clip.path] || App.gameOf(clip);
-  /** The clip's own name (empty until the user sets one). The game is shown separately, never edited here. */
-  App.customTitle = (clip) => App.P.titles[clip.path] || "";
+  App.titleOf = (clip) => App.customTitle(clip) || App.gameOf(clip);
+  /** The clip's own name (empty until the user sets one): the part after the time stamp in the file name
+   *  (`Game__2026-10-14__22-38-28__Title`), else a title saved by an earlier version. The game is never edited here. */
+  App.customTitle = (clip) => {
+    const m = clip.name.match(/__\d{4}-\d{2}-\d{2}__\d{2}-\d{2}-\d{2}__(.+)$/);
+    return m ? m[1] : App.P.titles[clip.path] || "";
+  };
+
+  /** Renames the file on disk and carries everything saved for the old path (favourite, trim, gains, export links)
+   *  over to the new one. Resolves with the new path, or null when it failed. */
+  App.renameClip = async (path, title) => {
+    try {
+      const to = await invoke("rename_clip", { path, title });
+      if (to !== path) {
+        const P = App.P, S = App.S;
+        for (const k of ["favs", "titles", "trims", "clipGains", "meta"]) {
+          if (P[k] && path in P[k]) { P[k][to] = P[k][path]; delete P[k][path]; }
+        }
+        delete P.titles[to];                       // the name now lives in the file
+        P.newSet = P.newSet.map((p) => (p === path ? to : p));
+        for (const e of P.exports) if (e.source === path) e.source = to;
+        if (S.sel.delete(path)) S.sel.add(to);
+        if (S.active === path) S.active = to;
+        App.persist();
+      }
+      delete App.P.titles[path];
+      App.persist();
+      await App.Lib.load();
+      const cur = App.Ed && App.Ed.current();
+      if (cur && cur.clip.path === path) await App.Ed.open(to);   // reload the editor on the renamed file
+      return to;
+    } catch (e) {
+      App.toast(App.t("rn.fail", { err: e }), "err");
+      return null;
+    }
+  };
   App.whenOf = (clip) => new Date(clip.modified * 1000).toLocaleString(App.tag(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
   /** Turns `el` into a text field to rename the clip; Enter/blur saves, Esc cancels, empty resets. */
@@ -83,10 +116,12 @@ const App = {};
     const finish = (save) => {
       if (finished) return;
       finished = true;
-      if (save) {
-        const v = input.value.trim();
-        if (v) App.P.titles[path] = v; else delete App.P.titles[path];
-        App.persist();
+      const v = input.value.trim();
+      if (save && v !== App.customTitle(clip)) {
+        // plain files without a recorder name cannot lose their name: an empty title is ignored
+        if (!v && !/__\d{4}-\d{2}-\d{2}__\d{2}-\d{2}-\d{2}/.test(clip.name)) { done(); return; }
+        App.renameClip(path, v).then(() => done());
+        return;
       }
       done();
     };

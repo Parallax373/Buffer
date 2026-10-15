@@ -165,8 +165,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 .rail .tn { width: 48px; height: 28px; border-radius: 5px; border: 2px solid transparent; background: var(--raised) center/cover; flex: none; }
 .rail .tn.on { border-color: var(--acc); }
 .edmain { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.edhead { height: 48px; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: 1px solid var(--line); flex: none; }
-.edhead .nv { color: var(--muted); font-size: 16px; }
+.edhead { height: 68px; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: 1px solid var(--line); flex: none; }
+.edhead .nv { color: var(--muted); font-size: 22px; padding: 0 6px; }
 .edhead .nv:hover { color: #fff; }
 .edhead .fav { font-size: 18px; color: var(--muted); }
 .edhead .fav.on { color: var(--warn); }
@@ -771,3 +771,73 @@ body { color: var(--text); }
 .view { background: var(--bg); }
 .view.leaving { position: absolute; inset: 0; pointer-events: none; animation: none; z-index: 0; }
 #views > .view:not(.leaving) { z-index: 1; }
+
+/* editor header: taller bar, reveal button; transport step box; side game thumbs; export popover close */
+.edhead .revbtn { padding: 7px 12px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--text2); font-size: 12px; }
+.edhead .revbtn:hover { border-color: var(--acc); color: var(--text); }
+.edhead .gamechip { font-size: 12px; padding: 4px 11px; }
+.tbox { display: flex; align-items: center; gap: 4px; padding: 4px; background: var(--raised); border: 1px solid var(--line); border-radius: 14px; }
+.tbox button { min-width: 40px; height: 38px; padding: 0 8px; border-radius: 9px; color: var(--text2); font-size: 13px; line-height: 1; }
+.tbox button:hover { background: #ffffff0f; color: var(--text); }
+.tbox .play { width: 40px; height: 40px; min-width: 40px; border-radius: 20px; background: var(--acc); color: var(--ink); text-align: center; line-height: 40px; font-size: 14px; margin: 0 4px; }
+.tbox .play:hover { background: var(--acc); filter: brightness(1.1); color: var(--ink); }
+.side .row .gt { width: 20px; height: 20px; border-radius: 5px; flex: none; object-fit: contain; }
+.side .row .gt.sw { width: 14px; height: 14px; border-radius: 4px; margin: 0 3px; }
+.side .capbtn { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; cursor: pointer; border-radius: 6px; }
+.side .capbtn:hover { color: var(--text); }
+.expchip.open { background: var(--panel); color: var(--text); box-shadow: inset 0 0 0 1px var(--acc); }
+.expchip.open::after { content: "B4"; }
+.popover .phead { display: flex; justify-content: space-between; align-items: center; margin: -4px 0 -2px; }
+.popover .phead b { font: 600 11px "Instrument Sans"; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.popover .pclose { width: 26px; height: 26px; border-radius: 13px; color: var(--muted); font-size: 13px; }
+.popover .pclose:hover { background: #ffffff14; color: var(--text); }
+
+/* editor header: grouped buttons with generous hit areas (the box itself may stay invisible) */
+.hbox { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line); }
+.hbox button { min-width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center; }
+.hbox button:hover { background: #ffffff12; }
+.edhead .hbox .nv { font-size: 24px; }
+.edhead .hbox .qm { margin: 0; border: 0; border-radius: 9px; width: 40px; font-size: 14px; }
+.edhead .hbox .fav { font-size: 22px; }
+.edhead .hit { min-width: 40px; height: 40px; border-radius: 9px; font-size: 16px; }
+.edhead .hit:hover { background: #ffffff12; }
+.edhead .revbtn { height: 40px; padding: 0 16px; font-size: 13px; }
+.side .capbtn:disabled { cursor: default; }
+.edhead .revbtn, .edhead .ttl, .edhead .gamechip { white-space: nowrap; flex: none; }
+.edhead .mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .info .gl { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.card .info .gl b { min-width: 0; }
+img.gi { width: 18px; height: 18px; border-radius: 4px; object-fit: contain; flex: none; }
+.gamechip { display: inline-flex; align-items: center; gap: 6px; }
+.gamechip img.gi { width: 14px; height: 14px; border-radius: 3px; }
+
+/* details panel floats over the grid: selecting a clip no longer re-flows the library */
+.lib, .lib.nodetail { grid-template-columns: clamp(170px, 16vw, 230px) minmax(0, 1fr); transition: none; position: relative; overflow: hidden; }
+.lib .details { position: absolute; top: 0; right: 0; bottom: 0; width: clamp(240px, 24vw, 320px); z-index: 5; box-shadow: -18px 0 36px -18px #000c; transition: transform .28s var(--ease), opacity .2s ease; }
+.lib.nodetail .details { padding: 16px; border-left: 1px solid var(--line); transform: translateX(105%); opacity: 0; pointer-events: none; overflow-y: auto; }
+
+/* editor header: prev/next, shortcuts, fav — labels stay, boxes appear only on hover */
+.edhead .hbox { background: transparent; border-color: transparent; }
+.edhead .hbox .nv, .edhead .hbox .qm, .edhead .hbox .fav { background: transparent; border-color: transparent; }
+.edhead .hbox .nv:hover, .edhead .hbox .qm:hover, .edhead .hbox .fav:hover { background: #ffffff12; }
+
+.recpill.saving { color: var(--acc); background: #c6f4321f; }
+.recpill.saving .dot { background: var(--acc); animation: rec .6s ease-in-out infinite; }
+
+/* transport: time left, step box exactly centred, marks and zoom right */
+.transport { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; }
+.transport .time { justify-self: start; }
+.transport .tright { justify-self: end; display: flex; align-items: center; gap: 12px; }
+
+.details .dclose { position: absolute; top: 8px; right: 8px; z-index: 2; width: 30px; height: 30px; border-radius: 15px; color: var(--text2); background: #000a; }
+.details .dclose:hover { background: var(--raised); color: var(--text); }
+
+/* frame grid near maximum zoom */
+.tl .fgrid { position: absolute; left: 0; right: 0; top: 24px; bottom: 0; pointer-events: none; z-index: 1;
+  background-image: linear-gradient(90deg, #ffffff22 0 1px, transparent 1px), linear-gradient(90deg, #ffffff55 0 1px, transparent 1px);
+  background-repeat: repeat-x; }
+
+/* date groups: select-all box */
+.ghead .gsel { width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--muted); display: inline-grid; place-items: center; margin-right: 10px; font: 700 11px/1 "JetBrains Mono", monospace; color: var(--ink); flex: none; }
+.ghead .gsel:hover { border-color: var(--acc); }
+.ghead .gsel.on { background: var(--acc); border-color: var(--acc); }

@@ -54,6 +54,12 @@
       E.v1 = info.duration;
       video.src = api.src(path);
       video.load();
+      // the playhead waits at the start of the kept selection, not at 0:00
+      if (E.start > 0) {
+        video.addEventListener("loadedmetadata", () => {
+          if (token === loadToken && E) seek(E.start);
+        }, { once: true });
+      }
       if (!ctx) ctx = new AudioContext();
       E.tracks = info.audio.map((t, i) => makeTrack(t.name, files[i], i));
       renderAll();
@@ -198,18 +204,21 @@
     Ed.step = step;
     const rename = (ev) => App.editTitle(ev.currentTarget.closest(".edhead").querySelector(".ttl"), E.clip.path, () => renderHead());
     ui.head.replaceChildren(
-      h("button", { class: "nv", onClick: () => step(-1), title: App.t("ed.prev"), text: "‹" }),
-      h("button", { class: "nv", onClick: () => step(1), title: App.t("ed.next"), text: "›" }),
-      h("span", { class: "gamechip", title: App.t("det.game"), text: App.gameOf(E.clip) }),
-      h("b", { class: "ttl" + (App.customTitle(E.clip) ? "" : " ph"), style: { fontSize: "14px" }, title: App.t("det.rename"),
+      h("div", { class: "hbox" },
+        h("button", { class: "nv", onClick: () => step(-1), title: App.t("ed.prev"), text: "‹" }),
+        h("button", { class: "nv", onClick: () => step(1), title: App.t("ed.next"), text: "›" })),
+      h("span", { class: "gamechip", title: App.t("det.game") }, App.Lib.gameIcon(App.gameOf(E.clip)), App.gameOf(E.clip)),
+      h("b", { class: "ttl" + (App.customTitle(E.clip) ? "" : " ph"), style: { fontSize: "16px" }, title: App.t("det.rename"),
         text: App.customTitle(E.clip) || App.whenOf(E.clip),
         onClick: (ev) => App.editTitle(ev.currentTarget, E.clip.path, () => renderHead()) }),
-      h("button", { class: "ren", title: App.t("ed.renameBtn"), text: "✎", onClick: rename }),
+      h("button", { class: "ren hit", title: App.t("ed.renameBtn"), text: "✎", onClick: rename }),
       h("span", { class: "mono muted", style: { fontSize: "12px" }, text: App.baseName(E.clip.path) }),
       h("span", { class: "sp" }),
-      h("button", { class: "qm", title: App.t("ed.shortcuts"), text: "?", onClick: () => ui.kb.hidden = !ui.kb.hidden }),
-      h("button", { class: "fav" + (App.P.favs[E.clip.path] ? " on" : ""), id: "edFav",
-        onClick: () => App.Lib.toggleFav(E.clip.path), text: App.P.favs[E.clip.path] ? "★" : "☆" }));
+      h("button", { class: "revbtn", text: App.t("det.reveal"), onClick: () => api.invoke("reveal", { path: E.clip.path }) }),
+      h("div", { class: "hbox" },
+        h("button", { class: "qm", title: App.t("ed.shortcuts"), text: "?", onClick: () => ui.kb.hidden = !ui.kb.hidden }),
+        h("button", { class: "fav" + (App.P.favs[E.clip.path] ? " on" : ""), id: "edFav",
+          onClick: () => App.Lib.toggleFav(E.clip.path), text: App.P.favs[E.clip.path] ? "★" : "☆" })));
   }
   Ed.refreshFav = () => { if (E) renderHead(); };
 
@@ -219,21 +228,21 @@
     ui.area?.classList.toggle("playing", E.playing);
     const dur = E.info ? E.info.duration : 0;
     ui.transport.replaceChildren(
-      h("button", { class: "play", onClick: toggle, text: E.playing ? "❚❚" : "▶" }),
       h("span", { class: "time", id: "edTime", text: `${App.fmt(video.currentTime)} / ${App.fmt(dur)}` }),
-      h("span", { class: "zoomctl stepctl" },
+      h("div", { class: "tbox" },
         h("button", { title: App.t("ed.back1s"), text: "−1s", onClick: () => stepSec(-1) }),
         h("button", { title: App.t("ed.backFrame"), text: "◂", onClick: () => stepFrame(-1) }),
+        h("button", { class: "play", onClick: toggle, text: E.playing ? "❚❚" : "▶" }),
         h("button", { title: App.t("ed.fwdFrame"), text: "▸", onClick: () => stepFrame(1) }),
         h("button", { title: App.t("ed.fwd1s"), text: "+1s", onClick: () => stepSec(1) })),
-      h("span", { class: "sp" }),
-      h("button", { class: "mk", onClick: setIn }, App.t("ed.in") + " ", h("b", { text: "I" })),
-      h("button", { class: "mk", onClick: setOut }, App.t("ed.out") + " ", h("b", { text: "O" })),
-      h("span", { class: "sel", id: "edSel", text: App.t("ed.selected", { t: App.fmtS(E.end - E.start) }) }),
-      h("span", { class: "zoomctl" },
-        h("button", { title: App.t("ed.zoomOut"), text: "−", onClick: () => zoomAt(1 / 1.6, video.currentTime) }),
-        h("button", { title: App.t("ed.zoomIn"), text: "+", onClick: () => zoomAt(1.6, video.currentTime) }),
-        h("button", { title: App.t("ed.fit"), text: "↔", onClick: fitView })));
+      h("div", { class: "tright" },
+        h("button", { class: "mk", onClick: setIn }, App.t("ed.in") + " ", h("b", { text: "I" })),
+        h("button", { class: "mk", onClick: setOut }, App.t("ed.out") + " ", h("b", { text: "O" })),
+        h("span", { class: "sel", id: "edSel", text: App.t("ed.selected", { t: App.fmtS(E.end - E.start) }) }),
+        h("span", { class: "zoomctl" },
+          h("button", { title: App.t("ed.zoomOut"), text: "−", onClick: () => zoomAt(1 / 1.6, video.currentTime) }),
+          h("button", { title: App.t("ed.zoomIn"), text: "+", onClick: () => zoomAt(1.6, video.currentTime) }),
+          h("button", { title: App.t("ed.fit"), text: "↔", onClick: fitView }))));
   }
 
   /** One frame back/forward from the exact current frame (pauses playback). */
@@ -289,16 +298,18 @@
     ui.hOut = h("div", { class: "hnd" });
     ui.head_ = h("div", { class: "head" });
     ui.pan = h("div", { class: "panbar", hidden: true }, h("i"));
-    area.append(ui.pan, ui.dimL, ui.dimR, ui.selbox, ui.hIn, ui.hOut, ui.head_);
+    ui.frames = h("div", { class: "fgrid", hidden: true });
+    area.append(ui.frames, ui.pan, ui.dimL, ui.dimR, ui.selbox, ui.hIn, ui.hOut, ui.head_);
     bindTimeline(area);
     renderTicks();
+    requestAnimationFrame(paintFrames);
     ui.lanesWrap.replaceChildren(labels, area);
     layoutSel();
     requestAnimationFrame(drawLanes);
   }
 
   /* The timeline shows the window [v0, v1] of the clip; everything is positioned relative to it. */
-  const MIN_SPAN = 1;
+  const MIN_SPAN = 0.5;
   const pct = (t) => (E?.info ? ((t - E.v0) / (E.v1 - E.v0)) * 100 : 0);
   const clampPct = (p) => Math.max(0, Math.min(100, p));
   const zoomed = () => E?.info && E.v1 - E.v0 < E.info.duration - 0.01;
@@ -307,6 +318,29 @@
     layoutSel();
     renderTicks();
     paintPan();
+    paintFrames();
+  }
+
+  /** With the frame grid on screen, positions snap to whole frames. */
+  function gridOn() { return !!ui.frames && !ui.frames.hidden; }
+  function snapFrame(t) {
+    if (!gridOn()) return t;
+    const fps = E.info.fps > 0 ? E.info.fps : 30;
+    return Math.round(t * fps) / fps;
+  }
+
+  /** Close to the maximum zoom every frame gets a hairline (a stronger one on each whole second). */
+  function paintFrames() {
+    if (!ui.frames || !ui.area || !E?.info) return;
+    const fps = E.info.fps > 0 ? E.info.fps : 30;
+    const span = E.v1 - E.v0, w = ui.area.clientWidth;
+    const px = span > 0 ? w / (span * fps) : 0;
+    ui.frames.hidden = !(px >= 6);
+    if (ui.frames.hidden) return;
+    const off = -((E.v0 * fps) % 1) * px;
+    const sec = px * fps, offSec = -((E.v0 % 1) * sec);
+    ui.frames.style.backgroundSize = `${px}px 100%, ${sec}px 100%`;
+    ui.frames.style.backgroundPosition = `${off}px 0, ${offSec}px 0`;
   }
 
   function setView(v0, v1) {
@@ -424,7 +458,7 @@
     }
     if (ui.canvases[0]) ui.canvases[0].cv.dataset.ready = "1";
   }
-  window.addEventListener("resize", () => { if (App.S.view === "ed") drawLanes(); });
+  window.addEventListener("resize", () => { if (App.S.view === "ed") { drawLanes(); paintFrames(); } });
 
   function bindTimeline(area) {
     const timeAt = (ev) => {
@@ -432,7 +466,22 @@
       const f = Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1);
       return E.v0 + f * (E.v1 - E.v0);
     };
-    area.addEventListener("pointerdown", (ev) => { if (E?.info) seek(timeAt(ev)); });
+    // press and drag scrubs the playhead; the pointer is captured so the drag may leave the lanes
+    area.addEventListener("pointerdown", (ev) => {
+      if (!E?.info || ev.button !== 0) return;
+      ev.preventDefault();
+      seek(snapFrame(timeAt(ev)));
+      area.setPointerCapture(ev.pointerId);
+      const move = (e) => seek(snapFrame(timeAt(e)));
+      const up = () => {
+        area.removeEventListener("pointermove", move);
+        area.removeEventListener("pointerup", up);
+        area.removeEventListener("pointercancel", up);
+      };
+      area.addEventListener("pointermove", move);
+      area.addEventListener("pointerup", up);
+      area.addEventListener("pointercancel", up);
+    });
     // wheel zooms around the cursor; Shift/Alt (or a sideways wheel) pans
     area.addEventListener("wheel", (ev) => {
       if (!E?.info) return;
@@ -472,7 +521,7 @@
           if (e.altKey) return t;
           const tol = (10 / area.getBoundingClientRect().width) * (E.v1 - E.v0);
           for (const m of [video.currentTime, 0, E.info.duration]) if (Math.abs(t - m) <= tol) return m;
-          return t;
+          return snapFrame(t);
         };
         const move = (e) => { apply(snap(timeAt(e), e)); layoutSel(); };
         const up = () => { node.removeEventListener("pointermove", move); node.removeEventListener("pointerup", up); };

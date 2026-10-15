@@ -339,6 +339,75 @@ async fn export_clip(app: AppHandle, opts: ExportOptions) -> Result<ExportResult
     .map_err(|e| e.to_string())?
 }
 
+/// Game icons the recorder saved: (game name, png path).
+#[tauri::command]
+fn game_icons() -> Vec<(String, String)> {
+    let Ok(rd) = fs::read_dir(data_dir().join("icons")) else { return Vec::new() };
+    rd.flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            if p.extension()?.to_str()? != "png" {
+                return None;
+            }
+            Some((p.file_stem()?.to_string_lossy().into_owned(), p.to_string_lossy().into_owned()))
+        })
+        .collect()
+}
+
+/// Renames a clip on disk. A recorder name `Game__2026-10-14__22-38-28` keeps its game and stamp and gets
+/// `__<title>` appended (an empty title removes it again); any other file simply takes the title as its name.
+/// Returns the new path.
+#[tauri::command]
+fn rename_clip(path: String, title: String) -> Result<String, String> {
+    fn is_digits(s: &str, n: usize) -> bool {
+        s.len() == n && s.bytes().all(|b| b.is_ascii_digit())
+    }
+    let src = PathBuf::from(&path);
+    let dir = src.parent().ok_or("no folder")?.to_path_buf();
+    let ext = src.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = src.file_stem().ok_or("no name")?.to_string_lossy().into_owned();
+
+    let mut t: String = title
+        .chars()
+        .map(|c| if c.is_control() || ['<', '>', ':', '"', '/', '\\', '|', '?', '*'].contains(&c) { '-' } else { c })
+        .collect();
+    while t.contains("__") {
+        t = t.replace("__", "_");
+    }
+    let t: String = t.trim().trim_matches('.').trim().chars().take(80).collect();
+
+    let parts: Vec<&str> = stem.split("__").collect();
+    let stamped = parts.len() >= 3 && {
+        let d: Vec<&str> = parts[1].split('-').collect();
+        let m: Vec<&str> = parts[2].split('-').collect();
+        d.len() == 3 && is_digits(d[0], 4) && is_digits(d[1], 2) && is_digits(d[2], 2)
+            && m.len() == 3 && m.iter().all(|x| is_digits(x, 2))
+    };
+    let keep = if stamped { parts[..3].join("__") } else { String::new() };
+    if t.is_empty() && !stamped {
+        return Err("empty name".into());
+    }
+    let build = |suffix: &str| {
+        let name = if stamped {
+            if t.is_empty() { keep.clone() } else { format!("{keep}__{t}{suffix}") }
+        } else {
+            format!("{t}{suffix}")
+        };
+        let file = if ext.is_empty() { name } else { format!("{name}.{ext}") };
+        dir.join(file)
+    };
+    let mut dst = build("");
+    let mut n = 2;
+    while dst != src && dst.exists() {
+        dst = build(&format!(" ({n})"));
+        n += 1;
+    }
+    if dst != src {
+        fs::rename(&src, &dst).map_err(|e| e.to_string())?;
+    }
+    Ok(dst.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 fn reveal(path: String) -> Result<(), String> {
     Command::new("explorer")
@@ -671,6 +740,8 @@ fn main() {
             cache_size,
             export_clip,
             reveal,
+            game_icons,
+            rename_clip,
             delete_clips,
             load_state,
             save_state,

@@ -22,8 +22,20 @@
       return;
     }
     if (typing || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
+    if (ev.key === "Escape" && App.S.view === "lib" && (App.S.sel.size || App.S.active)) { App.Lib.clearSel(); return; }
     if (App.S.view === "ed" && App.Ed.key(ev)) ev.preventDefault();
   });
+
+  // Mouse "Back" (button 4): closes the export popover, else leaves the editor / settings for the library.
+  const onBack = (ev) => {
+    if (ev.button !== 3) return;
+    ev.preventDefault();
+    if (ev.type === "mouseup" || ev.type === "auxclick") App.back();
+  };
+  for (const t of ["mousedown", "mouseup", "auxclick"]) window.addEventListener(t, onBack, true);
+  window.addEventListener("keydown", (ev) => {
+    if (ev.key === "BrowserBack" || (ev.altKey && ev.key === "ArrowLeft")) { ev.preventDefault(); App.back(); }
+  }, true);
 
   // Pick up clips the recorder saved while the window was in the background.
   window.addEventListener("focus", () => { if (App.S.view === "lib") App.Lib.load(); });

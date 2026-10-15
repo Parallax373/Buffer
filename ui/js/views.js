@@ -21,7 +21,12 @@
     if (view === "lib") App.Lib.render(false);
     if (view === "set") Settings.render(true);
     renderRail();
-    if (changed) wipe(App.$(VIEWS[view]));
+  };
+
+  /** The "back" action shared by the mouse Back button and Alt+Left. */
+  App.back = () => {
+    if (App.Exports.closeAny()) return;
+    if (S.view !== "lib") App.go("lib");
   };
 
   /** The view being left stays on screen under the one fading in, so a switch is a dissolve and not a dark gap
@@ -36,14 +41,6 @@
       el.classList.remove("leaving");
       if (S.view !== prev) el.hidden = true;
     }, 400);
-  }
-
-  /** A thin lime-edged sweep left → right over the incoming view, once. */
-  function wipe(section) {
-    if (!section || App.P.settings.anim === false) return;
-    const w = h("div", { class: "wipe" }, h("div"));
-    section.append(w);
-    setTimeout(() => w.remove(), 700);
   }
 
   /** The icon rail is built once; later calls only move the "on" state (rebuilding it flashed the Library button). */
@@ -109,6 +106,7 @@
     const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
     let cls, text;
     if (!r) { cls = "off"; text = App.t("rec.pill.off"); }
+    else if (r.saving) { cls = "saving"; text = App.t("rec.pill.saving"); }
     else if (r.idle) { cls = "idle"; text = App.t("rec.pill.idle"); }
     else if (!r.recording) { cls = "bad"; text = App.t("rec.pill.stopped"); }
     else if (down.length) { cls = "warn"; text = App.t("rec.pill.warn"); }
@@ -137,7 +135,8 @@
   function paintChip() {
     const ex = S.exporting;
     if (!ex) chip._live = null;
-    chip.className = "expchip" + (ex ? " busy" : S.lastDone && Date.now() - S.lastDone.at < 7000 ? " done" : "");
+    chip.className = "expchip" + (ex ? " busy" : S.lastDone && Date.now() - S.lastDone.at < 7000 ? " done" : "") + (popOpen ? " open" : "");
+    chip.title = popOpen ? App.t("common.close") : "";
     if (ex) {
       if (!chip._live) {
         const label = document.createTextNode("");
@@ -163,12 +162,19 @@
     // a recorder that stops answering counts as not running, instead of freezing the poll loop
     try { S.recorder = await App.timeout(api.invoke("recorder_cmd", { cmd: "status" }), 4000); } catch { S.recorder = null; }
     paintRec();
+    // a clip the recorder just finished appears in the library without waiting for the window to regain focus
+    const saved = S.recorder ? S.recorder.last_saved : "";
+    if (Rec.lastSaved !== undefined && saved && saved !== Rec.lastSaved) {
+      App.toast(App.t("rec.savedToast", { name: App.baseName(saved) }), "ok");
+      App.Lib.load();
+    }
+    if (saved || Rec.lastSaved === undefined) Rec.lastSaved = saved;
     if (S.view === "set" && Settings.tab === "rec") Settings.paintRecorder();
   };
   Rec.start = () => {
     const loop = async () => {
       if (!document.hidden) await Rec.refresh();
-      pollTimer = setTimeout(loop, S.view === "set" && Settings.tab === "rec" ? 700 : 3000);
+      pollTimer = setTimeout(loop, S.view === "set" && Settings.tab === "rec" ? 700 : 1200);
     };
     clearTimeout(pollTimer);
     loop();
@@ -312,6 +318,15 @@
     renderPop();
   };
   function closePop() { popOpen = false; renderPop(); }
+  /** Closes the history drawer, else the popover. True when something was open. */
+  Exports.closeAny = () => {
+    if (drawerOpen) { drawerOpen = false; popUntil = Date.now() + 3000; renderDrawer(); return true; }
+    if (popOpen) { closePop(); return true; }
+    return false;
+  };
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && popOpen && !drawerOpen) closePop();
+  });
 
   setInterval(() => {
     if (popOpen && popUntil && !popHover && !S.exporting && !drawerOpen && Date.now() > popUntil) closePop();
@@ -360,6 +375,7 @@
 
   function renderPop() {
     popLive = null;
+    paintChip();
     const host = App.$("#pop");
     if (!popOpen) { host.replaceChildren(); renderDrawer(); return; }
     const ex = S.exporting;
@@ -396,8 +412,10 @@
     if (!ex && !done && !recent.length) parts.push(h("div", { class: "muted", text: App.t("exp.empty") }));
     parts.push(h("button", { class: "histlink", text: App.t("exp.history", { n: App.P.exports.length }),
       onClick: () => { drawerOpen = true; renderDrawer(); } }));
+    const head = h("div", { class: "phead" }, h("b", { text: App.t("exp.chip") }),
+      h("button", { class: "pclose", title: App.t("common.close"), "aria-label": App.t("common.close"), text: "✕", onClick: closePop }));
     host.replaceChildren(h("div", { class: "popover",
-      onMouseenter: () => { popHover = true; }, onMouseleave: () => { popHover = false; popUntil = Date.now() + 3000; } }, parts));
+      onMouseenter: () => { popHover = true; }, onMouseleave: () => { popHover = false; popUntil = Date.now() + 3000; } }, head, parts));
     renderDrawer();
   }
 
