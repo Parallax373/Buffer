@@ -177,11 +177,15 @@
         ["newest", "oldest", "size", "dur"]
           .map((v) => h("option", { value: v, text: App.t("sort." + v), selected: S.sort === v }))),
       thumbSeg: h("div", { class: "seg" }),
-      fold: h("button", { class: "btn ghost", hidden: true, onClick: () => {
-        const keys = groupKeys();
-        if (keys.every((k) => S.collapsed.has(k))) S.collapsed.clear(); else keys.forEach((k) => S.collapsed.add(k));
-        layoutGrid(true);
-      } }),
+      fold: h("span", { class: "foldbtns", hidden: true },
+        h("button", { class: "btn ghost", text: App.t("group.expand"), onClick: () => {
+          groupKeys().forEach((k) => S.collapsed.delete(k));
+          layoutGrid(true);
+        } }),
+        h("button", { class: "btn ghost", text: App.t("group.collapse"), onClick: () => {
+          groupKeys().forEach((k) => S.collapsed.add(k));
+          layoutGrid(true);
+        } })),
       group: h("select", { class: "field", title: App.t("group.date"),
         onChange: (e) => { App.P.settings.groupBy = e.target.value; App.persist(); Lib.render(true); } },
       ["none", "date"].map((v) => h("option", { value: v, text: App.t("group." + v), selected: (App.P.settings.groupBy || "none") === v }))),
@@ -303,16 +307,16 @@
     return [...new Set(Lib.visible().map((c) => bucketOf(c).key))];
   }
 
-  /** "Collapse all" / "Expand all" follows the state of the groups; only shown when grouping by date. */
+  /** "Expand all" shows only while some group is collapsed, "Collapse all" while some group is open;
+      nothing at all unless grouping by date. */
   function updateFold() {
     if (!els.fold) return;
-    const on = (App.P.settings.groupBy || "none") === "date";
-    els.fold.hidden = !on;
-    if (!on) return;
-    const keys = groupKeys();
-    const all = keys.length > 0 && keys.every((k) => S.collapsed.has(k));
-    els.fold.textContent = App.t(all ? "group.expand" : "group.collapse");
-    els.fold.disabled = !keys.length;
+    const keys = (App.P.settings.groupBy || "none") === "date" ? groupKeys() : [];
+    const closed = keys.filter((k) => S.collapsed.has(k)).length;
+    const [expand, collapse] = els.fold.children;
+    expand.hidden = closed === 0;
+    collapse.hidden = closed === keys.length;
+    els.fold.hidden = !keys.length;
   }
 
   function layout(list, g) {
