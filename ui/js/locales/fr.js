@@ -317,6 +317,8 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "cap.behavior": "Comportement",
   "aud.backup": "+ périphérique de secours",
   "aud.backupTip": "Prend le relais si le périphérique principal est déconnecté",
+  "aud.bleed": "Le micro est dans la piste Game",
+  "aud.bleedTip": "Le son Game suit votre micro. Désactivez le retour du micro sur les haut-parleurs (« Écouter ce périphérique », mixeur de l'interface) ou activez « Enregistrer les jeux uniquement ».",
   "aud.backupRemove": "Retirer le périphérique de secours",
   "aud.chatApp": "Appli de chat",
   "aud.chatAppTip": "Jeu et chat partagent une sortie. Choisissez l'appli de chat : son son va uniquement sur la piste Chat et Game garde le reste.",

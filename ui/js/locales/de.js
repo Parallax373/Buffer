@@ -317,6 +317,8 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "cap.behavior": "Verhalten",
   "aud.backup": "+ Reservegerät",
   "aud.backupTip": "Springt ein, wenn das Hauptgerät getrennt wird",
+  "aud.bleed": "Mikrofon ist in der Game-Spur",
+  "aud.bleedTip": "Der Game-Ton folgt deinem Mikrofon. Schalte das Monitoring des Mikrofons auf die Lautsprecher aus („Dieses Gerät wiedergeben“, Interface-Mixer) oder nutze „Nur Spiele aufnehmen“.",
   "aud.backupRemove": "Reservegerät entfernen",
   "aud.chatApp": "Chat-App",
   "aud.chatAppTip": "Spiel und Chat teilen eine Ausgabe. Wähle die Chat-App: Ihr Ton geht nur auf die Chat-Spur, Game bekommt den Rest.",

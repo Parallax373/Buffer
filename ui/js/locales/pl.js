@@ -317,6 +317,8 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "cap.behavior": "Zachowanie",
   "aud.backup": "+ urządzenie zapasowe",
   "aud.backupTip": "Włączy się, gdy główne zostanie odłączone",
+  "aud.bleed": "Mikrofon jest w ścieżce Game",
+  "aud.bleedTip": "Dźwięk Game podąża za mikrofonem. Wyłącz podsłuch mikrofonu na głośnikach („Nasłuchuj tego urządzenia”, mikser interfejsu) albo włącz Nagrywaj tylko gry.",
   "aud.backupRemove": "Usuń urządzenie zapasowe",
   "aud.chatApp": "Aplikacja czatu",
   "aud.chatAppTip": "Gra i czat dzielą jedno wyjście. Wskaż aplikację czatu: jej dźwięk trafi tylko na ścieżkę Czat, a Gra dostanie resztę.",

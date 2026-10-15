@@ -317,6 +317,8 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "cap.behavior": "Comportamiento",
   "aud.backup": "+ dispositivo de respaldo",
   "aud.backupTip": "Entra en acción si se desconecta el principal",
+  "aud.bleed": "El micro está en la pista Game",
+  "aud.bleedTip": "El sonido de Game sigue a tu micro. Desactiva la monitorización del micro en los altavoces («Escuchar este dispositivo», mezclador de la interfaz) o usa «Grabar solo juegos».",
   "aud.backupRemove": "Quitar dispositivo de respaldo",
   "aud.chatApp": "App de chat",
   "aud.chatAppTip": "Juego y chat comparten una salida. Elige la app de chat: su sonido va solo a la pista Chat y Game recibe el resto.",

@@ -317,6 +317,8 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "cap.behavior": "動作",
   "aud.backup": "+ 予備デバイス",
   "aud.backupTip": "メインのデバイスが切断されたときに引き継ぎます",
+  "aud.bleed": "マイクがGameトラックに入っています",
+  "aud.bleedTip": "Gameの音がマイクに連動しています。マイクのスピーカーへのモニタリング(「このデバイスを聴く」、インターフェースのミキサー)をオフにするか、「ゲームのみ録画」を使ってください。",
   "aud.backupRemove": "予備デバイスを削除",
   "aud.chatApp": "チャットアプリ",
   "aud.chatAppTip": "ゲームとチャットが1つの出力を共有しています。チャットアプリを選ぶと、その音声はChatトラックのみに送られ、Gameには残りが入ります。",

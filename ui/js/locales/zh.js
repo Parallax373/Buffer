@@ -317,6 +317,8 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "cap.behavior": "行为",
   "aud.backup": "+ 备用设备",
   "aud.backupTip": "主设备断开时自动接管",
+  "aud.bleed": "麦克风进入了游戏音轨",
+  "aud.bleedTip": "游戏音轨随麦克风变化。请关闭麦克风对扬声器的监听(“侦听此设备”、接口混音器),或开启“仅录制游戏”。",
   "aud.backupRemove": "移除备用设备",
   "aud.chatApp": "聊天应用",
   "aud.chatAppTip": "游戏和聊天共用一个输出。选择聊天应用：其声音只进入聊天音轨，其余进入游戏音轨。",

@@ -317,6 +317,8 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "cap.behavior": "Davranış",
   "aud.backup": "+ yedek cihaz",
   "aud.backupTip": "Ana cihazın bağlantısı kesilince devreye girer",
+  "aud.bleed": "Mikrofon Game kanalında",
+  "aud.bleedTip": "Game sesi mikrofonunu izliyor. Mikrofonun hoparlörlere izlenmesini kapat (“Bu aygıtı dinle”, arayüz mikseri) veya “Yalnızca oyunları kaydet” seçeneğini kullan.",
   "aud.backupRemove": "Yedek cihazı kaldır",
   "aud.chatApp": "Sohbet uygulaması",
   "aud.chatAppTip": "Game ve Chat tek çıkışı paylaşır. Sohbet uygulamasını seç: sesi yalnızca Chat kanalına gider, kalanı Game'e düşer.",

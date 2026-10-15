@@ -265,10 +265,11 @@ fn hotkey_save(shared: &Arc<session::Shared>) {
             }
             thread::sleep(std::time::Duration::from_millis(250));
         }
-        s.post_roll_skip.store(false, Ordering::Relaxed);
+        // a second press ends the wait early; its notice may be long gone, so that save confirms itself
+        let skipped = s.post_roll_skip.swap(false, Ordering::Relaxed);
         s.post_roll_active.store(false, Ordering::Relaxed);
         *s.post_roll_until.lock().unwrap() = None;
-        save_async(&s, true);
+        save_async(&s, !skipped);
     });
 }
 

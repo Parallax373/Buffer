@@ -317,6 +317,8 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "cap.behavior": "Behavior",
   "aud.backup": "+ backup device",
   "aud.backupTip": "Takes over when the main device is disconnected",
+  "aud.bleed": "Mic is in the Game track",
+  "aud.bleedTip": "Game sound follows your mic. Turn off monitoring of the mic to the speakers (\"Listen to this device\", interface mixer), or use Record games only.",
   "aud.backupRemove": "Remove backup device",
   "aud.chatApp": "Chat app",
   "aud.chatAppTip": "Game and chat share one output. Pick the chat app: its sound goes only to the Chat track and Game gets the rest.",

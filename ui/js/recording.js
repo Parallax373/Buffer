@@ -216,10 +216,39 @@ App.RecUI = (function () {
     });
   }
 
-  /** Polls levels and paints `[data-src] .mtr` under `rootSel`; `ms` = measuring window, `gap` = pause between rounds. */
-  function pollMeters(getCfg, rootSel, ms, gap) {
+  /** Does the Game level move with the mic level? That is the sign of the mic being played back on the output
+      (interface monitoring, "Listen to this device") and so recorded a second time inside the Game track. */
+  function bleedDetector() {
+    const mic = [], game = [], N = 30;
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    return (g, m) => {
+      mic.push(m); game.push(g);
+      if (mic.length > N) { mic.shift(); game.shift(); }
+      if (mic.length < N) return null;
+      const mm = mean(mic), gm = mean(game);
+      let cov = 0, vm = 0, vg = 0;
+      for (let i = 0; i < N; i++) {
+        cov += (mic[i] - mm) * (game[i] - gm);
+        vm += (mic[i] - mm) ** 2;
+        vg += (game[i] - gm) ** 2;
+      }
+      if (vm / N < 0.002 || vg / N < 0.0005 || gm < 0.02) return false;   // no speech yet, or the game track is silent
+      return cov / Math.sqrt(vm * vg) > 0.85;
+    };
+  }
+
+  /** Warning row for the audio section; `set(true)` shows it. */
+  function bleedWarn() {
+    const el = h("div", { class: "bleedwarn", title: App.t("aud.bleedTip"), hidden: true }, "⚠ " + App.t("aud.bleed"));
+    return { el, set: (on) => { el.hidden = !on; } };
+  }
+
+  /** Polls levels and paints `[data-src] .mtr` under `rootSel`; `ms` = measuring window, `gap` = pause between rounds.
+      `onBleed(bool)` hears whether the mic seems to be inside the Game track. */
+  function pollMeters(getCfg, rootSel, ms, gap, onBleed) {
     clearTimeout(meterTimer);
     let alive = true;
+    const detect = bleedDetector();
     const run = async () => {
       const rows = [...document.querySelectorAll(`${rootSel} [data-src]`)];
       if (!alive || !rows.length) return;
@@ -230,6 +259,11 @@ App.RecUI = (function () {
         const i = SRC.findIndex((s) => s[1] === row.dataset.src);
         const m = row.querySelector(".mtr");
         if (m) paintMeter(m, levels[ids[i]] ?? 0);
+      }
+      const c = getCfg();
+      if (onBleed && ids[0] && ids[2] && !c.game_only) {
+        const v = detect(levels[ids[0]] ?? 0, levels[ids[2]] ?? 0);
+        if (v !== null) onBleed(v);
       }
       meterTimer = setTimeout(run, gap);
     };
@@ -390,6 +424,7 @@ App.RecUI = (function () {
 
     // DŹWIĘK
     const audioBox = h("div", { class: "card2 audio", id: "recSources" });
+    const bleed = bleedWarn();
     const persistSources = () => save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic, chat_app: cfg.chat_app });
     const drawAudio = () => {
       audioBox.replaceChildren(...SRC.map(([key, name, label, kind, color, tip]) => {
@@ -421,7 +456,7 @@ App.RecUI = (function () {
         }
         return h("div", { class: "aitem", "data-src": name }, head, body);
       }));
-      pollMeters(() => cfg, "#recSources", 350, 350);
+      pollMeters(() => cfg, "#recSources", 350, 350, bleed.set);
     };
     drawAudio();
 
@@ -483,7 +518,7 @@ App.RecUI = (function () {
     pane.append(bar, h("div", { class: "setgrid" },
       h("div", { class: "setmain" },
         h("div", null, U.cap(App.t("cap.video")), videoBox),
-        h("div", null, U.cap(App.t("cap.audio")), audioBox),
+        h("div", null, U.cap(App.t("cap.audio")), audioBox, bleed.el),
         h("div", null, U.cap(App.t("cap.keys")), keysBox),
         h("div", null, U.cap(App.t("cap.behavior")), behBox),
         advBox),
@@ -678,6 +713,7 @@ App.RecUI = (function () {
     const stepAudio = () => {
       // a pick only updates the notes (the meters read w.cfg each round), so the step does not replay its animation
       const notes = {};
+      const bleed = bleedWarn();
       const paintNotes = () => {
         for (const [key, , , kind] of SRC) {
           const n = deviceLabel(w.cfg, key, kind).note;
@@ -693,11 +729,11 @@ App.RecUI = (function () {
           notes[key], meterEl(color, true));
       });
       paintNotes();
-      setTimeout(() => { if (w.step === 1) stopMeters = pollMeters(() => w.cfg, ".wzbody", 140, 40); }, 400);
+      setTimeout(() => { if (w.step === 1) stopMeters = pollMeters(() => w.cfg, ".wzbody", 140, 40, bleed.set); }, 400);
       return h("div", { class: "stack12" },
         h("div", null, h("div", { class: "big", text: App.t("wz.audioQ") }),
           h("div", { class: "muted", text: App.t("wz.audioD") })),
-        ...rows,
+        ...rows, bleed.el,
         h("div", { class: "faint", text: App.t("wz.audioHint") }));
     };
 
