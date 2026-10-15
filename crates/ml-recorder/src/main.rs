@@ -2,6 +2,7 @@
 
 mod audio;
 mod config;
+mod icons;
 mod identify;
 mod lang;
 mod input;
@@ -268,6 +269,7 @@ fn main() {
                 "devices-json" => devices_json(),
                 "monitors-json" => monitors_json(),
                 "identify" => identify::run(),
+                "import-icons" => icons::run(std::env::args().skip(2).collect()),
                 "levels" => levels_json(std::env::args().skip(2).collect()),
                 "autostart-status" => println!("{}", if autostart_enabled() { "enabled" } else { "disabled" }),
                 "status" | "save" | "reload" | "quit" | "demo" | "record" | "record-start" | "record-stop" => match control::send(other) {

@@ -537,6 +537,22 @@
           h("button", { class: "linkbtn", text: App.t("lib.add"), onClick: async () => {
             const n = await api.pickFolder();
             if (n && !App.P.libDirs.includes(n)) { App.P.libDirs.push(n); await reload(); }
+          } }),
+          // optional: take the icons of installed games for the games that have none yet (Steam, Epic, usual folders)
+          h("button", { class: "linkbtn", text: App.t("lib.icons"), title: App.t("lib.iconsTip"), onClick: async (ev) => {
+            const btn = ev.currentTarget;
+            const todo = App.Lib.games().map(([g]) => g).filter((g) => !App.Lib.hasIcon(g));
+            if (!todo.length) { App.toast(App.t("lib.iconsNone")); return; }
+            btn.disabled = true;
+            try {
+              const r = await api.invoke("import_game_icons", { names: todo });
+              await App.Lib.loadIcons();
+              App.toast(App.t("lib.iconsDone", { n: r.found.length, m: todo.length }), r.found.length ? "ok" : "");
+            } catch (e) {
+              App.toast(String(e), "err");
+            } finally {
+              btn.disabled = false;
+            }
           } }))),
       h("div", { class: "card2 tgl" },
         U.trow(App.t("lib.perGame"), App.t("lib.perGameD"), rc.per_game_folders, async (on) => { await App.RecUI.save({ per_game_folders: on }); Settings.render(); }),

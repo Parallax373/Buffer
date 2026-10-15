@@ -354,6 +354,20 @@ fn game_icons() -> Vec<(String, String)> {
         .collect()
 }
 
+/// Optional scan: looks for installed games (Steam, Epic, usual folders) for these names and keeps their icons.
+/// Resolves with `{ found: [...], missing: [...] }`.
+#[tauri::command]
+async fn import_game_icons(names: Vec<String>) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut args: Vec<&str> = vec!["import-icons"];
+        args.extend(names.iter().map(|s| s.as_str()));
+        let raw = recorder_cli(&args)?;
+        serde_json::from_str(&raw).map_err(|e| format!("{e}: {raw}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Renames a clip on disk. A recorder name `Game__2026-10-14__22-38-28` keeps its game and stamp and gets
 /// `__<title>` appended (an empty title removes it again); any other file simply takes the title as its name.
 /// Returns the new path.
@@ -761,6 +775,7 @@ fn main() {
             export_clip,
             reveal,
             game_icons,
+            import_game_icons,
             rename_clip,
             delete_clips,
             load_state,

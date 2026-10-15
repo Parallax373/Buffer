@@ -130,6 +130,8 @@
     return url ? h("img", { class: "gi", src: url, alt: "" }) : null;
   };
 
+  Lib.hasIcon = (game) => gameIcons.has(gameKey(game));
+
   /** Logo of a game in the sidebar; a colour swatch when the game has none yet. */
   function gameThumb(game) {
     const url = gameIcons.get(gameKey(game));
