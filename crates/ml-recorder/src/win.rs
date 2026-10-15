@@ -423,16 +423,93 @@ impl Sound {
     }
 }
 
-/// Plays a cue without blocking (a new one replaces one still playing); falls back to the system beep.
-/// Whether a cue is wanted at all is decided by `Shared::sound`, not here.
-pub fn play(sound: Sound) {
+/// A copy of a 16-bit PCM WAV with its samples scaled by `gain_db` (None when the file is not that format).
+fn scaled(wav: &[u8], gain_db: f32) -> Option<Vec<u8>> {
+    if wav.len() < 44 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
+        return None;
+    }
+    let (mut pos, mut pcm16) = (12usize, false);
+    while pos + 8 <= wav.len() {
+        let id = &wav[pos..pos + 4];
+        let size = u32::from_le_bytes(wav[pos + 4..pos + 8].try_into().ok()?) as usize;
+        let body = pos + 8;
+        if id == b"fmt " && body + 16 <= wav.len() {
+            let format = u16::from_le_bytes([wav[body], wav[body + 1]]);
+            let bits = u16::from_le_bytes([wav[body + 14], wav[body + 15]]);
+            pcm16 = format == 1 && bits == 16;
+        } else if id == b"data" {
+            if !pcm16 {
+                return None;
+            }
+            let end = (body + size).min(wav.len());
+            let k = 10f32.powf(gain_db / 20.0);
+            let mut out = wav.to_vec();
+            for s in out[body..end].chunks_exact_mut(2) {
+                let v = (i16::from_le_bytes([s[0], s[1]]) as f32 * k).round().clamp(-32768.0, 32767.0) as i16;
+                s.copy_from_slice(&v.to_le_bytes());
+            }
+            return Some(out);
+        }
+        pos = body + size + (size & 1);
+    }
+    None
+}
+
+/// The buffer of the cue that is playing: PlaySound reads it asynchronously, so it has to stay alive until the next
+/// cue replaces it.
+static PLAYING: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+
+/// Plays a cue without blocking (a new one replaces one still playing), `gain_db` louder or quieter than the file;
+/// falls back to the system beep. Whether a cue is wanted at all is decided by `Shared::sound`, not here.
+pub fn play(sound: Sound, gain_db: f32) {
     use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
-    let wav = sound.wav();
+    let original = sound.wav();
+    let adjusted = if gain_db.abs() < 0.1 { None } else { scaled(original, gain_db) };
+    let mut playing = PLAYING.lock().unwrap();
+    let wav: &[u8] = adjusted.as_deref().unwrap_or(original);
     unsafe {
-        // SND_ASYNC with SND_MEMORY needs the buffer to outlive the call: it is 'static
+        // SND_ASYNC with SND_MEMORY needs the buffer to outlive the call: it is 'static, or kept in PLAYING below
         if PlaySoundW(wav.as_ptr() as *const u16, std::ptr::null_mut(), SND_MEMORY | SND_ASYNC | SND_NODEFAULT) == 0 {
             MessageBeep(MB_OK);
         }
+    }
+    *playing = adjusted; // moving the Vec does not move its heap buffer; the previous one is freed only now
+}
+
+#[cfg(test)]
+mod sound_scale_tests {
+    use super::*;
+
+    /// Where the samples start (ffmpeg adds a LIST chunk, so it is not always at 44).
+    fn data_start(wav: &[u8]) -> usize {
+        wav.windows(4).position(|w| w == b"data").expect("data chunk") + 8
+    }
+
+    fn peak(wav: &[u8]) -> i32 {
+        wav[data_start(wav)..].chunks_exact(2).map(|s| (i16::from_le_bytes([s[0], s[1]]) as i32).abs()).max().unwrap_or(0)
+    }
+
+    #[test]
+    fn six_db_down_halves_the_peak() {
+        let wav = Sound::Saved.wav();
+        let quiet = scaled(wav, -6.0).expect("pcm16");
+        let ratio = peak(&quiet) as f32 / peak(wav) as f32;
+        assert!((ratio - 0.501).abs() < 0.02, "ratio {ratio}");
+        assert_eq!(quiet.len(), wav.len());
+        let start = data_start(wav);
+        assert_eq!(&quiet[..start], &wav[..start], "header untouched");
+    }
+
+    #[test]
+    fn loud_gain_clips_instead_of_wrapping() {
+        let wav = Sound::Saved.wav();
+        let loud = scaled(wav, 60.0).expect("pcm16");
+        assert!(peak(&loud) <= 32768);
+    }
+
+    #[test]
+    fn not_a_wav_is_left_alone() {
+        assert!(scaled(b"hello", 3.0).is_none());
     }
 }
 

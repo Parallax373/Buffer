@@ -73,6 +73,8 @@ pub struct Config {
     pub sounds: bool,
     /// The extra, quiet cue when a game is detected (only used while `sounds` is on).
     pub game_sound: bool,
+    /// Loudness of the cues: "low" (-6 dB), "normal" (the files as they are) or "high" (+8 dB).
+    pub sound_level: String,
     /// Executable stems (lowercase) that are never treated as a game.
     pub ignore_apps: Vec<String>,
     /// Executable stems (lowercase) that are always treated as a game, even in a window.
@@ -108,6 +110,7 @@ impl Default for Config {
             popup: true,
             sounds: true,
             game_sound: true,
+            sound_level: "normal".into(),
             ignore_apps: Vec::new(),
             extra_games: Vec::new(),
             game_names: Default::default(),

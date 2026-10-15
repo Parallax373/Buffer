@@ -136,6 +136,11 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
                 });
                 json!({ "ok": true })
             }
+            // the settings play a sample after the volume was changed
+            "test-sound" => {
+                shared.sound(crate::win::Sound::Saved);
+                json!({ "ok": true })
+            }
             "quit" => {
                 shared.quit.store(true, Ordering::Relaxed);
                 json!({ "ok": true })

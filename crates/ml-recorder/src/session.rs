@@ -91,15 +91,24 @@ fn sound_for(event: Event) -> Sound {
     }
 }
 
+/// The gain of the "Volume" setting; "normal" is the files as they are.
+fn level_db(level: &str) -> f32 {
+    match level {
+        "low" => -6.0,
+        "high" => 8.0,
+        _ => 0.0,
+    }
+}
+
 impl Shared {
     /// Plays a cue if sounds are on (the quiet game cue also needs its own switch).
     pub fn sound(&self, sound: Sound) {
-        let (on, game) = {
+        let (on, game, gain) = {
             let c = self.cfg.lock().unwrap();
-            (c.sounds, c.game_sound)
+            (c.sounds, c.game_sound, level_db(&c.sound_level))
         };
         if on && (sound != Sound::Game || game) {
-            win::play(sound);
+            win::play(sound, gain);
         }
     }
 
