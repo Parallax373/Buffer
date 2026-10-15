@@ -8,13 +8,13 @@
 
 use std::{
     f64::consts::PI,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
     time::Instant,
 };
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DeleteDC,
-    DeleteObject, DrawTextW, EndPaint, FillRect, GetDC, GetStockObject, ReleaseDC, RoundRect, SelectObject, SetBkMode,
+    DeleteObject, DrawTextW, EndPaint, FillRect, GetDC, GetStockObject, GetTextExtentPoint32W, HFONT, ReleaseDC, RoundRect, SelectObject, SetBkMode,
     SetTextColor, SetWindowRgn, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, HBITMAP, HDC, NULL_PEN,
     PAINTSTRUCT, SRCCOPY, TRANSPARENT,
 };
@@ -56,8 +56,8 @@ impl Event {
 
     fn total_ms(self) -> f64 {
         match self {
-            // one short notice at the key press; the clip is saved quietly afterwards
-            Event::PostRoll { .. } => 3500.0,
+            // the live countdown (3 2 1 0), then a moment for the save to finish and the card to turn into "saved"
+            Event::PostRoll { roll_ms } => roll_ms as f64 + 2500.0,
             Event::SaveFailed | Event::RecordingDown => 6500.0,
             _ => 4000.0,
         }
@@ -91,8 +91,24 @@ fn decay(e: f64, len: f64) -> f64 {
     }
 }
 
-const BG: (u8, u8, u8) = (0x18, 0x1a, 0x1f);
-const TRACK: (u8, u8, u8) = (0x26, 0x29, 0x31);
+// Card colours follow the app theme (the app writes `theme` into recorder.json): Ink raised surface, OLED panel.
+static OLED: AtomicBool = AtomicBool::new(false);
+
+/// Called after every config load/reload with the app's theme name.
+pub fn set_theme(name: &str) {
+    OLED.store(name == "oled", Ordering::Relaxed);
+}
+
+fn bg() -> (u8, u8, u8) {
+    if OLED.load(Ordering::Relaxed) { (0x0a, 0x0b, 0x08) } else { (0x1a, 0x1d, 0x16) }
+}
+
+fn track() -> (u8, u8, u8) {
+    if OLED.load(Ordering::Relaxed) { (0x20, 0x23, 0x1a) } else { (0x26, 0x2a, 0x20) }
+}
+
+const TEXT: (u8, u8, u8) = (0xee, 0xf0, 0xe6);
+const MUTED: (u8, u8, u8) = (0x8e, 0x94, 0x84);
 
 fn mix(a: (u8, u8, u8), b: (u8, u8, u8), t: f64) -> u32 {
     let t = cl(t);
@@ -106,6 +122,32 @@ const fn rgb(c: (u8, u8, u8)) -> u32 {
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
+}
+
+unsafe fn make_font(size: f64, weight: i32, s: f64) -> HFONT {
+    CreateFontW(-((size * s).round() as i32), 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 5, 0, wide("Segoe UI").as_ptr())
+}
+
+/// Card width (logical px) that fits both lines without an ellipsis, within a sane range.
+fn card_width(popup: &Popup, s: f64) -> f64 {
+    const TEXT_LEFT: f64 = 84.0;
+    const RIGHT_PAD: f64 = 22.0;
+    unsafe {
+        let dc = GetDC(std::ptr::null_mut());
+        let extent = |text: &str, size: f64, weight: i32| {
+            let f = make_font(size, weight, s);
+            let old = SelectObject(dc, f);
+            let w = wide(text);
+            let mut sz = SIZE { cx: 0, cy: 0 };
+            GetTextExtentPoint32W(dc, w.as_ptr(), (w.len() - 1) as i32, &mut sz);
+            SelectObject(dc, old);
+            DeleteObject(f);
+            sz.cx as f64 / s
+        };
+        let need = extent(&popup.title, 19.0 * 1.06, 700).max(extent(&popup.sub, 14.0, 400));
+        ReleaseDC(std::ptr::null_mut(), dc);
+        (TEXT_LEFT + need + RIGHT_PAD).clamp(400.0, 820.0)
+    }
 }
 
 /* ───────── window plumbing ───────── */
@@ -214,7 +256,7 @@ impl Overlay {
     fn start(&mut self, popup: Popup) {
         unsafe {
             self.dpi = (windows_sys::Win32::UI::HiDpi::GetDpiForSystem().max(96) as f64) / 96.0;
-            let (w, h) = ((400.0 * self.dpi) as i32, (78.0 * self.dpi) as i32);
+            let (w, h) = ((card_width(&popup, self.dpi) * self.dpi) as i32, (78.0 * self.dpi) as i32);
             if self.hwnd.is_null() || self.size != (w, h) {
                 self.destroy_window();
                 let hinst = GetModuleHandleW(std::ptr::null());
@@ -311,14 +353,14 @@ impl Overlay {
         let accent = ev.accent();
         let local = e - a.morph_at.unwrap_or(0.0);
         let glow = decay(local, 700.0);
-        let counting = false; // no live countdown any more: the notice is a single, short message
+        let counting = matches!(ev, Event::PostRoll { .. }) && a.morph_at.is_none();
         let px = |v: f64| (v * s).round() as i32;
         unsafe {
             let dc = self.mem;
             // card background, tinted by the glow
-            let bg = CreateSolidBrush(mix(BG, accent, 0.16 * glow));
-            FillRect(dc, &RECT { left: 0, top: 0, right: w, bottom: h }, bg);
-            DeleteObject(bg);
+            let card = CreateSolidBrush(mix(bg(), accent, 0.16 * glow));
+            FillRect(dc, &RECT { left: 0, top: 0, right: w, bottom: h }, card);
+            DeleteObject(card);
             // accent strip
             let strip_brush = CreateSolidBrush(rgb(accent));
             FillRect(dc, &RECT { left: 0, top: 0, right: px(6.0 + 4.0 * glow), bottom: h }, strip_brush);
@@ -354,12 +396,12 @@ impl Overlay {
                     wd *= 1.0 + 0.5 * (PI * sm).sin();
                 }
                 let y = 13.0 + i as f64 * 5.0;
-                let tail = CreateSolidBrush(mix(BG, accent, 0.30 * alpha));
+                let tail = CreateSolidBrush(mix(bg(), accent, 0.30 * alpha));
                 let old = SelectObject(dc, tail);
                 RoundRect(dc, px(14.0), px(y), px(22.0), px(y + 3.0), px(3.0), px(3.0));
                 SelectObject(dc, old);
                 DeleteObject(tail);
-                let bar = CreateSolidBrush(mix(BG, accent, alpha));
+                let bar = CreateSolidBrush(mix(bg(), accent, alpha));
                 let old = SelectObject(dc, bar);
                 RoundRect(dc, px(22.0), px(y), px(22.0 + wd.max(0.0)) + 1, px(y + 3.0), px(3.0), px(3.0));
                 SelectObject(dc, old);
@@ -373,7 +415,7 @@ impl Overlay {
                 _ => cl(1.0 - (e - a.bar_start_ms) / (a.total_ms - a.bar_start_ms).max(1.0)),
             };
             let (x0, y0) = (px(6.0), h - px(2.0));
-            let track = CreateSolidBrush(rgb(TRACK));
+            let track = CreateSolidBrush(rgb(track()));
             FillRect(dc, &RECT { left: x0, top: y0, right: w, bottom: h }, track);
             DeleteObject(track);
             let fill = CreateSolidBrush(rgb(accent));
@@ -385,22 +427,22 @@ impl Overlay {
             let title_scale = if counting { 1.0 + 0.06 * decay(e % 1000.0, 220.0) } else { 1.0 };
             let title = match ev {
                 Event::PostRoll { roll_ms } if counting => {
-                    let n = ((roll_ms as f64 / 1000.0) - e / 1000.0).ceil().max(1.0) as u64;
+                    let n = ((roll_ms as f64 / 1000.0) - e / 1000.0).ceil().max(0.0) as u64;
                     crate::lang::f("pop.postroll", &[("n", &n)])
                 }
                 _ => a.popup.title.clone(),
             };
-            let mk = |size: f64, weight: i32| CreateFontW(-((size * s).round() as i32), 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 5, 0, wide("Segoe UI").as_ptr());
+            let mk = |size: f64, weight: i32| make_font(size, weight, s);
             let f1 = mk(19.0 * title_scale, 700);
             let f2 = mk(14.0, 400);
             let pad = px(84.0);
             let mut r1 = RECT { left: pad, top: px(8.0), right: w - px(18.0), bottom: px(42.0) };
             let old = SelectObject(dc, f1);
-            SetTextColor(dc, rgb((0xe8, 0xea, 0xee)));
+            SetTextColor(dc, rgb(TEXT));
             DrawTextW(dc, wide(&title).as_ptr(), -1, &mut r1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             let mut r2 = RECT { left: pad, top: px(42.0), right: w - px(18.0), bottom: px(68.0) };
             SelectObject(dc, f2);
-            SetTextColor(dc, rgb((0x8b, 0x91, 0x9c)));
+            SetTextColor(dc, rgb(MUTED));
             DrawTextW(dc, wide(&a.popup.sub).as_ptr(), -1, &mut r2, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             SelectObject(dc, old);
             DeleteObject(f1);
@@ -427,6 +469,6 @@ mod tests {
     fn lifetimes_follow_the_table() {
         assert_eq!(Event::Game.total_ms(), 4000.0);
         assert_eq!(Event::SaveFailed.total_ms(), 6500.0);
-        assert_eq!(Event::PostRoll { roll_ms: 15_000 }.total_ms(), 3_500.0);
+        assert_eq!(Event::PostRoll { roll_ms: 3_000 }.total_ms(), 5_500.0);
     }
 }

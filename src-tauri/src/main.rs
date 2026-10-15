@@ -725,6 +725,17 @@ fn recorder_autostart(enable: Option<bool>) -> Result<bool, String> {
 
 fn main() {
     ml_core::paths::migrate_legacy_dirs();
+    // the release build has no console: keep panics from any thread in a file next to recorder.log
+    if let Some(dir) = std::env::var_os("LOCALAPPDATA").map(|b| PathBuf::from(b).join(ml_core::paths::LOCAL_DIR_NAME)) {
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = fs::create_dir_all(&dir);
+            if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(dir.join("app.log")) {
+                let _ = writeln!(f, "PANIC in thread '{}': {info}", std::thread::current().name().unwrap_or("?"));
+            }
+            default(info);
+        }));
+    }
     tauri::Builder::default()
         // Only one window ever: a second launch (tray click, shortcut) just brings the first one forward.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

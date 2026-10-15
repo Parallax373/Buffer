@@ -3,6 +3,9 @@
 
 App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "boot.failed": "起動に失敗しました:\n{err}",
+  "rec.relaunched": "レコーダーが予期せず停止したため再起動しました",
+  "rec.relaunchFail": "レコーダーが停止し、再起動できませんでした: {err}",
+  "err.ui": "問題が発生しました: {err}",
 
   "nav.library": "ライブラリ",
   "nav.settings": "設定",

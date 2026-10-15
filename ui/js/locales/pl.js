@@ -3,6 +3,9 @@
 
 App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "boot.failed": "Start nie powiódł się:\n{err}",
+  "rec.relaunched": "Rejestrator nieoczekiwanie się zatrzymał i został uruchomiony ponownie",
+  "rec.relaunchFail": "Rejestrator się zatrzymał i nie udało się go uruchomić: {err}",
+  "err.ui": "Coś poszło nie tak: {err}",
 
   "nav.library": "Biblioteka",
   "nav.settings": "Ustawienia",

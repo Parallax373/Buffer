@@ -206,6 +206,101 @@ fn state_of(shared: &session::Shared) -> (State, String) {
     )
 }
 
+/// What the health watcher sees each tick. `Neutral` (starting, waiting for a game) neither alarms nor re-arms.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Health {
+    Good,
+    Neutral,
+    /// Recording, but these sources are down.
+    Warn(String),
+    /// Not recording although it should; the text is the last error (may be empty).
+    Down(String),
+}
+
+/// Raises each problem once, and only after it has lasted `GRACE` (a restart or a device switch heals in seconds).
+/// Recovery re-arms it, so the next outage is reported again.
+struct HealthWatch {
+    since: Option<(Health, std::time::Instant)>,
+    alerted: Option<Health>,
+}
+
+impl HealthWatch {
+    const GRACE: std::time::Duration = std::time::Duration::from_secs(15);
+
+    fn new() -> Self {
+        Self { since: None, alerted: None }
+    }
+
+    /// Returns the problem to announce, if this tick is the one that crosses the grace period.
+    fn feed(&mut self, h: Health, now: std::time::Instant) -> Option<Health> {
+        match h {
+            Health::Good => {
+                self.since = None;
+                self.alerted = None;
+                None
+            }
+            Health::Neutral => {
+                self.since = None;
+                None
+            }
+            bad => {
+                let started = match &self.since {
+                    Some((prev, t)) if *prev == bad => *t,
+                    _ => {
+                        self.since = Some((bad.clone(), now));
+                        now
+                    }
+                };
+                if now.duration_since(started) >= Self::GRACE && self.alerted.as_ref() != Some(&bad) {
+                    self.alerted = Some(bad.clone());
+                    Some(bad)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+fn health_of(shared: &session::Shared, state: State) -> Health {
+    match state {
+        State::Recording | State::Saving | State::Saved | State::LongRec => Health::Good,
+        State::Idle | State::Starting | State::SaveFailed => Health::Neutral,
+        State::Problem => {
+            let down: Vec<String> =
+                shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| source_label(s.name)).collect();
+            Health::Warn(down.join(", "))
+        }
+        State::Stopped => Health::Down(shared.last_error.lock().unwrap().chars().take(90).collect()),
+    }
+}
+
+fn raise_health(shared: &session::Shared, h: &Health) {
+    match h {
+        Health::Warn(list) => {
+            session::log(&format!("health: sources down: {list}"));
+            shared.popup(Event::GameWarn, crate::lang::t("pop.health_warn"), crate::lang::f("pop.warn_nokey", &[("list", list)]));
+        }
+        Health::Down(err) => {
+            session::log(&format!("health: recording stopped: {err}"));
+            let sub = if err.is_empty() { crate::lang::t("pop.down_sub") } else { err.clone() };
+            shared.popup(Event::RecordingDown, crate::lang::t("pop.health_down"), sub);
+        }
+        _ => {}
+    }
+}
+
+/// A saved clip that cannot be read, has no picture or is only a blink is a failure the user should hear about now,
+/// not when they open it a week later.
+fn clip_problem(path: &std::path::Path) -> Option<String> {
+    match ml_core::probe::probe(path) {
+        Err(e) => Some(format!("cannot be read: {e}")),
+        Ok(i) if i.width == 0 || i.height == 0 => Some("has no video".into()),
+        Ok(i) if i.duration < 2.0 => Some(format!("is only {:.1} s long", i.duration)),
+        Ok(_) => None,
+    }
+}
+
 fn clock(secs: u64) -> String {
     if secs >= 3600 {
         format!("{}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60)
@@ -288,7 +383,12 @@ fn save_async(shared: &Arc<session::Shared>, announced: bool) {
         Ok(path) => {
             win::beep();
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            if !announced {
+            if let Some(why) = clip_problem(&path) {
+                session::log(&format!("saved clip {name} {why}"));
+                s.popup(Event::SaveFailed, crate::lang::t("pop.bad_clip"), name);
+            } else {
+                // a countdown card still on screen turns into this one; otherwise it appears fresh
+                let _ = announced;
                 s.popup(Event::Saved, crate::lang::t("pop.saved"), name);
             }
         }
@@ -380,6 +480,7 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
     let mut notified: HashSet<u32> = HashSet::new();
     let mut first_seen: std::collections::HashMap<u32, std::time::Instant> = std::collections::HashMap::new();
     let mut tick = 0u32;
+    let mut health = HealthWatch::new();
     let my_pid = std::process::id();
 
     let hk_shared = shared.clone();
@@ -440,6 +541,11 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
                 if shown != Some(state) {
                     let _ = tray.set_icon(Some(icon(state)));
                     shown = Some(state);
+                }
+                if !tick_shared.quit.load(Ordering::Relaxed) {
+                    if let Some(h) = health.feed(health_of(&tick_shared, state), std::time::Instant::now()) {
+                        raise_health(&tick_shared, &h);
+                    }
                 }
             }
             // Game detection: twice a second is plenty and costs next to nothing.
@@ -522,6 +628,36 @@ mod tests {
         assert!(announce_due(true, s(1), false), "recording is up: announce normally");
         assert!(announce_due(false, s(1), true), "a real error is announced at once");
         assert!(announce_due(false, s(12), false), "never came up: tell the user");
+    }
+
+    #[test]
+    fn health_alerts_once_after_the_grace_period_and_rearms_on_recovery() {
+        use std::time::{Duration, Instant};
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let mut w = HealthWatch::new();
+        let down = || Health::Down("ffmpeg exited".into());
+        assert_eq!(w.feed(down(), at(0)), None, "a fresh outage is not announced yet");
+        assert_eq!(w.feed(down(), at(14)), None, "still inside the grace period");
+        assert_eq!(w.feed(down(), at(15)), Some(down()), "lasted long enough: announce");
+        assert_eq!(w.feed(down(), at(40)), None, "never twice for one outage");
+        assert_eq!(w.feed(Health::Neutral, at(41)), None);
+        assert_eq!(w.feed(down(), at(42)), None, "a restart attempt does not make it a new outage");
+        assert_eq!(w.feed(down(), at(70)), None);
+        assert_eq!(w.feed(Health::Good, at(71)), None);
+        assert_eq!(w.feed(down(), at(80)), None);
+        assert_eq!(w.feed(down(), at(95)), Some(down()), "a new outage after recovery is announced again");
+    }
+
+    #[test]
+    fn a_short_blip_never_alerts() {
+        use std::time::{Duration, Instant};
+        let t0 = Instant::now();
+        let mut w = HealthWatch::new();
+        let warn = || Health::Warn("Mic".into());
+        assert_eq!(w.feed(warn(), t0), None);
+        assert_eq!(w.feed(Health::Good, t0 + Duration::from_secs(5)), None);
+        assert_eq!(w.feed(warn(), t0 + Duration::from_secs(20)), None, "the timer restarted after the recovery");
     }
 
     #[test]

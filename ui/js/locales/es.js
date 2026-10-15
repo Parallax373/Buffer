@@ -3,6 +3,9 @@
 
 App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "boot.failed": "Error al iniciar:\n{err}",
+  "rec.relaunched": "El grabador se detuvo inesperadamente y se reinició",
+  "rec.relaunchFail": "El grabador se detuvo y no se pudo reiniciar: {err}",
+  "err.ui": "Algo salió mal: {err}",
 
   "nav.library": "Biblioteca",
   "nav.settings": "Ajustes",

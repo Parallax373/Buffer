@@ -87,6 +87,7 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
             "reload" => {
                 let cfg = Config::load();
                 crate::lang::set(&cfg.lang);
+                crate::overlay::set_theme(&cfg.theme);
                 // choosing an encoder by hand overrides an earlier automatic fallback
                 if cfg.encoder != shared.cfg.lock().unwrap().encoder {
                     *shared.encoder_override.lock().unwrap() = None;
@@ -97,6 +98,34 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
                 *shared.cfg.lock().unwrap() = cfg;
                 crate::tray::apply_app_sources(shared);
                 shared.restart.store(true, Ordering::Relaxed);
+                json!({ "ok": true })
+            }
+            // Shows every popup the recorder can raise, one every 7 s, for a visual check of wording and colours.
+            "demo" => {
+                let s = shared.clone();
+                thread::spawn(move || {
+                    use crate::lang::{f, t};
+                    use crate::overlay::Event as E;
+                    let cards = [
+                        (E::Game, t("pop.active"), f("pop.active_sub", &[("hk", &"Ctrl+F9"), ("len", &"2 min"), ("game", &"Demo Game")])),
+                        (E::GameWarn, t("pop.warn"), f("pop.warn_sub", &[("list", &"Mic"), ("hk", &"Ctrl+F9")])),
+                        (E::PostRoll { roll_ms: 3000 }, f("pop.postroll", &[("n", &3)]), t("pop.postroll_sub")),
+                        (E::Saved, t("pop.saved"), "Demo Game__2026-10-15_21-00-00.mp4".into()),
+                        (E::SaveFailed, t("pop.save_failed"), t("err.read")),
+                        (E::SaveFailed, t("pop.bad_clip"), "Demo Game__2026-10-15_21-00-00.mp4".into()),
+                        (E::SaveFailed, t("pop.nothing"), t("pop.nothing_idle")),
+                        (E::RecordingDown, f("pop.down", &[("game", &"Demo Game")]), t("pop.down_sub")),
+                        (E::GameWarn, t("pop.health_warn"), f("pop.warn_nokey", &[("list", &"Mic, Chat")])),
+                        (E::RecordingDown, t("pop.health_down"), "ffmpeg exited (exit code: 1)".into()),
+                        (E::Game, t("lr.started"), f("lr.started_sub", &[("hk", &"Ctrl+F10")])),
+                        (E::Saved, t("lr.saved"), "Demo Game__long.mp4".into()),
+                        (E::SaveFailed, t("lr.start_failed"), t("err.space")),
+                    ];
+                    for (event, title, sub) in cards {
+                        s.popup(event, title, sub);
+                        thread::sleep(std::time::Duration::from_secs(7));
+                    }
+                });
                 json!({ "ok": true })
             }
             "quit" => {

@@ -165,6 +165,7 @@
   Rec.refresh = async () => {
     // a recorder that stops answering counts as not running, instead of freezing the poll loop
     try { S.recorder = await App.timeout(api.invoke("recorder_cmd", { cmd: "status" }), 4000); } catch { S.recorder = null; }
+    watchdog();
     paintRec();
     // a clip the recorder just finished appears in the library without waiting for the window to regain focus
     const saved = S.recorder ? S.recorder.last_saved : "";
@@ -175,6 +176,21 @@
     if (saved || Rec.lastSaved === undefined) Rec.lastSaved = saved;
     if (S.view === "set" && Settings.tab === "rec") Settings.paintRecorder();
   };
+  /* A recorder that was up and then vanished (crash, killed by another tool) is relaunched, and the user is told.
+     A stop the user asked for (Rec.expectDown) is left alone. */
+  let wasUp = false, downPolls = 0, lastRelaunch = 0;
+  Rec.expectDown = 0;
+  function watchdog() {
+    if (S.recorder) { wasUp = true; downPolls = 0; return; }
+    if (!wasUp || ++downPolls < 3) return;
+    const now = Date.now();
+    if (now - Rec.expectDown < 20000 || now - lastRelaunch < 30000) return;
+    lastRelaunch = now;
+    wasUp = false;
+    api.invoke("recorder_launch")
+      .then(() => { App.toast(App.t("rec.relaunched"), "err"); setTimeout(Rec.refresh, 2500); })
+      .catch((e) => App.toast(App.t("rec.relaunchFail", { err: e }), "err"));
+  }
   Rec.start = () => {
     const loop = async () => {
       if (!document.hidden) await Rec.refresh();
@@ -555,7 +571,7 @@
       h("div", { class: "card2" }, langRow),
       h("div", null, U.cap(App.t("theme.cap")), h("div", { class: "themes2" }, THEMES.map(([k, bg]) =>
         h("button", { class: "th2" + ((s.theme === "oled" ? "oled" : "ink") === k ? " on" : ""),
-          onClick: () => { s.theme = k; App.persist(); App.applyTheme(); Settings.render(); } },
+          onClick: () => { s.theme = k; App.persist(); App.applyTheme(); App.RecUI.syncLang().catch(() => {}); Settings.render(); } },
           h("div", { class: "pv2", style: { background: bg } }, h("i", { style: { width: "60%", background: "#1a1d16" } }), h("i", { style: { width: "30%", background: "#c6f432" } })),
           h("div", { class: "nm", text: App.t("theme." + k) }))))),
       h("div", { class: "card2" },

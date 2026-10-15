@@ -3,6 +3,9 @@
 
 App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "boot.failed": "Не вдалося запустити:\n{err}",
+  "rec.relaunched": "Рекордер несподівано зупинився й був перезапущений",
+  "rec.relaunchFail": "Рекордер зупинився й не вдалося його перезапустити: {err}",
+  "err.ui": "Щось пішло не так: {err}",
 
   "nav.library": "Бібліотека",
   "nav.settings": "Параметри",

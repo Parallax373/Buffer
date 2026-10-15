@@ -3,6 +3,9 @@
 
 App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "boot.failed": "Start fehlgeschlagen:\n{err}",
+  "rec.relaunched": "Der Recorder wurde unerwartet beendet und neu gestartet",
+  "rec.relaunchFail": "Der Recorder wurde beendet und konnte nicht neu gestartet werden: {err}",
+  "err.ui": "Etwas ist schiefgelaufen: {err}",
 
   "nav.library": "Bibliothek",
   "nav.settings": "Einstellungen",

@@ -3,6 +3,9 @@
 
 App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "boot.failed": "Başlatma başarısız:\n{err}",
+  "rec.relaunched": "Kaydedici beklenmedik şekilde durdu ve yeniden başlatıldı",
+  "rec.relaunchFail": "Kaydedici durdu ve yeniden başlatılamadı: {err}",
+  "err.ui": "Bir şeyler ters gitti: {err}",
 
   "nav.library": "Kütüphane",
   "nav.settings": "Ayarlar",

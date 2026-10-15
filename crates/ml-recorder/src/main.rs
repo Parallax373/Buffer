@@ -134,7 +134,18 @@ fn autostart_enabled() -> bool {
     cmd.output().map(|o| o.status.success()).unwrap_or(false)
 }
 
+/// A panic in any thread (the release build has no console) would otherwise vanish without a trace.
+fn install_panic_log() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        log(&format!("PANIC in thread '{}': {info}", thread.name().unwrap_or("?")));
+        default(info);
+    }));
+}
+
 fn run() {
+    install_panic_log();
     win::make_dpi_aware();
     if !win::claim_single_instance("Local\\BufferRecorder") {
         println!("recorder is already running");
@@ -142,6 +153,7 @@ fn run() {
     }
     let cfg = Config::load();
     lang::set(&cfg.lang);
+    overlay::set_theme(&cfg.theme);
     let sinks = [
         Sink::new("Game", Kind::Loopback, "Game"),
         Sink::new("Chat", Kind::Loopback, "Chat"),
@@ -258,7 +270,7 @@ fn main() {
                 "identify" => identify::run(),
                 "levels" => levels_json(std::env::args().skip(2).collect()),
                 "autostart-status" => println!("{}", if autostart_enabled() { "enabled" } else { "disabled" }),
-                "status" | "save" | "reload" | "quit" | "record" | "record-start" | "record-stop" => match control::send(other) {
+                "status" | "save" | "reload" | "quit" | "demo" | "record" | "record-start" | "record-stop" => match control::send(other) {
                     Ok(r) => println!("{r}"),
                     Err(e) => println!("{e}"),
                 },

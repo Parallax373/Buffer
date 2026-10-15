@@ -3,6 +3,9 @@
 
 App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "boot.failed": "启动失败：\n{err}",
+  "rec.relaunched": "录制程序意外停止，已重新启动",
+  "rec.relaunchFail": "录制程序已停止且无法重新启动：{err}",
+  "err.ui": "出了点问题：{err}",
 
   "nav.library": "媒体库",
   "nav.settings": "设置",

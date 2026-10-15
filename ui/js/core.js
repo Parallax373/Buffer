@@ -246,6 +246,18 @@ const App = {};
     setTimeout(() => t.remove(), kind === "err" ? 7000 : 3500);
   };
 
+  /* An uncaught error would otherwise only reach the devtools console: say so, at most once per 10 s. */
+  let lastUiErr = 0;
+  const uiError = (e) => {
+    const msg = String((e && (e.message || e.reason?.message || e.reason)) || e);
+    console.error("[ui]", e);
+    if (Date.now() - lastUiErr < 10000 || !App.t) return;
+    lastUiErr = Date.now();
+    try { App.toast(App.t("err.ui", { err: msg.slice(0, 160) }), "err"); } catch { /* toast host not ready */ }
+  };
+  window.addEventListener("error", (ev) => uiError(ev.error || ev.message));
+  window.addEventListener("unhandledrejection", (ev) => uiError(ev.reason));
+
   /* ───── helpers shared by several views ───── */
   App.dragIcon = (() => {
     let url = "";

@@ -60,6 +60,8 @@ pub struct Config {
     pub hotkey: String,
     /// UI language code written by the app (en, pl, de, es, fr, uk, tr, ja, zh); used for tray and popup text.
     pub lang: String,
+    /// App theme ("ink" | "oled"), written by the app; the popup card follows it.
+    pub theme: String,
     /// Starts / stops a long recording (the whole session, not just the last minutes).
     pub record_hotkey: String,
     pub game: SourceCfg,
@@ -94,6 +96,7 @@ impl Default for Config {
             audio_offset_ms: 0,
             hotkey: "Alt+Q".into(),
             lang: "en".into(),
+            theme: "ink".into(),
             record_hotkey: "Alt+R".into(),
             game: SourceCfg::default(),
             chat: SourceCfg::default(),

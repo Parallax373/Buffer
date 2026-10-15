@@ -3,6 +3,9 @@
 
 App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "boot.failed": "Startup failed:\n{err}",
+  "rec.relaunched": "Recorder stopped unexpectedly and was restarted",
+  "rec.relaunchFail": "Recorder stopped and could not be restarted: {err}",
+  "err.ui": "Something went wrong: {err}",
 
   "nav.library": "Library",
   "nav.settings": "Settings",

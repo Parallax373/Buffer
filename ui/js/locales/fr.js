@@ -3,6 +3,9 @@
 
 App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "boot.failed": "Échec du démarrage :\n{err}",
+  "rec.relaunched": "L'enregistreur s'est arrêté de façon inattendue et a été relancé",
+  "rec.relaunchFail": "L'enregistreur s'est arrêté et n'a pas pu être relancé : {err}",
+  "err.ui": "Un problème est survenu : {err}",
 
   "nav.library": "Bibliothèque",
   "nav.settings": "Réglages",

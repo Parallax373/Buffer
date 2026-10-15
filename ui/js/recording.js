@@ -402,7 +402,7 @@ App.RecUI = (function () {
       } catch (e) { App.toast(App.t("rec.notRunning", { err: e }), "err"); }
     } });
     const toggleBtn = h("button", { class: "btn", onClick: async () => {
-      if (S.recorder) await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {});
+      if (S.recorder) { App.Rec.expectDown = Date.now(); await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {}); }
       else await api.invoke("recorder_launch").catch((e) => App.toast(String(e), "err"));
       setTimeout(App.Rec.refresh, 1500);
     } });
@@ -844,7 +844,7 @@ App.RecUI = (function () {
     }
     async function applyKey() {
       await persist();
-      if (S.recorder) { await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {}); await sleep(1200); }
+      if (S.recorder) { App.Rec.expectDown = Date.now(); await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {}); await sleep(1200); }
       await api.invoke("recorder_launch").catch(() => {});
       await sleep(1500);
       await App.Rec.refresh();
@@ -890,7 +890,8 @@ App.RecUI = (function () {
   async function syncLang() {
     await load();
     const lang = App.i18n.current();
-    if (cfg.lang !== lang) await save({ lang });
+    const theme = App.P.settings.theme === "oled" ? "oled" : "ink";   // the popup card follows the app theme
+    if (cfg.lang !== lang || cfg.theme !== theme) await save({ lang, theme });
   }
 
   return {
