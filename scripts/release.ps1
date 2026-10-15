@@ -3,7 +3,8 @@
 #   .\scripts\release.ps1            # next patch version (0.2.3 -> 0.2.4)
 #   .\scripts\release.ps1 0.3.0      # a specific version
 #   .\scripts\release.ps1 -DryRun    # run every check and show what would happen, change nothing
-param([string]$Version = "", [switch]$DryRun)
+#   .\scripts\release.ps1 -Local     # build here (tests, thin LTO, ~3 min) and publish from this machine instead of GitHub
+param([string]$Version = "", [switch]$DryRun, [switch]$Local, [string]$Notes = "")
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -52,6 +53,17 @@ if ($LASTEXITCODE -ne 0) { Fail "bump-version failed" }
 Invoke-Git @("add", "-A")
 Invoke-Git @("commit", "-m", "Release $Version")
 Invoke-Git @("push", "origin", "main")
+if ($Local) {
+    # build and publish from this machine; the release creates the tag (the workflow sees the release and stops)
+    Write-Host ""
+    Write-Host "Building locally (tests, then thin LTO) and publishing $tag ..." -ForegroundColor Cyan
+    & "$root\scripts\publish.ps1" -Notes $Notes
+    if ($LASTEXITCODE -ne 0) { Fail "publish failed after the version commit was pushed; run scripts\publish.ps1 to retry" }
+    git fetch origin --tags --quiet
+    Write-Host ""
+    Write-Host "Published $tag from this machine. Installed copies offer the update within a day, or Settings > App > Check for updates." -ForegroundColor Green
+    exit 0
+}
 Invoke-Git @("tag", $tag)
 Invoke-Git @("push", "origin", $tag)
 Write-Host ""

@@ -13,11 +13,25 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   windows:
     runs-on: windows-latest
     steps:
+      # a release published from the maintainer's machine (scripts/publish.ps1) creates its tag too: nothing to build then
+      - name: Stop if already released
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} already exists, nothing to build."
+            gh run cancel "${{ github.run_id }}" --repo "${{ github.repository }}"
+            sleep 60
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
