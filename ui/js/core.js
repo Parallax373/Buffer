@@ -74,6 +74,9 @@ const App = {};
       const folder = !own && (clip.group || "").split(/[\\/]/).filter(Boolean).pop();
       const raw = own ? clip.name.split("__")[0] : folder || (/^moments\s*clip/i.test(clip.name) ? "" : clip.name);
       g = raw.replace(/-+/g, " ").replace(/\s+/g, " ").trim();
+      // Xbox Game Bar and Nvidia name clips "<Game> 2025.07.08 23.40.22.01 [.DVR Trim]": the game is what comes before the date
+      const dated = g.replace(/\s+\d{4}[.\-_]\d{2}[.\-_]\d{2}\b.*$/, "").trim();
+      if (dated) g = dated;
       gameCache.set(clip, g);
     }
     return g || App.t("clip.unknown");

@@ -68,6 +68,14 @@ fn steam_installs(out: &mut Vec<Install>) {
                 out.push(Install { name, dir: apps.join("common").join(dir), exe: None });
             }
         }
+        // folders without a manifest (a leftover or a game moved by hand) still count, named after the folder
+        if let Ok(rd) = fs::read_dir(apps.join("common")) {
+            for e in rd.flatten() {
+                if e.path().is_dir() {
+                    out.push(Install { name: e.file_name().to_string_lossy().into_owned(), dir: e.path(), exe: None });
+                }
+            }
+        }
     }
 }
 
@@ -110,23 +118,29 @@ fn folder_installs(out: &mut Vec<Install>) {
     }
 }
 
-/// The game's main program: the biggest .exe within two levels, skipping crash handlers, installers and the like.
+/// The game's main program: the biggest .exe within four levels (Unreal games keep theirs in
+/// `<Game>/Binaries/Win64/`), skipping crash handlers, installers, anti-cheat and the like.
 fn main_exe(dir: &Path, game_key: &str) -> Option<PathBuf> {
-    const SKIP: [&str; 10] = ["crash", "unins", "setup", "redist", "vc_", "dxsetup", "dotnet", "report", "helper", "eac"];
+    const SKIP: [&str; 16] = [
+        "crash", "unins", "setup", "redist", "vc_", "dxsetup", "dotnet", "report", "helper", "eac", "anticheat",
+        "battleye", "beclient", "cef", "subprocess", "benchmark",
+    ];
     let mut best: Option<(bool, u64, PathBuf)> = None;
     let mut stack = vec![(dir.to_path_buf(), 0u32)];
     let mut seen = 0;
-    while let Some((d, depth)) = stack.pop() {
+    while !stack.is_empty() {
+        // breadth first, so the cap on entries cannot starve the shallow levels where the main program usually is
+        let (d, depth) = stack.remove(0);
         let Ok(rd) = fs::read_dir(&d) else { continue };
         for e in rd.flatten() {
             seen += 1;
-            if seen > 600 {
+            if seen > 4000 {
                 break;
             }
             let p = e.path();
             let Ok(m) = e.metadata() else { continue };
             if m.is_dir() {
-                if depth < 2 {
+                if depth < 4 {
                     stack.push((p, depth + 1));
                 }
                 continue;
@@ -177,7 +191,11 @@ pub fn run(names: Vec<String>) {
 
     let (mut found, mut missing) = (Vec::new(), Vec::new());
     for game in names {
-        let key = norm(&game);
+        let mut key = norm(&game);
+        // Counter-Strike 2 still lives in the "Counter-Strike Global Offensive" folder
+        if key.starts_with("counterstrike2") {
+            key = "counterstrikeglobaloffensive".to_string();
+        }
         let hit = keyed
             .iter()
             .find(|(k, _)| !key.is_empty() && *k == key)
