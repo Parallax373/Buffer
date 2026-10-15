@@ -17,6 +17,13 @@ if ($Fast) {
 
 & "$PSScriptRoot\scripts\fetch-ffmpeg.ps1"
 
+# The installer writes ffmpeg.exe itself (hooks.nsh) and skips it when the installed copy is the same build:
+# hand it the hash and the path.
+$ffmpegExe = (Resolve-Path (Join-Path $PSScriptRoot "vendor\ffmpeg\ffmpeg.exe")).Path
+$ffmpegId = (Get-FileHash $ffmpegExe -Algorithm SHA256).Hash.ToLower()
+@("!define FFMPEG_ID `"$ffmpegId`"", "!define FFMPEG_SRC `"$ffmpegExe`"") |
+    Set-Content (Join-Path $PSScriptRoot "src-tauri\windows\ffmpeg.nsh") -Encoding ASCII
+
 cargo build --release -p ml-recorder
 if ($LASTEXITCODE -ne 0) { throw "recorder build failed" }
 
