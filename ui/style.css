@@ -127,12 +127,14 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 .card .th img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .card .chk { position: absolute; left: 8px; top: 8px; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid #ffffffaa; background: #0008; color: var(--ink); font-size: 12px; text-align: center; line-height: 17px; }
 .card.sel .chk { background: var(--acc); }
-.card .star { position: absolute; right: 8px; top: 6px; font-size: 18px; color: #ffffffcc; text-shadow: 0 1px 3px #000a; }
+.card .star { position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; font-size: 18px; line-height: 1; color: var(--subtle); cursor: pointer; }
+.card .star:hover { color: var(--text); }
 .card .star.on { color: var(--warn); }
 .card .dur { position: absolute; right: 8px; bottom: 8px; background: #000b; border-radius: 5px; padding: 1px 7px; font: 11px "JetBrains Mono", monospace; color: #fff; }
 .card .tg { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 4px; align-items: center; }
 .card .tg span { font: 10px "JetBrains Mono", monospace; color: var(--ok); }
-.card .info { padding: 9px 12px 11px; }
+.card .info { padding: 9px 12px 11px; position: relative; }
+.card .info span { padding-right: 30px; }
 .card .info b { font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .info span { font: 11px "JetBrains Mono", monospace; color: var(--muted); display: block; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 

@@ -443,11 +443,12 @@
     el.append(
       h("div", { class: "th" },
         h("div", { class: "chk", onClick: (e) => { e.stopPropagation(); Lib.toggleSel(clip.path); } }),
-        h("div", { class: "star", text: "☆", onClick: (e) => { e.stopPropagation(); Lib.toggleFav(clip.path); } }),
         h("div", { class: "dur" }),
         h("div", { class: "now", text: App.t("badge.new") }),
         h("div", { class: "tg" })),
-      h("div", { class: "info" }, h("div", { class: "gl" }, h("b", { text: App.gameOf(clip) })), h("span")));
+      // the favourite star sits on the dark strip, bottom right, away from the picture
+      h("div", { class: "info" }, h("div", { class: "gl" }, h("b", { text: App.gameOf(clip) })), h("span"),
+        h("div", { class: "star", text: "☆", title: App.t("cat.fav"), onClick: (e) => { e.stopPropagation(); Lib.toggleFav(clip.path); } })));
     updateCard(el, clip);
     return el;
   }
@@ -461,7 +462,7 @@
     el.firstChild.querySelector(".now").hidden = !fresh;
     const th = el.firstChild;
     th.querySelector(".chk").textContent = sel ? "✓" : "";
-    const star = th.querySelector(".star");
+    const star = el.querySelector(".star");
     star.textContent = isFav(clip) ? "★" : "☆";
     star.classList.toggle("on", isFav(clip));
     el.querySelector(".info b").textContent = App.titleOf(clip);
