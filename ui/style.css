@@ -325,7 +325,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 .callout .tt { font-weight: 600; }
 .callout select { align-self: flex-start; min-width: 240px; }
 
-/* â•â•â•â•â• Design ideas pass: "now" and "trail" â•â•â•â•â•
+/* ═════ Design ideas pass: "now" and "trail" ═════
    Lime = now (playhead, selection, active item, primary action, progress). The past is the same lime
    at 15-35% opacity, offset to the left. One brand colour; Ink + OLED themes with olive-tinted neutrals. */
 :root {
@@ -386,7 +386,7 @@ body { color: var(--text); }
   font: 600 12px/1 "Instrument Sans", sans-serif; padding: 6px 9px; border-radius: 7px; white-space: nowrap; z-index: 60; animation: pop .2s ease both; }
 #nav .grow { flex: 1; }
 
-/* view switch: one lime-edged wipe left â†’ right */
+/* view switch: one lime-edged wipe left → right */
 .view { position: relative; }
 .wipe { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
 .wipe div { position: absolute; inset: 0;
