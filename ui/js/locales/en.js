@@ -59,6 +59,8 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "group.none": "No grouping",
   "group.date": "Group by date",
   "group.selectAll": "Select all in this group",
+  "group.collapse": "Collapse all",
+  "group.expand": "Expand all",
   "group.today": "Today",
   "group.yesterday": "Yesterday",
   "group.week": "This week",

@@ -59,6 +59,8 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "group.none": "Sans regroupement",
   "group.date": "Grouper par date",
   "group.selectAll": "Tout sélectionner dans ce groupe",
+  "group.collapse": "Tout réduire",
+  "group.expand": "Tout développer",
   "group.today": "Aujourd'hui",
   "group.yesterday": "Hier",
   "group.week": "Cette semaine",

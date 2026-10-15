@@ -177,6 +177,11 @@
         ["newest", "oldest", "size", "dur"]
           .map((v) => h("option", { value: v, text: App.t("sort." + v), selected: S.sort === v }))),
       thumbSeg: h("div", { class: "seg" }),
+      fold: h("button", { class: "btn ghost", hidden: true, onClick: () => {
+        const keys = groupKeys();
+        if (keys.every((k) => S.collapsed.has(k))) S.collapsed.clear(); else keys.forEach((k) => S.collapsed.add(k));
+        layoutGrid(true);
+      } }),
       group: h("select", { class: "field", title: App.t("group.date"),
         onChange: (e) => { App.P.settings.groupBy = e.target.value; App.persist(); Lib.render(true); } },
       ["none", "date"].map((v) => h("option", { value: v, text: App.t("group." + v), selected: (App.P.settings.groupBy || "none") === v }))),
@@ -193,7 +198,7 @@
     };
     els.grid.append(els.spacer);
     const toolbar = h("div", { class: "toolbar" }, els.title, els.count, h("span", { class: "sp" }),
-      els.group, els.sort, els.thumbSeg);
+      els.fold, els.group, els.sort, els.thumbSeg);
     const main = h("div", { class: "main" }, toolbar, els.grid, els.bulk);
     els.lib = h("div", { class: "lib nodetail" }, els.side, main, els.details);
     root.append(els.lib);
@@ -293,6 +298,23 @@
     };
   }
 
+  /** Keys of the date groups of the clips currently shown. */
+  function groupKeys() {
+    return [...new Set(Lib.visible().map((c) => bucketOf(c).key))];
+  }
+
+  /** "Collapse all" / "Expand all" follows the state of the groups; only shown when grouping by date. */
+  function updateFold() {
+    if (!els.fold) return;
+    const on = (App.P.settings.groupBy || "none") === "date";
+    els.fold.hidden = !on;
+    if (!on) return;
+    const keys = groupKeys();
+    const all = keys.length > 0 && keys.every((k) => S.collapsed.has(k));
+    els.fold.textContent = App.t(all ? "group.expand" : "group.collapse");
+    els.fold.disabled = !keys.length;
+  }
+
   function layout(list, g) {
     const items = [], groups = [];
     const at = (i, y0) => ({ x: (i % g.cols) * (g.cardW + GAP), y: y0 + Math.floor(i / g.cols) * g.rowH });
@@ -339,6 +361,7 @@
       cards.clear();
       heads.clear();
       laid = null;
+      updateFold();
       return;
     }
     els.spacer.querySelector(":scope > .empty")?.remove();
@@ -404,6 +427,7 @@
     for (const [k, el] of heads) {
       if (!wantHeads.has(k)) { el.remove(); heads.delete(k); }
     }
+    if (!scrollOnly) updateFold();
   }
 
   function createCard(clip) {

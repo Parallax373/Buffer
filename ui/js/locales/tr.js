@@ -59,6 +59,8 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "group.none": "Gruplama yok",
   "group.date": "Tarihe göre grupla",
   "group.selectAll": "Gruptakilerin hepsini seç",
+  "group.collapse": "Tümünü daralt",
+  "group.expand": "Tümünü genişlet",
   "group.today": "Bugün",
   "group.yesterday": "Dün",
   "group.week": "Bu hafta",

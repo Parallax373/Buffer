@@ -59,6 +59,8 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "group.none": "グループ化しない",
   "group.date": "日付でグループ化",
   "group.selectAll": "このグループをすべて選択",
+  "group.collapse": "すべて折りたたむ",
+  "group.expand": "すべて展開",
   "group.today": "今日",
   "group.yesterday": "昨日",
   "group.week": "今週",

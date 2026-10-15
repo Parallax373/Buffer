@@ -59,6 +59,8 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "group.none": "Keine Gruppierung",
   "group.date": "Nach Datum gruppieren",
   "group.selectAll": "Alles in dieser Gruppe auswählen",
+  "group.collapse": "Alle einklappen",
+  "group.expand": "Alle ausklappen",
   "group.today": "Heute",
   "group.yesterday": "Gestern",
   "group.week": "Diese Woche",

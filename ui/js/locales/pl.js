@@ -59,6 +59,8 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "group.none": "Bez grupowania",
   "group.date": "Grupuj wg daty",
   "group.selectAll": "Zaznacz wszystko w grupie",
+  "group.collapse": "Zwiń wszystko",
+  "group.expand": "Rozwiń wszystko",
   "group.today": "Dzisiaj",
   "group.yesterday": "Wczoraj",
   "group.week": "Ten tydzień",

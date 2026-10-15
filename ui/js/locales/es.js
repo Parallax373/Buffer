@@ -59,6 +59,8 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "group.none": "Sin agrupar",
   "group.date": "Agrupar por fecha",
   "group.selectAll": "Seleccionar todo el grupo",
+  "group.collapse": "Contraer todo",
+  "group.expand": "Expandir todo",
   "group.today": "Hoy",
   "group.yesterday": "Ayer",
   "group.week": "Esta semana",

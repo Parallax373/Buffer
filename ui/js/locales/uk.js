@@ -59,6 +59,8 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "group.none": "Без групування",
   "group.date": "Групувати за датою",
   "group.selectAll": "Вибрати все в групі",
+  "group.collapse": "Згорнути все",
+  "group.expand": "Розгорнути все",
   "group.today": "Сьогодні",
   "group.yesterday": "Вчора",
   "group.week": "Цього тижня",

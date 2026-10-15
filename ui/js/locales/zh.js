@@ -59,6 +59,8 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "group.none": "不分组",
   "group.date": "按日期分组",
   "group.selectAll": "选择此组全部",
+  "group.collapse": "全部折叠",
+  "group.expand": "全部展开",
   "group.today": "今天",
   "group.yesterday": "昨天",
   "group.week": "本周",
