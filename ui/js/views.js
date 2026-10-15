@@ -469,19 +469,35 @@
   const THEMES = [["ink", "#0b0c0a"], ["oled", "#000000"]];
 
   /** Settings pane; only a tab switch plays the slide-in, edits inside a tab re-render quietly. */
+  let renderSeq = 0;
   Settings.render = async (animate = false) => {
     const root = App.$("#v-set");
+    const scroller = () => root.querySelector(".setscroll");
+    const keep = !animate && scroller() ? scroller().scrollTop : 0;      // an edit inside a tab must not jump to the top
     const pane = h("div", { class: "pane" + (animate ? " stepin" : "") });
-    root.replaceChildren(h("div", { class: "set" },
-      h("div", { class: "tabs" }, h("h1", { text: App.t("set.title") }),
-        TABS.map((k) => h("button", { class: Settings.tab === k ? "on" : "", text: App.t("set.tab." + k),
-          onClick: () => { Settings.tab = k; Settings.render(true); } })),
-        h("div", { class: "grow" }),
-        h("button", { class: "wizbtn", text: App.t("set.wizard"), onClick: () => App.RecUI.wizard() })),
-      h("div", { class: "setscroll" }, pane)));
-    if (Settings.tab === "rec") await App.RecUI.renderTab(pane);
-    else if (Settings.tab === "lib") await renderLibraryTab(pane);
-    else await renderAppTab(pane);
+    const mount = () => {
+      root.replaceChildren(h("div", { class: "set" },
+        h("div", { class: "tabs" }, h("h1", { text: App.t("set.title") }),
+          TABS.map((k) => h("button", { class: Settings.tab === k ? "on" : "", text: App.t("set.tab." + k),
+            onClick: () => { Settings.tab = k; Settings.render(true); } })),
+          h("div", { class: "grow" }),
+          h("button", { class: "wizbtn", text: App.t("set.wizard"), onClick: () => App.RecUI.wizard() })),
+        h("div", { class: "setscroll" }, pane)));
+    };
+    const restore = () => { if (keep && scroller()) scroller().scrollTop = keep; };
+    const mine = ++renderSeq;
+    if (Settings.tab === "rec") {
+      // the recording tab looks its own elements up in the document while it builds (meters, status bar): attach first
+      mount();
+      await App.RecUI.renderTab(pane);
+    } else {
+      // library and app tabs wait for their data (tools, cache size, clips) and are swapped in finished, in one go:
+      // attaching an empty pane first showed as the whole panel blinking on every edit
+      await (Settings.tab === "lib" ? renderLibraryTab(pane) : renderAppTab(pane));
+      if (mine !== renderSeq) return;                                     // a newer render took over meanwhile
+      mount();
+    }
+    restore();
   };
 
   const advHead = (label, open, toggle) => h("button", { class: "advhead", onClick: toggle },
