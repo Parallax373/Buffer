@@ -362,6 +362,10 @@ async fn import_game_icons(names: Vec<String>) -> Result<serde_json::Value, Stri
         let mut args: Vec<&str> = vec!["import-icons"];
         args.extend(names.iter().map(|s| s.as_str()));
         let raw = recorder_cli(&args)?;
+        // an older recorder next to the app answers an unknown command with its usage text
+        if raw.starts_with("usage:") || raw.is_empty() {
+            return Err("The recorder is older than the app: restart Buffer (or update) and try again".to_string());
+        }
         serde_json::from_str(&raw).map_err(|e| format!("{e}: {raw}"))
     })
     .await
