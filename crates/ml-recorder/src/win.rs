@@ -388,13 +388,49 @@ pub fn local_stamp() -> String {
     }
 }
 
-/// The "saved" sound (a short shutter click, embedded in the exe); falls back to the system beep.
-pub fn beep() {
+/// The cues Buffer can play. Each is a WAV in `assets/sounds/`, embedded in the exe (replace the file to change
+/// the sound; mono 16-bit PCM, small).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    /// A clip was saved, or the shortcut was pressed and the countdown started.
+    Saved,
+    /// A save failed, or the recording / a source stopped working.
+    Failed,
+    /// A long recording started.
+    RecStart,
+    /// A long recording ended.
+    RecStop,
+    /// A game came to the foreground and Buffer is active (off by default).
+    Game,
+}
+
+impl Sound {
+    fn wav(self) -> &'static [u8] {
+        match self {
+            Sound::Saved => include_bytes!("../assets/sounds/saved.wav"),
+            Sound::Failed => include_bytes!("../assets/sounds/failed.wav"),
+            Sound::RecStart => include_bytes!("../assets/sounds/rec-start.wav"),
+            Sound::RecStop => include_bytes!("../assets/sounds/rec-stop.wav"),
+            Sound::Game => include_bytes!("../assets/sounds/game.wav"),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Sound {
+    pub fn wav_for_test(self) -> &'static [u8] {
+        self.wav()
+    }
+}
+
+/// Plays a cue without blocking (a new one replaces one still playing); falls back to the system beep.
+/// Whether a cue is wanted at all is decided by `Shared::sound`, not here.
+pub fn play(sound: Sound) {
     use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
-    static SAVED: &[u8] = include_bytes!("../assets/saved.wav");
+    let wav = sound.wav();
     unsafe {
-        // SND_ASYNC with SND_MEMORY needs the buffer to outlive the call: it is a 'static
-        if PlaySoundW(SAVED.as_ptr() as *const u16, std::ptr::null_mut(), SND_MEMORY | SND_ASYNC | SND_NODEFAULT) == 0 {
+        // SND_ASYNC with SND_MEMORY needs the buffer to outlive the call: it is 'static
+        if PlaySoundW(wav.as_ptr() as *const u16, std::ptr::null_mut(), SND_MEMORY | SND_ASYNC | SND_NODEFAULT) == 0 {
             MessageBeep(MB_OK);
         }
     }

@@ -69,6 +69,10 @@ pub struct Config {
     pub mic: SourceCfg,
     /// Show the "Buffer active" popup when a game starts and when a clip is saved.
     pub popup: bool,
+    /// Short sound cues: clip saved, save failed, long recording start / stop.
+    pub sounds: bool,
+    /// The extra, quiet cue when a game is detected (only used while `sounds` is on).
+    pub game_sound: bool,
     /// Executable stems (lowercase) that are never treated as a game.
     pub ignore_apps: Vec<String>,
     /// Executable stems (lowercase) that are always treated as a game, even in a window.
@@ -102,6 +106,8 @@ impl Default for Config {
             chat: SourceCfg::default(),
             mic: SourceCfg::default(),
             popup: true,
+            sounds: true,
+            game_sound: false,
             ignore_apps: Vec::new(),
             extra_games: Vec::new(),
             game_names: Default::default(),

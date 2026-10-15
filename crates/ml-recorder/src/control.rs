@@ -70,7 +70,7 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
             "status" => status_json(shared),
             "save" => match save(shared) {
                 Ok(p) => {
-                    crate::win::beep();
+                    shared.sound(crate::win::Sound::Saved);
                     json!({ "ok": true, "path": p.to_string_lossy() })
                 }
                 Err(e) => json!({ "ok": false, "error": e }),

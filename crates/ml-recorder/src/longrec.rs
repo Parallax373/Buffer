@@ -8,7 +8,7 @@
 use crate::config::Config;
 use crate::overlay::Event;
 use crate::session::{game_for_clip, log, segments, Shared};
-use crate::win;
+use crate::win::{self, Sound};
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
@@ -146,7 +146,12 @@ pub fn toggle(shared: &Arc<Shared>) {
             Ok(()) => {
                 // read the shortcut first: `popup` takes the config lock itself, so it must not be held here
                 let hk = shared.cfg.lock().unwrap().record_hotkey.clone();
-                shared.popup(Event::Game, crate::lang::t("lr.started"), crate::lang::f("lr.started_sub", &[("hk", &hk)]));
+                shared.popup_with_sound(
+                    Event::Game,
+                    Sound::RecStart,
+                    crate::lang::t("lr.started"),
+                    crate::lang::f("lr.started_sub", &[("hk", &hk)]),
+                );
             }
             Err(e) => shared.popup(Event::SaveFailed, crate::lang::t("lr.start_failed"), e),
         }
@@ -163,9 +168,9 @@ pub fn stop_async(shared: &Arc<Shared>, reason: Option<String>) {
         s.long_stopping.store(false, Ordering::Relaxed);
         match result {
             Ok(Some(path)) => {
-                win::beep();
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                s.popup(Event::Saved, reason.map_or(crate::lang::t("lr.saved"), |r| crate::lang::f("lr.stopped", &[("r", &r)])), name);
+                let title = reason.map_or(crate::lang::t("lr.saved"), |r| crate::lang::f("lr.stopped", &[("r", &r)]));
+                s.popup_with_sound(Event::Saved, Sound::RecStop, title, name);
             }
             Ok(None) => {}
             Err(e) => {

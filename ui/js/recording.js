@@ -15,7 +15,7 @@ App.RecUI = (function () {
   const BASE = {
     output_dir: "", per_game_folders: true, post_roll_seconds: 15, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, quality: "std", monitor: 0,
-    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", popup: true, extra_games: [], ignore_apps: [],
+    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", popup: true, sounds: true, game_sound: false, extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
   };
   const RES = () => [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, App.t("res.native")]];
@@ -479,10 +479,12 @@ App.RecUI = (function () {
     // ZACHOWANIE
     const behBox = h("div", { class: "card2 tgl" });
     const drawBeh = () => {
-      behBox.replaceChildren(
+      put(behBox,                              // put: the game-sound row is null while sounds are off
         U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), cfg.game_only, (v) => { save({ game_only: v }); drawBeh(); }),
         U.trow(App.t("beh.follow"), App.t("beh.followD"), cfg.follow_game_monitor, (v) => { save({ follow_game_monitor: v }); drawBeh(); }),
         U.trow(App.t("beh.popup"), App.t("beh.popupD"), cfg.popup, (v) => { save({ popup: v }); drawBeh(); }),
+        U.trow(App.t("beh.sounds"), App.t("beh.soundsD"), cfg.sounds, (v) => { save({ sounds: v }); drawBeh(); }),
+        cfg.sounds ? U.trow(App.t("beh.gameSound"), App.t("beh.gameSoundD"), cfg.game_sound, (v) => { save({ game_sound: v }); drawBeh(); }) : null,
         U.trow(App.t("beh.autostart"), App.t("beh.autostartD"), autostart, (v) => {
           const was = autostart;
           autostart = v;                       // shown at once; the registry write follows

@@ -381,7 +381,7 @@ fn save_async(shared: &Arc<session::Shared>, announced: bool) {
     let s = shared.clone();
     thread::spawn(move || match session::save(&s) {
         Ok(path) => {
-            win::beep();
+            // the cue comes with the popup below: "saved" for a good clip, "failed" for a broken one
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             if let Some(why) = clip_problem(&path) {
                 session::log(&format!("saved clip {name} {why}"));

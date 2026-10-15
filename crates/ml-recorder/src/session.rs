@@ -5,7 +5,7 @@
 use crate::audio::{Sink, FRAME_BYTES, RATE};
 use crate::config::{buffer_dir, log_path, Config, SEGMENT_SECS};
 use crate::overlay::{Event, Popup};
-use crate::win::{self, Job};
+use crate::win::{self, Job, Sound};
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
@@ -81,8 +81,36 @@ pub struct Shared {
     pub restart_pending: AtomicBool,
 }
 
+/// The cue that goes with a popup. Callers that want another one (a long recording starts with the `Game` card
+/// but is its own moment) use `popup_with_sound`.
+fn sound_for(event: Event) -> Sound {
+    match event {
+        Event::PostRoll { .. } | Event::Saved => Sound::Saved,
+        Event::SaveFailed | Event::RecordingDown | Event::GameWarn => Sound::Failed,
+        Event::Game => Sound::Game,
+    }
+}
+
 impl Shared {
+    /// Plays a cue if sounds are on (the quiet game cue also needs its own switch).
+    pub fn sound(&self, sound: Sound) {
+        let (on, game) = {
+            let c = self.cfg.lock().unwrap();
+            (c.sounds, c.game_sound)
+        };
+        if on && (sound != Sound::Game || game) {
+            win::play(sound);
+        }
+    }
+
+    /// Shows a popup and plays the cue that belongs to it.
     pub fn popup(&self, event: Event, title: impl Into<String>, sub: impl Into<String>) {
+        self.popup_with_sound(event, sound_for(event), title, sub);
+    }
+
+    /// Like `popup`, with the cue chosen by the caller. The sound does not depend on the popup setting.
+    pub fn popup_with_sound(&self, event: Event, sound: Sound, title: impl Into<String>, sub: impl Into<String>) {
+        self.sound(sound);
         // errors are always shown; the rest follows the "Buffer active popup" setting
         if !self.cfg.lock().unwrap().popup && !event.is_error() {
             return;
@@ -752,5 +780,30 @@ mod fresh_tail_tests {
         let old = vec![seg(&dir, "seg_9.ts", 600)];
         assert!(fresh_tail(old).is_empty());
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod sound_tests {
+    use super::*;
+
+    #[test]
+    fn every_popup_has_its_cue() {
+        assert_eq!(sound_for(Event::Saved), Sound::Saved);
+        assert_eq!(sound_for(Event::PostRoll { roll_ms: 15_000 }), Sound::Saved);
+        assert_eq!(sound_for(Event::SaveFailed), Sound::Failed);
+        assert_eq!(sound_for(Event::RecordingDown), Sound::Failed);
+        assert_eq!(sound_for(Event::GameWarn), Sound::Failed);
+        assert_eq!(sound_for(Event::Game), Sound::Game);
+    }
+
+    #[test]
+    fn the_embedded_cues_are_valid_wav() {
+        for s in [Sound::Saved, Sound::Failed, Sound::RecStart, Sound::RecStop, Sound::Game] {
+            let w = s.wav_for_test();
+            assert_eq!(&w[0..4], b"RIFF", "{s:?}");
+            assert_eq!(&w[8..12], b"WAVE", "{s:?}");
+            assert!(w.len() < 120_000, "{s:?} is {} bytes", w.len());
+        }
     }
 }
