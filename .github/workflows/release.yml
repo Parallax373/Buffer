@@ -3,6 +3,9 @@ name: release
 # Push a tag like v0.2.0 (it must match the version in src-tauri/tauri.conf.json) to build the installer,
 # sign the update package and publish both with latest.json, the feed the in-app updater reads.
 #
+# A release published from the maintainer's machine (scripts/release.ps1 -Local) creates its tag too, which starts
+# this workflow: it finds the release already there and finishes green without building anything.
+#
 # Required repository secrets (see RELEASING.md):
 #   TAURI_SIGNING_PRIVATE_KEY            contents of the updater private key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   its password
@@ -13,41 +16,45 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   windows:
     runs-on: windows-latest
     steps:
-      # a release published from the maintainer's machine (scripts/publish.ps1) creates its tag too: nothing to build then
-      - name: Stop if already released
+      - name: Already released?
+        id: guard
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release ${{ github.ref_name }} already exists, nothing to build."
-            gh run cancel "${{ github.run_id }}" --repo "${{ github.repository }}"
-            sleep 60
+            echo "Release ${{ github.ref_name }} already exists (published from the maintainer's machine): nothing to build."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
       - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != 'true'
 
       - uses: actions/setup-node@v4
+        if: steps.guard.outputs.skip != 'true'
         with:
           node-version: 22
 
       - name: Rust toolchain
+        if: steps.guard.outputs.skip != 'true'
         run: rustup toolchain install stable --profile minimal
 
       - name: Cache Rust build
+        if: steps.guard.outputs.skip != 'true'
         uses: Swatinem/rust-cache@v2
 
       - name: Test
+        if: steps.guard.outputs.skip != 'true'
         run: cargo test --workspace --exclude buffer   # the app crate needs the release recorder and ffmpeg resources, which the installer build creates
 
       - name: Build installer (fetches and verifies ffmpeg, signs the update package)
+        if: steps.guard.outputs.skip != 'true'
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -55,28 +62,31 @@ jobs:
         run: ./build-installer.ps1 -Sign
 
       - name: Update feed
+        if: steps.guard.outputs.skip != 'true'
         shell: pwsh
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
+          $installer = Get-ChildItem target/release/bundle/nsis/*_${version}_*.exe | Select-Object -First 1
           New-Item -ItemType Directory -Force target/release/bundle/feed | Out-Null
           Push-Location target/release/bundle/feed
           & "$env:GITHUB_WORKSPACE/scripts/make-latest-json.ps1" -Version $version -Installer $installer.FullName -Notes "Buffer $version" -Repo "${{ github.repository }}"
           Pop-Location
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.guard.outputs.skip != 'true' && startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $installer = Get-ChildItem target/release/bundle/nsis/*_${version}_*.exe | Select-Object -First 1
           $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
           gh release create "${{ github.ref_name }}" $installer.FullName "$($installer.FullName).sig" target/release/bundle/feed/latest.json `
             --title "Buffer ${{ github.ref_name }}" `
             --notes "SHA-256 of $($installer.Name): $hash"
 
       - uses: actions/upload-artifact@v4
+        if: steps.guard.outputs.skip != 'true'
         with:
           name: installer
           path: |
