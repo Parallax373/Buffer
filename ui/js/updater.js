@@ -15,6 +15,7 @@ App.Update = (function () {
   let live = null;                            // the nodes that change during the download (patched, never rebuilt)
   let chipFor = "";                           // version the chip currently shows
 
+  const BARS = 30;                            // segments of the download bar, like the export popover
   const plugin = () => window.__TAURI__ && window.__TAURI__.updater;
   const chip = h("button", { class: "updchip", hidden: true, onClick: () => { open = !open; paint(); } });
 
@@ -71,12 +72,14 @@ App.Update = (function () {
    *  its entrance animation, which is what made it blink. */
   let lastPatch = 0;
   function patchProgress() {
-    if (!live || !live.bar.isConnected || !busy) return;
+    if (!live || !live.num.isConnected || !busy) return;
     const now = performance.now();
     if (now - lastPatch < 80 && busy.done < busy.total) return;
     lastPatch = now;
     const pct = busy.total ? Math.min(100, (busy.done / busy.total) * 100) : null;
-    live.bar.style.width = `${pct ?? 5}%`;
+    // the same segmented bar as the export popover; without a known size the first segments are lit
+    const p = pct ?? 6;
+    live.bars.forEach((b, i) => { b.style.opacity = 0.12 + (0.35 + 0.65 * (i / BARS) - 0.12) * Math.max(0, Math.min(1, (p / 100) * BARS - i)); });
     live.num.textContent = pct == null ? "" : `${Math.round(pct)}%`;
     const label = pct == null ? App.t("upd.dl") : App.t("upd.dlInstall");
     if (live.label.textContent !== label) live.label.textContent = label;
@@ -109,9 +112,10 @@ App.Update = (function () {
   }
 
   function progressBlock() {
-    live = { label: h("span"), num: h("span"), bar: h("div") };
-    const block = h("div", { class: "prog" },
-      h("div", { class: "r" }, live.label, live.num), h("div", { class: "b" }, live.bar));
+    live = { label: h("span"), num: h("span", { class: "mono lime" }), bars: Array.from({ length: BARS }, () => h("i")) };
+    const block = h("div", null,
+      h("div", { class: "pr1" }, live.label, live.num),
+      h("div", { class: "scan" }, live.bars));
     lastPatch = 0;
     patchProgress();
     return block;
