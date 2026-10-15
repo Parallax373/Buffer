@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "buffer"
-version = "0.2.8"
+version = "3.0.3"
 dependencies = [
  "ml-core",
  "serde",
@@ -2288,7 +2288,7 @@ dependencies = [
 
 [[package]]
 name = "ml-cli"
-version = "0.2.8"
+version = "3.0.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -2297,7 +2297,7 @@ dependencies = [
 
 [[package]]
 name = "ml-core"
-version = "0.2.8"
+version = "3.0.3"
 dependencies = [
  "anyhow",
  "serde",
@@ -2306,7 +2306,7 @@ dependencies = [
 
 [[package]]
 name = "ml-recorder"
-version = "0.2.8"
+version = "3.0.3"
 dependencies = [
  "ml-core",
  "serde",
