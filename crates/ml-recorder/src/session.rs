@@ -611,7 +611,7 @@ fn fresh_tail(all: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 /// Keeps the foreground game's icon as `%APPDATA%\Buffer\icons\<game>.png` (once per game) for the library sidebar.
-fn remember_game_icon(game: &str) {
+fn remember_game_icon(shared: &Shared, game: &str) {
     if game == "Desktop" {
         return;
     }
@@ -622,10 +622,27 @@ fn remember_game_icon(game: &str) {
     if png.exists() {
         return;
     }
-    let Some(fg) = win::foreground() else { return };
-    if let Some(bytes) = win::exe_icon_png(&fg.exe) {
+    // the icon comes from the game's own process, not from whatever window is in front right now
+    let pid = shared.active_game.lock().unwrap().as_ref().map(|g| g.pid);
+    let exe = match pid.and_then(win::exe_path_of) {
+        Some(p) => p,
+        None => match win::foreground() {
+            Some(fg) => fg.exe,
+            None => return,
+        },
+    };
+    if let Some(bytes) = win::exe_icon_png(&exe) {
         let _ = fs::create_dir_all(&dir);
         let _ = fs::write(&png, bytes);
+    }
+}
+
+/// Name for a clip being saved now: the running game, even when you alt-tabbed away from it (then the foreground
+/// window is a browser or the desktop); with no game known, whatever is in the foreground.
+pub fn game_for_clip(shared: &Shared, cfg: &Config) -> String {
+    match shared.active_game.lock().unwrap().as_ref() {
+        Some(g) if !g.name.is_empty() => g.name.clone(),
+        _ => current_game_name(cfg),
     }
 }
 
@@ -661,8 +678,8 @@ fn save_inner(shared: &Arc<Shared>) -> Result<PathBuf, String> {
     }
     let picked = &all[all.len() - take..];
 
-    let game = current_game_name(&cfg);
-    remember_game_icon(&game);
+    let game = game_for_clip(shared, &cfg);
+    remember_game_icon(shared, &game);
     let mut out_dir = PathBuf::from(&cfg.output_dir);
     if cfg.per_game_folders {
         out_dir = out_dir.join(&game);

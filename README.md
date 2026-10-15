@@ -55,6 +55,14 @@ Rust workspace plus a [Tauri v2](https://tauri.app) app with a plain HTML/CSS/JS
 
 Architecture notes are in [STATE.md](STATE.md), release steps in [RELEASING.md](RELEASING.md), and translations live in `ui/js/locales/` (`node scripts/check-i18n.js` checks them).
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Only releases built by GitHub Actions from this repository's tagged commits are signed.
+- Maintainer, committer and approver: [Wheatlay](https://github.com/Wheatlay).
+- Privacy: Buffer records and edits clips locally. The only network request is the daily update check against this repository's GitHub releases; nothing else is sent anywhere.
+
 ## License
 
 [MIT](LICENSE). Buffer ships with a GPL build of ffmpeg; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

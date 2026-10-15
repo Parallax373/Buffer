@@ -7,7 +7,7 @@
 
 use crate::config::Config;
 use crate::overlay::Event;
-use crate::session::{current_game_name, log, segments, Shared};
+use crate::session::{game_for_clip, log, segments, Shared};
 use crate::win;
 use std::{
     fs::{self, File, OpenOptions},
@@ -58,7 +58,7 @@ pub fn start(shared: &Arc<Shared>) -> Result<(), String> {
     if slot.is_some() {
         return Err(crate::lang::t("err.busy"));
     }
-    let game = current_game_name(&cfg);
+    let game = game_for_clip(shared, &cfg);
     let mut dir = PathBuf::from(&cfg.output_dir);
     if cfg.per_game_folders {
         dir = dir.join(&game);

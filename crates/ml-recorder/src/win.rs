@@ -235,6 +235,21 @@ pub fn foreground() -> Option<Foreground> {
     }
 }
 
+/// Full path of the executable of a running process.
+pub fn exe_path_of(pid: u32) -> Option<String> {
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, 0, buf.as_mut_ptr(), &mut len);
+        CloseHandle(h);
+        (ok != 0).then(|| String::from_utf16_lossy(&buf[..len as usize]))
+    }
+}
+
 /// File stem of the executable owning the foreground window.
 pub fn foreground_exe_stem() -> Option<String> {
     foreground().map(|f| f.stem)
