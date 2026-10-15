@@ -282,8 +282,8 @@
       return { key: "month", order: 3, label: App.t("group.month") };
     }
     // the last twelve months get a group each; anything older is grouped by year so the list stays short
-    if ((now.getFullYear() * 12 + now.getMonth()) - (d.getFullYear() * 12 + d.getMonth()) > 12) {
-      return { key: `y:${d.getFullYear()}`, order: 5000 + (9999 - d.getFullYear()), label: String(d.getFullYear()) };
+    if ((now.getFullYear() * 12 + now.getMonth()) - (d.getFullYear() * 12 + d.getMonth()) > 12) { // years come after every month group (their orders stay below 1e6)
+      return { key: `y:${d.getFullYear()}`, order: 1e6 + (9999 - d.getFullYear()), label: String(d.getFullYear()) };
     }
     const label = d.toLocaleDateString(App.tag(), { month: "long", year: "numeric" });
     return {
@@ -308,7 +308,8 @@
       e.clips.push(c);
     }
     let y = 0;
-    for (const e of [...byKey.values()].sort((a, b) => a.order - b.order)) {
+    const dir = S.sort === "oldest" ? -1 : 1;           // oldest first reverses the group order too
+    for (const e of [...byKey.values()].sort((a, b) => dir * (a.order - b.order))) {
       const closed = S.collapsed.has(e.key);
       groups.push({ key: e.key, label: e.label, y, count: e.clips.length, closed, clips: e.clips });
       y += GROUP_H;
