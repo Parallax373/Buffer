@@ -497,21 +497,10 @@ App.RecUI = (function () {
     // ZACHOWANIE
     const behBox = h("div", { class: "card2 tgl" });
     const drawBeh = () => {
-      put(behBox,                              // put: the game-sound row is null while sounds are off
+      put(behBox,
         U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), cfg.game_only, (v) => { save({ game_only: v }); drawBeh(); }),
         U.trow(App.t("beh.follow"), App.t("beh.followD"), cfg.follow_game_monitor, (v) => { save({ follow_game_monitor: v }); drawBeh(); }),
         U.trow(App.t("beh.popup"), App.t("beh.popupD"), cfg.popup, (v) => { save({ popup: v }); drawBeh(); }),
-        U.trow(App.t("beh.sounds"), App.t("beh.soundsD"), cfg.sounds, (v) => { save({ sounds: v }); drawBeh(); }),
-        cfg.sounds ? U.trow(App.t("beh.gameSound"), App.t("beh.gameSoundD"), cfg.game_sound, (v) => { save({ game_sound: v }); drawBeh(); }) : null,
-        cfg.sounds ? U.srow(App.t("beh.volume"), U.segc(
-          [["low", App.t("vol.low")], ["normal", App.t("vol.normal")], ["high", App.t("vol.high")]],
-          cfg.sound_level || "normal",
-          async (v) => {
-            await save({ sound_level: v });
-            drawBeh();
-            // hear the new level at once (a recorder that is not running just has nothing to play)
-            api.invoke("recorder_cmd", { cmd: "test-sound" }).catch(() => {});
-          })) : null,
         U.trow(App.t("beh.autostart"), App.t("beh.autostartD"), autostart, (v) => {
           const was = autostart;
           autostart = v;                       // shown at once; the registry write follows
@@ -523,6 +512,24 @@ App.RecUI = (function () {
         }));
     };
     drawBeh();
+
+    // DŹWIĘKI: its own card; the game cue and the volume only exist while sounds are on
+    const soundBox = h("div", { class: "card2 tgl" });
+    const drawSounds = () => {
+      put(soundBox,                            // put: the two rows below are null while sounds are off
+        U.trow(App.t("beh.sounds"), App.t("beh.soundsD"), cfg.sounds, (v) => { save({ sounds: v }); drawSounds(); }),
+        cfg.sounds ? U.trow(App.t("beh.gameSound"), App.t("beh.gameSoundD"), cfg.game_sound, (v) => { save({ game_sound: v }); drawSounds(); }) : null,
+        cfg.sounds ? U.srow(App.t("beh.volume"), U.segc(
+          [["low", App.t("vol.low")], ["normal", App.t("vol.normal")], ["high", App.t("vol.high")]],
+          cfg.sound_level || "normal",
+          async (v) => {
+            await save({ sound_level: v });
+            drawSounds();
+            // hear the new level at once (a recorder that is not running just has nothing to play)
+            api.invoke("recorder_cmd", { cmd: "test-sound" }).catch(() => {});
+          })) : null);
+    };
+    drawSounds();
 
     // ZAAWANSOWANE
     const advBox = h("div");
@@ -550,6 +557,7 @@ App.RecUI = (function () {
         h("div", null, U.cap(App.t("cap.audio")), audioBox, bleed.el),
         h("div", null, U.cap(App.t("cap.keys")), keysBox),
         h("div", null, U.cap(App.t("cap.behavior")), behBox),
+        h("div", null, U.cap(App.t("cap.sounds")), soundBox),
         advBox),
       sum.el));
     paint();

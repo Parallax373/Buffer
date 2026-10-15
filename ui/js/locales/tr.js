@@ -324,6 +324,7 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "cap.audio": "Ses · 3 kanal",
   "cap.keys": "Kısayollar",
   "cap.behavior": "Davranış",
+  "cap.sounds": "Sesler",
   "aud.backup": "+ yedek cihaz",
   "aud.backupTip": "Ana cihazın bağlantısı kesilince devreye girer",
   "aud.bleed": "Mikrofon Game kanalında",

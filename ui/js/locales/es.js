@@ -324,6 +324,7 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "cap.audio": "Audio · 3 pistas",
   "cap.keys": "Atajos",
   "cap.behavior": "Comportamiento",
+  "cap.sounds": "Sonidos",
   "aud.backup": "+ dispositivo de respaldo",
   "aud.backupTip": "Entra en acción si se desconecta el principal",
   "aud.bleed": "El micro está en la pista Game",

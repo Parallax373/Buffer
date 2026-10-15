@@ -324,6 +324,7 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "cap.audio": "Dźwięk · 3 ścieżki",
   "cap.keys": "Skróty",
   "cap.behavior": "Zachowanie",
+  "cap.sounds": "Dźwięki",
   "aud.backup": "+ urządzenie zapasowe",
   "aud.backupTip": "Włączy się, gdy główne zostanie odłączone",
   "aud.bleed": "Mikrofon jest w ścieżce Game",

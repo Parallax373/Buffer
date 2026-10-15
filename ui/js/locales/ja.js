@@ -324,6 +324,7 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "cap.audio": "音声 · 3トラック",
   "cap.keys": "ショートカット",
   "cap.behavior": "動作",
+  "cap.sounds": "サウンド",
   "aud.backup": "+ 予備デバイス",
   "aud.backupTip": "メインのデバイスが切断されたときに引き継ぎます",
   "aud.bleed": "マイクがGameトラックに入っています",

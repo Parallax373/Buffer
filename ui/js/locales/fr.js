@@ -324,6 +324,7 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "cap.audio": "Audio · 3 pistes",
   "cap.keys": "Raccourcis",
   "cap.behavior": "Comportement",
+  "cap.sounds": "Sons",
   "aud.backup": "+ périphérique de secours",
   "aud.backupTip": "Prend le relais si le périphérique principal est déconnecté",
   "aud.bleed": "Le micro est dans la piste Game",

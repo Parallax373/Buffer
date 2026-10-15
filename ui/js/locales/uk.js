@@ -329,6 +329,7 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "cap.audio": "Аудіо · 3 доріжки",
   "cap.keys": "Комбінації",
   "cap.behavior": "Поведінка",
+  "cap.sounds": "Звуки",
   "aud.backup": "+ резервний пристрій",
   "aud.backupTip": "Підхоплює, коли основний пристрій відключено",
   "aud.bleed": "Мікрофон потрапляє в доріжку Game",

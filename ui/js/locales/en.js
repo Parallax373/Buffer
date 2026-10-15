@@ -324,6 +324,7 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "cap.audio": "Audio · 3 tracks",
   "cap.keys": "Shortcuts",
   "cap.behavior": "Behavior",
+  "cap.sounds": "Sounds",
   "aud.backup": "+ backup device",
   "aud.backupTip": "Takes over when the main device is disconnected",
   "aud.bleed": "Mic is in the Game track",

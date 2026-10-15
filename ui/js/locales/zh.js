@@ -324,6 +324,7 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "cap.audio": "音频 · 3 条音轨",
   "cap.keys": "快捷键",
   "cap.behavior": "行为",
+  "cap.sounds": "提示音",
   "aud.backup": "+ 备用设备",
   "aud.backupTip": "主设备断开时自动接管",
   "aud.bleed": "麦克风进入了游戏音轨",

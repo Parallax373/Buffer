@@ -324,6 +324,7 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "cap.audio": "Audio · 3 Spuren",
   "cap.keys": "Kürzel",
   "cap.behavior": "Verhalten",
+  "cap.sounds": "Töne",
   "aud.backup": "+ Reservegerät",
   "aud.backupTip": "Springt ein, wenn das Hauptgerät getrennt wird",
   "aud.bleed": "Mikrofon ist in der Game-Spur",
