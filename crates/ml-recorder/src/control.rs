@@ -121,8 +121,16 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
                         (E::Saved, t("lr.saved"), "Demo Game__long.mp4".into()),
                         (E::SaveFailed, t("lr.start_failed"), t("err.space")),
                     ];
+                    // a long recording has its own start / stop cues, the rest follows the popup's event
+                    let (long_start, long_stop) = (t("lr.started"), t("lr.saved"));
                     for (event, title, sub) in cards {
-                        s.popup(event, title, sub);
+                        if title == long_start {
+                            s.popup_with_sound(event, crate::win::Sound::RecStart, title, sub);
+                        } else if title == long_stop {
+                            s.popup_with_sound(event, crate::win::Sound::RecStop, title, sub);
+                        } else {
+                            s.popup(event, title, sub);
+                        }
                         thread::sleep(std::time::Duration::from_secs(7));
                     }
                 });
