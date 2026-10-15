@@ -582,13 +582,40 @@
   /* Aplikacja: appearance + system. */
   async function renderAppTab(pane) {
     const s = App.P.settings;
-    const [tools, size] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0)]);
+    let [tools, size] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0)]);
     const encoder = ({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync", libx264: App.t("enc.cpu") })[tools?.encoder] || App.t("enc.unknown");
     const cur = App.i18n.current();
     const langRow = U.srow(App.t("lang.label"), h("div", { class: "pathrow" },
       h("select", { class: "field", onChange: (e) => App.i18n.setLang(e.target.value) },
         App.i18n.ORDER.filter((c) => App.locales[c]).map((c) => h("option", { value: c, text: App.locales[c].name, selected: c === cur }))),
       App.locales[cur].ai ? h("span", { class: "muted", style: { fontSize: "12px", whiteSpace: "nowrap" }, title: App.t("lang.aiTip"), text: App.t("lang.ai") }) : null));
+    // Advanced: opened, closed and edited in place. A full Settings.render() here re-asked the system for the tools
+    // and the cache size and rebuilt the whole pane, which showed as a flash of the entire panel.
+    const advBox = h("div");
+    const drawAdv = () => {
+      const wasOpen = !!advBox.querySelector(".card2");   // a rebuild of an open card must not replay its entrance
+      advBox.replaceChildren(...[
+        advHead(App.t("adv.cap"), Settings.adv, () => { Settings.adv = !Settings.adv; drawAdv(); }),
+        Settings.adv ? h("div", { class: "card2 rise pad stackrows", style: wasOpen ? { animation: "none" } : null },
+          h("div", { class: "between" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version}` : "ffmpeg" }),
+            h("span", { class: "mono " + (tools?.ffmpeg_found ? "lime" : "err"), style: { fontSize: "12px" },
+              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? App.t("ffmpeg.bundled") : App.t("ffmpeg.system")) : App.t("ffmpeg.missing") })),
+          h("div", { class: "between" }, h("span", { text: App.t("enc.label") }),
+            h("span", { class: "mono " + (tools?.encoder && tools.encoder !== "libx264" ? "lime" : "warn"), style: { fontSize: "12px" },
+              text: "● " + encoder + (tools?.gpu ? " · " + tools.gpu : "") })),
+          h("div", { class: "between" }, h("span", { text: App.t("cache.label", { size: App.fmtMB(size) }) }),
+            h("button", { class: "btn", text: App.t("cache.clear"), onClick: async () => {
+              await api.invoke("clear_cache").catch(() => {});
+              App.toast(App.t("cache.cleared"), "ok");
+              size = await api.invoke("cache_size").catch(() => 0);
+              drawAdv();
+            } })),
+          U.trow(App.t("hw.dec"), App.t("hw.decD"), s.hw, (on) => { s.hw = on; App.persist(); drawAdv(); }),
+          U.trow(App.t("bgthumb"), App.t("bgthumbD"), s.thumbs, (on) => { s.thumbs = on; App.persist(); drawAdv(); }),
+          U.trow(App.t("audiocache"), App.t("audiocacheD"), s.cache, (on) => { s.cache = on; App.persist(); drawAdv(); })) : null,
+      ].filter(Boolean));
+    };
+    drawAdv();
     pane.append(h("div", { class: "setcol" },
       h("div", { class: "card2" }, langRow),
       h("div", null, U.cap(App.t("theme.cap")), h("div", { class: "themes2" }, THEMES.map(([k, bg]) =>
@@ -604,24 +631,7 @@
         U.trow(App.t("ver.auto"), App.t("ver.autoD"), s.autoUpdate !== false, (on) => { s.autoUpdate = on; App.persist(); Settings.render(); }),
         U.srow(App.t("app.thumb"), U.segc(["S", "M", "L"].map((k) => [k, k]), s.thumb, (k) => { s.thumb = k; App.persist(); Settings.render(); })),
         U.trow(App.t("app.anim"), App.t("app.animD"), s.anim, (on) => { s.anim = on; App.persist(); App.applyTheme(); Settings.render(); })),
-      h("div", null,
-        advHead(App.t("adv.cap"), Settings.adv, () => { Settings.adv = !Settings.adv; Settings.render(); }),
-        Settings.adv ? h("div", { class: "card2 rise pad stackrows" },
-          h("div", { class: "between" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version}` : "ffmpeg" }),
-            h("span", { class: "mono " + (tools?.ffmpeg_found ? "lime" : "err"), style: { fontSize: "12px" },
-              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? App.t("ffmpeg.bundled") : App.t("ffmpeg.system")) : App.t("ffmpeg.missing") })),
-          h("div", { class: "between" }, h("span", { text: App.t("enc.label") }),
-            h("span", { class: "mono " + (tools?.encoder && tools.encoder !== "libx264" ? "lime" : "warn"), style: { fontSize: "12px" },
-              text: "● " + encoder + (tools?.gpu ? " · " + tools.gpu : "") })),
-          h("div", { class: "between" }, h("span", { text: App.t("cache.label", { size: App.fmtMB(size) }) }),
-            h("button", { class: "btn", text: App.t("cache.clear"), onClick: async () => {
-              await api.invoke("clear_cache").catch(() => {});
-              App.toast(App.t("cache.cleared"), "ok");
-              Settings.render();
-            } })),
-          U.trow(App.t("hw.dec"), App.t("hw.decD"), s.hw, (on) => { s.hw = on; App.persist(); Settings.render(); }),
-          U.trow(App.t("bgthumb"), App.t("bgthumbD"), s.thumbs, (on) => { s.thumbs = on; App.persist(); Settings.render(); }),
-          U.trow(App.t("audiocache"), App.t("audiocacheD"), s.cache, (on) => { s.cache = on; App.persist(); Settings.render(); })) : null)));
+      advBox));
   }
 
   // fill the version label once the settings page is on screen
