@@ -786,7 +786,7 @@ body { color: var(--text); }
 .side .capbtn { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; cursor: pointer; border-radius: 6px; }
 .side .capbtn:hover { color: var(--text); }
 .expchip.open { background: var(--panel); color: var(--text); box-shadow: inset 0 0 0 1px var(--acc); }
-.expchip.open::after { content: "B4"; }
+.expchip.open::after { content: "\25B4"; }
 .popover .phead { display: flex; justify-content: space-between; align-items: center; margin: -4px 0 -2px; }
 .popover .phead b { font: 600 11px "Instrument Sans"; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .popover .pclose { width: 26px; height: 26px; border-radius: 13px; color: var(--muted); font-size: 13px; }
