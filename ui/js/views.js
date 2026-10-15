@@ -642,7 +642,7 @@
       h("div", { class: "card2" },
         U.srow(App.t("ver.label"), h("div", { class: "pathrow" },
           h("span", { class: "mono", id: "appVersion", text: "…" }),
-          h("button", { class: "linkbtn", text: App.Update.hasUpdate() ? App.t("ver.install") : App.t("ver.check"),
+          h("button", { class: "linkbtn", id: "updBtn", text: App.Update.hasUpdate() ? App.t("ver.install") : App.t("ver.check"),
             onClick: () => (App.Update.hasUpdate() ? App.Update.install() : App.Update.check(true)) }))),
         U.trow(App.t("ver.auto"), App.t("ver.autoD"), s.autoUpdate !== false, (on) => { s.autoUpdate = on; App.persist(); Settings.render(); }),
         U.srow(App.t("app.thumb"), U.segc(["S", "M", "L"].map((k) => [k, k]), s.thumb, (k) => { s.thumb = k; App.persist(); Settings.render(); })),

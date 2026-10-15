@@ -46,7 +46,9 @@ App.Update = (function () {
     } finally {
       checking = false;
       paint();
-      if (App.S.view === "set" && App.Settings.tab === "app") App.Settings.render();
+      // the button in Settings > App follows the result; rebuilding the whole panel for one label made it flash
+      const btn = App.$("#updBtn");
+      if (btn) btn.textContent = App.t(pending ? "ver.install" : "ver.check");
     }
   }
 
