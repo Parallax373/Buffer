@@ -47,8 +47,9 @@ impl AudioMenu {
     }
 
     fn refresh(&mut self, shared: &session::Shared) {
-        let outs = crate::endpoints::outputs();
         let cur = crate::endpoints::default_output().unwrap_or_default();
+        let hidden = shared.cfg.lock().unwrap().hidden_outputs.clone();
+        let outs: Vec<_> = crate::endpoints::outputs().into_iter().filter(|e| e.id == cur || !hidden.contains(&e.id)).collect();
         let (enabled, preset, mut ids, mic) = {
             let st = shared.eq.lock().unwrap();
             let ids: Vec<(String, String)> = ml_eq::presets::IDS
@@ -542,20 +543,23 @@ fn announce_game(shared: &session::Shared, game: &str) {
 /// Never returns while the recorder runs.
 /// Registers the save, record-everything and output-switch shortcuts, replacing the previous ones when the
 /// settings changed.
-fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String, String)) {
-    let (save, rec, out) = {
+fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String, String, String)) {
+    let (save, rec, out, mic) = {
         let c = shared.cfg.lock().unwrap();
-        (c.hotkey.trim().to_string(), c.record_hotkey.trim().to_string(), c.output_hotkey.trim().to_string())
+        (c.hotkey.trim().to_string(), c.record_hotkey.trim().to_string(), c.output_hotkey.trim().to_string(), c.mic_hotkey.trim().to_string())
     };
-    if *current == (save.clone(), rec.clone(), out.clone()) {
+    if *current == (save.clone(), rec.clone(), out.clone(), mic.clone()) {
         return;
     }
     win::unregister_hotkey_id(1);
     win::unregister_hotkey_id(crate::input::RECORD as i32);
     win::unregister_hotkey_id(crate::input::OUTPUT as i32);
-    if !out.is_empty() {
-        if let Err(e) = win::register_hotkey_id(&out, crate::input::OUTPUT as i32) {
-            session::log(&e);
+    win::unregister_hotkey_id(crate::input::MIC as i32);
+    for (spec, id) in [(&out, crate::input::OUTPUT), (&mic, crate::input::MIC)] {
+        if !spec.is_empty() {
+            if let Err(e) = win::register_hotkey_id(spec, id as i32) {
+                session::log(&e);
+            }
         }
     }
     if !save.is_empty() {
@@ -569,20 +573,63 @@ fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String, String
             session::log(&e);
         }
     }
-    *current = (save, rec, out);
+    *current = (save, rec, out, mic);
 }
 
-/// The output-switch shortcut: next playback device, named in a popup (the EQ follows it by itself).
+/// The output-switch shortcut: next playback device (the popup, the EQ and a kept volume follow through
+/// `check_output`, as for a switch made anywhere else).
 fn switch_output(shared: &session::Shared) {
-    let chosen = shared.cfg.lock().unwrap().output_cycle.clone();
-    match crate::endpoints::cycle_output(&chosen) {
-        Ok(name) => {
-            crate::eq::follow_output(shared);
-            shared.popup_with_sound(Event::Game, crate::win::Sound::Game, crate::lang::t("pop.output"), name)
-        }
-        Err(e) => session::log(&format!("output switch: {e}")),
+    let (chosen, hidden) = {
+        let c = shared.cfg.lock().unwrap();
+        (c.output_cycle.clone(), c.hidden_outputs.clone())
+    };
+    if let Err(e) = crate::endpoints::cycle_output(&chosen, &hidden) {
+        session::log(&format!("output switch: {e}"));
     }
-    audio_changed();
+    check_output(shared);
+}
+
+/// The microphone shortcut: next capture device, named in a popup.
+fn switch_mic(shared: &session::Shared) {
+    match crate::endpoints::cycle_input() {
+        Ok(name) => {
+            if shared.cfg.lock().unwrap().output_popup {
+                shared.popup_with_sound(Event::Game, crate::win::Sound::Game, crate::lang::t("pop.mic"), name);
+            }
+        }
+        Err(e) => session::log(&format!("mic switch: {e}")),
+    }
+}
+
+thread_local! {
+    /// The default output last seen and its volume, to notice a switch made anywhere.
+    static OUT_WATCH: std::cell::RefCell<Option<(String, f32)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Notices a change of the default output, whoever made it (our shortcut, the flyout, the app, Windows, a headset
+/// plugged in): the EQ follows, "keep volume" carries the old device's volume over, the popup names the new one.
+pub fn check_output(shared: &session::Shared) {
+    let Some(d) = crate::mixer::default_dev() else { return };
+    let (keep, popup) = {
+        let c = shared.cfg.lock().unwrap();
+        (c.keep_volume, c.output_popup)
+    };
+    let mut vol = d.volume();
+    let prev = OUT_WATCH.with(|w| w.borrow().clone());
+    if let Some((id, old)) = prev {
+        if id != d.id {
+            if keep {
+                d.set_level(old);
+                vol = old;
+            }
+            crate::eq::follow_output(shared);
+            if popup {
+                shared.popup_with_sound(Event::Game, crate::win::Sound::Game, crate::lang::t("pop.output"), d.name.clone());
+            }
+            audio_changed();
+        }
+    }
+    OUT_WATCH.with(|w| *w.borrow_mut() = Some((d.id.clone(), vol)));
 }
 
 /// The audio icon's picture, in the logo's style: the speaker as seven lime scan-lines, the waves above the level
@@ -781,7 +828,7 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
     }));
 
     // keyboard shortcuts are (re)registered whenever the settings change; an empty one means "none"
-    let mut registered = (String::new(), String::new(), String::new());
+    let mut registered = (String::new(), String::new(), String::new(), String::new());
     apply_hotkeys(&shared, &mut registered);
     crate::input::spawn(shared.clone(), unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() });
 
@@ -802,6 +849,8 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
                 crate::longrec::toggle(&hk_shared);
             } else if id == crate::input::OUTPUT {
                 switch_output(&hk_shared);
+            } else if id == crate::input::MIC {
+                switch_mic(&hk_shared);
             } else {
                 hk_shared.hotkey_hits.fetch_add(1, Ordering::Relaxed);
                 hotkey_save(&hk_shared);
@@ -837,6 +886,8 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
             }
             // a game preset moves with the output when Windows (or another app) switches it
             crate::eq::expire_solo(&tick_shared);
+            // a switch made anywhere: popup, kept volume, EQ (cheap: the default endpoint and its volume)
+            check_output(&tick_shared);
             if tick % 4 == 0 {
                 crate::eq::follow_output(&tick_shared);
                 // the audio icon's picture follows a mute or volume change made elsewhere

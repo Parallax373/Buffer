@@ -76,6 +76,10 @@ fn needs_restart(old: &Config, new: &Config) -> bool {
         c.output_hotkey.clear();
         c.output_cycle.clear();
         c.audio_tray = true;
+        c.keep_volume = false;
+        c.output_popup = true;
+        c.mic_hotkey.clear();
+        c.hidden_outputs.clear();
         c.lang.clear();
         c.theme.clear();
         c.popup = true;

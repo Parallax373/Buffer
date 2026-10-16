@@ -63,6 +63,12 @@ impl Dev {
             let _ = self.vol.SetMute(m, std::ptr::null());
         }
     }
+    /// Sets the volume and leaves mute as it is.
+    pub fn set_level(&self, v: f32) {
+        unsafe {
+            let _ = self.vol.SetMasterVolumeLevelScalar(v.clamp(0.0, 1.0), std::ptr::null());
+        }
+    }
     pub fn peak(&self) -> f32 {
         self.meter.as_ref().and_then(|m| unsafe { m.GetPeakValue().ok() }).unwrap_or(0.0)
     }

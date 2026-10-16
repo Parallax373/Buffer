@@ -70,6 +70,15 @@ pub struct Config {
     pub output_cycle: Vec<String>,
     /// A second tray icon for sound: volume flyout on click, volume on the mouse wheel, the audio menu.
     pub audio_tray: bool,
+    /// When the default output changes (from anywhere), the new one gets the volume the old one had.
+    pub keep_volume: bool,
+    /// A popup naming the new default output whenever it changes (shortcut, flyout, Windows, plugging in).
+    pub output_popup: bool,
+    /// Makes the next microphone the Windows default (all roles); empty = none.
+    pub mic_hotkey: String,
+    /// Output endpoint ids left out of the flyout, the tray menu and the switch cycle (the SoundSwitcher page
+    /// lists them folded away).
+    pub hidden_outputs: Vec<String>,
     pub game: SourceCfg,
     pub chat: SourceCfg,
     pub mic: SourceCfg,
@@ -113,6 +122,10 @@ impl Default for Config {
             output_hotkey: String::new(),
             output_cycle: Vec::new(),
             audio_tray: true,
+            keep_volume: false,
+            output_popup: true,
+            mic_hotkey: String::new(),
+            hidden_outputs: Vec::new(),
             game: SourceCfg::default(),
             chat: SourceCfg::default(),
             mic: SourceCfg::default(),

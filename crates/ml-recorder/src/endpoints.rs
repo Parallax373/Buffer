@@ -75,6 +75,33 @@ pub fn outputs() -> Vec<Endpoint> {
         .collect()
 }
 
+pub fn inputs() -> Vec<Endpoint> {
+    let _ = wasapi::initialize_mta();
+    let Ok(en) = DeviceEnumerator::new() else { return Vec::new() };
+    let Ok(coll) = en.get_device_collection(&Direction::Capture) else { return Vec::new() };
+    coll.into_iter()
+        .flatten()
+        .filter_map(|d| Some(Endpoint { id: d.get_id().ok()?, name: d.get_friendlyname().ok()? }))
+        .collect()
+}
+
+/// Next microphone after the current default, wrapping around; it becomes the default for every role
+/// (communications too: chat apps follow it). Returns its name.
+pub fn cycle_input() -> Result<String, String> {
+    let cur = default_capture().unwrap_or_default();
+    let list = inputs();
+    if list.len() < 2 {
+        return Err("only one microphone".into());
+    }
+    let i = list.iter().position(|e| e.id == cur).map(|i| (i + 1) % list.len()).unwrap_or(0);
+    let w = wide(&list[i].id);
+    with_policy(|obj, vtbl| unsafe {
+        let set: SetDefault = std::mem::transmute(*vtbl.add(13));
+        set(obj, w.as_ptr(), 0).min(set(obj, w.as_ptr(), 1)).min(set(obj, w.as_ptr(), 2))
+    })?;
+    Ok(list[i].name.clone())
+}
+
 pub fn default_output() -> Option<String> {
     let _ = wasapi::initialize_mta();
     let en = DeviceEnumerator::new().ok()?;
@@ -96,7 +123,8 @@ pub fn default_comms_output() -> Option<String> {
 /// Outputs the switch shortcut goes through. With `chosen` set, exactly those that are plugged in; otherwise all
 /// of them, except a separate communications device (a headset's "Chat" half): making that the main output would
 /// send game sound into the chat channel.
-pub fn cycle_list(all: Vec<Endpoint>, cur: &str, comms: Option<&str>, chosen: &[String]) -> Vec<Endpoint> {
+pub fn cycle_list(all: Vec<Endpoint>, cur: &str, comms: Option<&str>, chosen: &[String], hidden: &[String]) -> Vec<Endpoint> {
+    let all: Vec<Endpoint> = all.into_iter().filter(|e| !hidden.contains(&e.id)).collect();
     if !chosen.is_empty() {
         return all.into_iter().filter(|e| chosen.contains(&e.id)).collect();
     }
@@ -106,9 +134,9 @@ pub fn cycle_list(all: Vec<Endpoint>, cur: &str, comms: Option<&str>, chosen: &[
 }
 
 /// Next output after the current default, wrapping around; returns its name.
-pub fn cycle_output(chosen: &[String]) -> Result<String, String> {
+pub fn cycle_output(chosen: &[String], hidden: &[String]) -> Result<String, String> {
     let cur = default_output().unwrap_or_default();
-    let list = cycle_list(outputs(), &cur, default_comms_output().as_deref(), chosen);
+    let list = cycle_list(outputs(), &cur, default_comms_output().as_deref(), chosen, hidden);
     if list.len() < 2 {
         return Err("only one output device".into());
     }
@@ -168,11 +196,13 @@ mod tests {
     fn switch_skips_a_separate_chat_device() {
         let all = vec![ep("monitor"), ep("chat"), ep("game")];
         let ids = |v: Vec<Endpoint>| v.into_iter().map(|e| e.id).collect::<Vec<_>>();
-        assert_eq!(ids(super::cycle_list(all.clone(), "monitor", Some("chat"), &[])), ["monitor", "game"]);
+        assert_eq!(ids(super::cycle_list(all.clone(), "monitor", Some("chat"), &[], &[])), ["monitor", "game"]);
         // chat is also the main output: keep it, the user chose that
-        assert_eq!(ids(super::cycle_list(all.clone(), "chat", Some("chat"), &[])), ["monitor", "chat", "game"]);
+        assert_eq!(ids(super::cycle_list(all.clone(), "chat", Some("chat"), &[], &[])), ["monitor", "chat", "game"]);
         // never shrink to a single device
-        assert_eq!(ids(super::cycle_list(vec![ep("a"), ep("chat")], "a", Some("chat"), &[])), ["a", "chat"]);
+        assert_eq!(ids(super::cycle_list(vec![ep("a"), ep("chat")], "a", Some("chat"), &[], &[])), ["a", "chat"]);
+        // a hidden device is never switched to
+        assert_eq!(ids(super::cycle_list(all.clone(), "monitor", None, &[], &["game".to_string()])), ["monitor", "chat"]);
     }
 
     #[test]
@@ -181,9 +211,9 @@ mod tests {
         let ids = |v: Vec<Endpoint>| v.into_iter().map(|e| e.id).collect::<Vec<_>>();
         let chosen = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         // the user's choice wins, even the chat device, in the Windows order
-        assert_eq!(ids(super::cycle_list(all.clone(), "game", Some("chat"), &chosen(&["game", "chat"]))), ["chat", "game"]);
+        assert_eq!(ids(super::cycle_list(all.clone(), "game", Some("chat"), &chosen(&["game", "chat"]), &[])), ["chat", "game"]);
         // an unplugged choice is skipped, never replaced by another device
-        assert_eq!(ids(super::cycle_list(all, "game", None, &chosen(&["game", "usb"]))), ["game"]);
+        assert_eq!(ids(super::cycle_list(all, "game", None, &chosen(&["game", "usb"]), &[])), ["game"]);
     }
 
     /// On a real machine: `cargo test -p ml-recorder endpoints -- --ignored --nocapture`. Re-applies the current

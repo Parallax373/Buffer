@@ -138,6 +138,15 @@ scan bars, the animated logo, the tokens. Read it before adding a screen.
 - `reload` restarts the capture only when a capture setting changed (`control::needs_restart`); shortcuts, mixer
   and popup options, language and theme apply live.
 - Debug builds: `mix-flyout` (control) opens the flyout for screenshots.
+- `tray::check_output` (every 500 ms tick and right after our own switches) notices a default-output change made
+  anywhere (shortcut, flyout, app, Windows, plugging a headset): the EQ follows, `output_popup` (on) names the new
+  device, `keep_volume` (off) gives it the old device's volume (`Dev::set_level`, mute untouched). The shortcut no
+  longer pops up on its own; this one popup covers every source.
+- `mic_hotkey` cycles the default microphone (every role, communications included) with a "Microphone switched"
+  popup. `hidden_outputs`: left out of the flyout, the tray menu and the cycle (the default always shows); the page
+  folds them under the list ("N hidden", Show).
+- Shortcut keys also take media keys (VolUp/VolDown/VolMute, MediaNext/Prev/Play/Stop): a keyboard key remapped to
+  "volume down" (the user's PgDn) sends VK_VOLUME_DOWN, so the binding is Ctrl+VolDown, as EarTrumpet took it.
 - Flyout layout: centred animated logo + name on top, device cards, a full-width "Open SoundSwitcher" button at
   the bottom. It runs `buffer.exe --view=snd`; the app reads `--view=` at start (`startup_view`) and a second
   launch forwards it to the running window (single-instance → `open-view` event).

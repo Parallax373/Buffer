@@ -69,6 +69,7 @@ static TABLE: &[(&str, [&str; 9])] = &[
     ("menu.open", ["Open editor", "Otwórz edytor", "Editor öffnen", "Abrir editor", "Ouvrir l'éditeur", "Відкрити редактор", "Düzenleyiciyi aç", "エディターを開く", "打开编辑器"]),
     ("pop.output", ["Output switched", "Zmieniono wyjście", "Ausgabe gewechselt", "Salida cambiada", "Sortie changée", "Вихід змінено", "Çıkış değişti", "出力を切り替えました", "已切换输出"]),
     ("mix.open", ["Open SoundSwitcher", "Otwórz SoundSwitcher", "SoundSwitcher öffnen", "Abrir SoundSwitcher", "Ouvrir SoundSwitcher", "Відкрити SoundSwitcher", "SoundSwitcher'ı aç", "SoundSwitcher を開く", "打开 SoundSwitcher"]),
+    ("pop.mic", ["Microphone switched", "Zmieniono mikrofon", "Mikrofon gewechselt", "Micrófono cambiado", "Micro changé", "Мікрофон змінено", "Mikrofon değişti", "マイクを切り替えました", "已切换麦克风"]),
     ("mix.system", ["System sounds", "Dźwięki systemowe", "Systemsounds", "Sonidos del sistema", "Sons système", "Системні звуки", "Sistem sesleri", "システム音", "系统声音"]),
     ("tip.sound", ["{dev} · {n}%", "{dev} · {n}%", "{dev} · {n}%", "{dev} · {n}%", "{dev} · {n}%", "{dev} · {n}%", "{dev} · %{n}", "{dev} · {n}%", "{dev} · {n}%"]),
     ("tip.sound_muted", ["{dev} · muted", "{dev} · wyciszone", "{dev} · stumm", "{dev} · silenciado", "{dev} · muet", "{dev} · без звуку", "{dev} · sessiz", "{dev} · ミュート", "{dev} · 已静音"]),

@@ -207,8 +207,11 @@ pub fn command(shared: &Shared, cmd: &str, arg: &str) -> Value {
             "default": crate::endpoints::default_output(),
         }),
         "eq-output" => match if arg == "next" {
-            let chosen = shared.cfg.lock().unwrap().output_cycle.clone();
-            crate::endpoints::cycle_output(&chosen).map(|_| ())
+            let (chosen, hidden) = {
+                let c = shared.cfg.lock().unwrap();
+                (c.output_cycle.clone(), c.hidden_outputs.clone())
+            };
+            crate::endpoints::cycle_output(&chosen, &hidden).map(|_| ())
         } else {
             crate::endpoints::set_default_output(arg)
         } {

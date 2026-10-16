@@ -119,7 +119,7 @@
       e.preventDefault();
       setV(Math.min(1, Math.max(0, (Math.round(r.v * 20) + d) * 0.05)));
     });
-    r.wrap = h("div", { class: "srow" + (opt.named ? " named" : "") }, mute, opt.named ? h("span", { class: "sname", text: opt.name, title: opt.name }) : null, line, num);
+    r.wrap = h("div", { class: "svrow" + (opt.named ? " named" : "") }, mute, opt.named ? h("span", { class: "sname", text: opt.name, title: opt.name }) : null, line, num);
     rows.set(key, r);
     return r;
   }
@@ -168,8 +168,12 @@
   /** The device cards on the left (rebuilt when a device, the default, the chat device or the cycle changes). */
   function buildList() {
     const cyc = cycle();
+    const hid = hiddenIds();
     for (const k of [...rows.keys()]) if (!k.includes("|")) rows.delete(k);
-    list.replaceChildren(...devs.map((d) => {
+    // a hidden device (never the default) is folded away under the visible ones
+    const shown = devs.filter((d) => d.default || !hid.includes(d.id));
+    const folded = devs.filter((d) => !d.default && hid.includes(d.id));
+    const cards = shown.map((d) => {
       const master = volRow(d.id, { dev: d.id }, { segs: 24, name: d.name });
       const card = h("div", { class: "card2 scard" + (d.id === sel ? " sel" : "") + (d.default ? " def" : ""), tabindex: 0,
         onClick: () => { if (sel !== d.id) { sel = d.id; shapeDetail = ""; buildList(); buildDetail(); } },
@@ -181,11 +185,32 @@
         master.wrap,
         h("div", { class: "sfoot" },
           h("span", { class: "sapps", text: appsText(d) }),
+          d.default ? null : h("button", { class: "chip click", text: App.t("snd.hide"), title: App.t("snd.hideTip"),
+            onClick: (e) => { e.stopPropagation(); setHidden(d.id, true); } }),
           h("button", { class: "chip click" + (cyc.includes(d.id) ? " on" : ""), text: App.t("snd.cycle"), title: App.t("key.cycleTip"),
             onClick: (e) => { e.stopPropagation(); toggleCycle(d.id); } })));
       return card;
-    }));
+    });
+    const fold = folded.length ? h("div", { class: "sfold" + (showHidden ? " open" : "") },
+      h("button", { class: "sfoldbtn", onClick: () => { showHidden = !showHidden; buildList(); } },
+        h("span", { class: "cap", text: App.t("snd.hidden", { n: folded.length }) }), h("span", { class: "chev", text: showHidden ? "▾" : "▸" })),
+      showHidden ? folded.map((d) => h("div", { class: "shid" },
+        h("span", { text: d.name, title: d.name }),
+        h("button", { class: "chip click", text: App.t("snd.show"), onClick: () => setHidden(d.id, false) }))) : null) : null;
+    list.replaceChildren(...cards, ...(fold ? [fold] : []));
     paintValues();
+  }
+
+  const hiddenIds = () => (App.RecUI.cfg() || {}).hidden_outputs || [];
+  let showHidden = false;
+
+  async function setHidden(id, hide) {
+    await App.RecUI.ensureLoaded();
+    const cur = hiddenIds();
+    await App.RecUI.save({ hidden_outputs: hide ? [...new Set([...cur, id])] : cur.filter((x) => x !== id) });
+    if (hide && sel === id) sel = "";
+    shapeList = shapeDetail = "";
+    poll();
   }
 
   /** The apps of the selected device on the right. */
@@ -225,8 +250,9 @@
       if (S.view !== "snd") return;
       if (!r || !r.ok) { noRecorder(); return; }
       devs = r.devices;
-      if (!devs.some((d) => d.id === sel)) sel = (devs.find((d) => d.default) || devs[0] || {}).id || "";
-      const sl = JSON.stringify([sel, cycle(), devs.map((d) => [d.id, d.name, d.default, d.comms, appsText(d)])]);
+      const hid = hiddenIds();
+      if (!devs.some((d) => d.id === sel && (d.default || !hid.includes(d.id)))) sel = (devs.find((d) => d.default) || devs[0] || {}).id || "";
+      const sl = JSON.stringify([sel, cycle(), hid, showHidden, devs.map((d) => [d.id, d.name, d.default, d.comms, appsText(d)])]);
       const sd = JSON.stringify([sel, (devs.find((d) => d.id === sel) || { apps: [] }).apps.map((a) => a.key), devs.find((d) => d.id === sel)?.default]);
       const newList = sl !== shapeList, newDetail = sd !== shapeDetail;
       if (newList) { shapeList = sl; buildList(); }
@@ -251,10 +277,20 @@
       h("span", { class: "toggle" + (cfg.audio_tray !== false ? " on" : ""), onClick: async () => {
         await App.RecUI.save({ audio_tray: cfg.audio_tray === false }); drawOpts();
       } })));
-    const key = App.RecUI.hotkeyField(cfg.output_hotkey || "", async (c) => { await App.RecUI.save({ output_hotkey: c }); drawOpts(); });
-    const keyRow = U.srow(App.t("key.output"), h("div", { class: "pathrow" }, key));
-    keyRow.title = App.t("key.outputTip");
-    opts.replaceChildren(keyRow);
+    const keyRow = (label, tip, field) => {
+      const f = App.RecUI.hotkeyField(cfg[field] || "", async (c) => { await App.RecUI.save({ [field]: c }); drawOpts(); });
+      const row = U.srow(App.t(label), h("div", { class: "pathrow" }, f));
+      row.title = App.t(tip);
+      return row;
+    };
+    const toggle = (label, desc, field, def) => U.trow(App.t(label), App.t(desc), cfg[field] ?? def,
+      async (v) => { await App.RecUI.save({ [field]: v }); drawOpts(); });
+    opts.replaceChildren(
+      keyRow("key.output", "key.outputTip", "output_hotkey"),
+      keyRow("key.mic", "key.micTip", "mic_hotkey"),
+      h("div", { class: "tgl" },
+        toggle("snd.notify", "snd.notifyD", "output_popup", true),
+        toggle("snd.keepVol", "snd.keepVolD", "keep_volume", false)));
   }
 
   document.addEventListener("visibilitychange", () => { if (!document.hidden && timer) poll(); });

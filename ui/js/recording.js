@@ -15,7 +15,7 @@ App.RecUI = (function () {
   const BASE = {
     output_dir: "", per_game_folders: true, post_roll_seconds: 15, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, quality: "std", monitor: 0,
-    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", output_hotkey: "", output_cycle: [], audio_tray: true, popup: true, sounds: true, game_sound: true, sound_level: "normal", extra_games: [], ignore_apps: [],
+    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", output_hotkey: "", output_cycle: [], audio_tray: true, keep_volume: false, output_popup: true, mic_hotkey: "", hidden_outputs: [], popup: true, sounds: true, game_sound: true, sound_level: "normal", extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
   };
   const RES = () => [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, App.t("res.native")]];
@@ -96,7 +96,10 @@ App.RecUI = (function () {
       null for keys a global shortcut can't use. Mirrors `parse_hotkey` in the recorder's win.rs. */
   const NAMED_KEYS = { PageUp: "PgUp", PageDown: "PgDn", Home: "Home", End: "End", Insert: "Ins", Delete: "Del",
     ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Space: "Space", Pause: "Pause",
-    ScrollLock: "ScrollLock", NumpadAdd: "NumAdd", NumpadSubtract: "NumSub", NumpadMultiply: "NumMul", NumpadDivide: "NumDiv" };
+    ScrollLock: "ScrollLock", NumpadAdd: "NumAdd", NumpadSubtract: "NumSub", NumpadMultiply: "NumMul", NumpadDivide: "NumDiv",
+    // media keys, also what a keyboard's remapped key sends (e.g. PgDn set to "volume down", as EarTrumpet took it)
+    AudioVolumeDown: "VolDown", AudioVolumeUp: "VolUp", AudioVolumeMute: "VolMute", MediaTrackNext: "MediaNext",
+    MediaTrackPrevious: "MediaPrev", MediaPlayPause: "MediaPlay", MediaStop: "MediaStop" };
   const keyName = (code) => {
     let m;
     if ((m = /^Key([A-Z])$/.exec(code)) || (m = /^Digit(\d)$/.exec(code))) return m[1];
@@ -145,7 +148,7 @@ App.RecUI = (function () {
           return;
         }
         if (!mods.length) { App.toast(App.t("hk.needMod"), "err"); return; }
-        const k = keyName(e.code);
+        const k = keyName(e.code) || keyName(e.key);   // media keys may come without a code
         if (!k) { App.toast(App.t("hk.allowed"), "err"); return; }
         set("key", [...mods, k].join("+"));
       },

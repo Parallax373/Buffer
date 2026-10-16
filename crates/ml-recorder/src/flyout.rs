@@ -599,7 +599,8 @@ impl Flyout {
 
     /// Re-reads devices and apps and lays the cards out.
     fn refresh(&mut self) {
-        self.devs = mixer::snapshot();
+        let hidden = self.shared.cfg.lock().unwrap().hidden_outputs.clone();
+        self.devs = mixer::snapshot().into_iter().filter(|d| d.default || !hidden.contains(&d.id)).collect();
         self.rows.clear();
         self.cards.clear();
         let mut y = PAD;

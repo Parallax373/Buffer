@@ -961,11 +961,11 @@ body:has(#pop .popover) #updpop .updpopover { right: 372px; }
 .sdhead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; min-height: 30px; }
 .sdhead h2 { margin: 0; font: 600 16px "Instrument Sans"; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sdhead .sp { flex: 1; }
-.sdapps .srow { border-top: 1px solid var(--raised); min-height: 52px; }
+.sdapps .svrow { border-top: 1px solid var(--raised); min-height: 52px; }
 .sempty { padding: 18px 0; }
 
-.srow { display: grid; grid-template-columns: 32px minmax(0, 1fr) 40px; gap: 12px; align-items: center; min-height: 40px; }
-.srow.named { grid-template-columns: 32px 180px minmax(0, 1fr) 40px; gap: 14px; }
+.svrow { display: grid; grid-template-columns: 32px minmax(0, 1fr) 40px; gap: 12px; align-items: center; min-height: 40px; }
+.svrow.named { grid-template-columns: 32px 180px minmax(0, 1fr) 40px; gap: 14px; }
 .sname { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .smute { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; padding: 0; }
 .smute:hover { background: var(--raised); }
@@ -973,13 +973,13 @@ body:has(#pop .popover) #updpop .updpopover { right: 372px; }
 .spk svg { width: 22px; height: 22px; fill: var(--acc); }
 .spk svg .tail { opacity: .25; }
 .spk svg .x { stroke: var(--rec); stroke-width: 2.4; stroke-linecap: round; fill: none; }
-.srow.muted .spk svg { fill: var(--subtle); }
+.svrow.muted .spk svg { fill: var(--subtle); }
 .sappico { width: 22px; height: 22px; display: grid; place-items: center; font: 600 11px "Instrument Sans"; color: var(--muted); position: relative; }
 .sappico img { width: 22px; height: 22px; }
-.srow.muted .sappico img, .srow.muted .sappico b { opacity: .4; }
-.srow.muted .sappico::after { content: ""; position: absolute; right: -4px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%;
+.svrow.muted .sappico img, .svrow.muted .sappico b { opacity: .4; }
+.svrow.muted .sappico::after { content: ""; position: absolute; right: -4px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%;
   background: var(--rec); box-shadow: 0 0 0 2px var(--panel); }
-.srow.muted .sname { color: var(--subtle); }
+.svrow.muted .sname { color: var(--subtle); }
 
 /* the line: track, lime fill, the scan of what plays, the playhead */
 .sline { position: relative; height: 26px; cursor: pointer; touch-action: none; outline: none; }
@@ -992,11 +992,18 @@ body:has(#pop .popover) #updpop .updpopover { right: 372px; }
   box-shadow: 0 0 0 2px var(--panel); transition: width .12s var(--ease), margin .12s var(--ease); }
 .sline:hover b, .sline.drag b, .sline:focus-visible b { width: 4px; margin-left: -2px; }
 .sline:focus-visible .t { box-shadow: 0 0 0 2px var(--acc-dim); }
-.srow.muted .sline .f { background: var(--subtle); }
-.srow.muted .sline b { background: var(--subtle); }
+.svrow.muted .sline .f { background: var(--subtle); }
+.svrow.muted .sline b { background: var(--subtle); }
 .snum { text-align: right; font-size: 13px; color: var(--text); }
 .scard .snum { font-size: 15px; }
-.srow.muted .snum { color: var(--subtle); }
+.svrow.muted .snum { color: var(--subtle); }
 .strayopt { display: flex; align-items: center; }
 #nav .item .lb.two { white-space: pre-line; line-height: 1.15; }
 .sopts .srow .lb { white-space: nowrap; }
+.sfold { display: flex; flex-direction: column; gap: 4px; }
+.sfoldbtn { display: flex; align-items: center; gap: 8px; padding: 6px 4px; color: var(--muted); }
+.sfoldbtn:hover { color: var(--text); }
+.sfoldbtn .chev { font-size: 11px; }
+.shid { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 12px; }
+.shid span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sopts .tgl .trow { padding-left: 0; padding-right: 0; }

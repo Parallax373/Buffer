@@ -138,6 +138,13 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
                     "numsub" => 0x6d,
                     "nummul" => 0x6a,
                     "numdiv" => 0x6f,
+                    "volmute" => 0xad,
+                    "voldown" => 0xae,
+                    "volup" => 0xaf,
+                    "medianext" => 0xb0,
+                    "mediaprev" => 0xb1,
+                    "mediastop" => 0xb2,
+                    "mediaplay" => 0xb3,
                     _ => return None,
                 })
             }
@@ -702,6 +709,7 @@ mod hotkey_tests {
         assert_eq!(parse_hotkey("Ctrl+PgDn"), Some((ctrl, 0x22)));
         assert_eq!(parse_hotkey("Ctrl+PgUp"), Some((ctrl, 0x21)));
         assert_eq!(parse_hotkey("Ctrl+Num5"), Some((ctrl, 0x65)));
+        assert_eq!(parse_hotkey("Ctrl+VolDown"), Some((ctrl, 0xae)), "a key remapped to volume down");
         assert_eq!(parse_hotkey("Ctrl+F13"), Some((ctrl, 0x7c)));
         assert_eq!(parse_hotkey("Ctrl+Q").map(|p| p.1), Some('Q' as u32));
         assert_eq!(parse_hotkey("Ctrl+Nope"), None);
