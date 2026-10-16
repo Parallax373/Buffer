@@ -15,7 +15,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Condvar, Mutex},
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -168,6 +168,53 @@ fn ffmpeg_cmd() -> Command {
     c
 }
 
+/// The extracted audio tracks are only a stream copy of the clip (a second or two to remake), so they are kept under a
+/// cap instead of piling up: over `cap`, the least recently used go first, down to three quarters of it. Thumbnails and
+/// waveforms are tiny and stay. A file touched in the last ten minutes (the clip being edited) is never removed.
+fn prune_audio(root: &Path, cap: u64) -> u64 {
+    let mut files: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
+    if let Ok(rd) = fs::read_dir(root) {
+        for d in rd.flatten() {
+            let Ok(inner) = fs::read_dir(d.path()) else { continue };
+            for e in inner.flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "m4a") {
+                    if let Ok(m) = e.metadata() {
+                        files.push((m.modified().unwrap_or(UNIX_EPOCH), m.len(), p));
+                    }
+                }
+            }
+        }
+    }
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    if total <= cap {
+        return 0;
+    }
+    files.sort_by_key(|f| f.0);
+    let fresh = SystemTime::now().checked_sub(Duration::from_secs(600)).unwrap_or(UNIX_EPOCH);
+    let target = cap / 4 * 3;
+    let mut freed = 0;
+    for (t, len, p) in files {
+        if total <= target {
+            break;
+        }
+        if t > fresh {
+            continue;
+        }
+        if fs::remove_file(&p).is_ok() {
+            total -= len;
+            freed += len;
+        }
+    }
+    freed
+}
+
+const AUDIO_CACHE_CAP: u64 = 200 * 1024 * 1024;
+
+fn prune_cache() {
+    prune_audio(&local_dir().join("cache"), AUDIO_CACHE_CAP);
+}
+
 /// Splits every audio track into its own file (stream copy) so the preview can mix them independently.
 fn prepare_audio_sync(input: &Path) -> Result<Vec<PathBuf>, String> {
     let info = probe::probe(input).map_err(|e| e.to_string())?;
@@ -186,6 +233,14 @@ fn prepare_audio_sync(input: &Path) -> Result<Vec<PathBuf>, String> {
                 let _ = fs::remove_file(f);
             }
             return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+        }
+        prune_cache();
+    } else {
+        // used again: the oldest-used files are the ones that go first
+        for f in &files {
+            if let Ok(h) = fs::File::options().write(true).open(f) {
+                let _ = h.set_modified(SystemTime::now());
+            }
         }
     }
     Ok(files)
@@ -824,6 +879,7 @@ fn main() {
             eq::eq_open_device_selector,
         ])
         .setup(|app| {
+            std::thread::spawn(prune_cache);
             // safety net: if the UI never reports in (a script error), the window still appears
             if let Some(w) = app.get_webview_window("main") {
                 std::thread::spawn(move || {
@@ -835,4 +891,38 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Buffer");
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn audio_cache_drops_the_least_recently_used_and_keeps_thumbnails() {
+        let root = std::env::temp_dir().join(format!("buffer-cache-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let hour = Duration::from_secs(3600);
+        let now = SystemTime::now();
+        // four tracks of 100 bytes, oldest first, plus a thumbnail beside the oldest
+        for (i, age) in [4u64, 3, 2, 1].iter().enumerate() {
+            let dir = root.join(format!("d{i}"));
+            fs::create_dir_all(&dir).unwrap();
+            let f = dir.join("a0.m4a");
+            fs::write(&f, [0u8; 100]).unwrap();
+            fs::File::options().write(true).open(&f).unwrap().set_modified(now - hour * (*age as u32)).unwrap();
+        }
+        fs::write(root.join("d0").join("thumb.jpg"), [0u8; 10]).unwrap();
+        assert_eq!(prune_audio(&root, 1000), 0, "under the cap nothing goes");
+        // cap 250 -> target 187: the three oldest go, the newest stays
+        assert_eq!(prune_audio(&root, 250), 300);
+        assert!(root.join("d3").join("a0.m4a").exists());
+        assert!(!root.join("d0").join("a0.m4a").exists());
+        assert!(root.join("d0").join("thumb.jpg").exists(), "thumbnails stay");
+        // a track used a moment ago is never removed, even over the cap
+        let f = root.join("d3").join("a0.m4a");
+        fs::File::options().write(true).open(&f).unwrap().set_modified(SystemTime::now()).unwrap();
+        assert_eq!(prune_audio(&root, 10), 0);
+        assert!(f.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
 }
