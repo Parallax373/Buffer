@@ -26,20 +26,42 @@
   const vars = (el, o) => { for (const [k, v] of Object.entries(o)) el.style.setProperty(k, v); return el; };
   const css = (l) => `hsl(${l.hue} ${l.sat}% 55%)`;
 
+  /** Line icons per device type (OpenRGB device types), drawn in the page's own style: thin strokes, currentColor. */
+  const ICONS = {
+    all: '<rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/>',
+    0: '<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/><path d="M12 3v5M12 16v5M3 12h5M16 12h5"/>',
+    1: '<rect x="2" y="8" width="20" height="8" rx="1.5"/><rect x="5" y="10.5" width="3" height="3" rx=".5"/><rect x="10.5" y="10.5" width="3" height="3" rx=".5"/><rect x="16" y="10.5" width="3" height="3" rx=".5"/><path d="M6 16v2.5M10 16v2.5M14 16v2.5M18 16v2.5"/>',
+    2: '<rect x="2" y="7" width="20" height="10" rx="2"/><circle cx="9" cy="12" r="3"/><circle cx="16.5" cy="12" r="1.8"/><path d="M4 17v2.5"/>',
+    3: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1.8"/><path d="M12 10.2V4M13.6 13l5.4 3M10.4 13l-5.4 3"/>',
+    4: '<path d="M3 12h18"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01" stroke-width="3.2"/>',
+    5: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 13.5h.01M18 13.5h.01M9 14.5h6" stroke-width="1.8"/>',
+    6: '<rect x="7" y="3" width="10" height="18" rx="5"/><path d="M12 3v6"/>',
+    8: '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/>',
+    12: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14.5" r="3.5"/><circle cx="12" cy="7.5" r="1"/>',
+    14: '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="16.5" cy="12" r="1.6"/><path d="M6 12h6"/>',
+    x: '<path d="M12 3l9 9-9 9-9-9z"/>',
+  };
+  ICONS[7] = ICONS[6]; ICONS[9] = ICONS[8];
+  function icon(kind) {
+    const el = h("span", { class: "ric", "aria-hidden": "true" });
+    el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ICONS[kind] || ICONS.x}</svg>`;
+    return el;
+  }
+
   /** The list: "All devices", then devices grouped by name. An item is { key, name, members, n }. */
   function items() {
     const by = new Map();
     for (const d of st.devs) {
-      if (!by.has(d.name)) by.set(d.name, { key: d.name, name: d.name, vendor: d.vendor, members: [], n: 0, stored: !!d.stored });
+      if (!by.has(d.name)) by.set(d.name, { key: d.name, name: d.name, vendor: d.vendor, kind: d.kind, members: [], n: 0, stored: !!d.stored });
       const g = by.get(d.name);
       g.members.push(d); g.n += Math.max(1, d.led_names.length);
     }
-    const out = [{ key: ALL, name: App.t("rgb.all"), members: st.devs, n: st.devs.length, all: true }];
+    const out = [{ key: ALL, name: App.t("rgb.all"), members: st.devs, n: st.devs.length, all: true, kind: "all" }];
     for (const g of by.values()) {
       out.push(g);
       // a group can be opened to control its devices one by one
       if (g.members.length > 1 && open.has(g.key)) {
-        for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, vendor: g.vendor, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored });
+        for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, vendor: g.vendor, kind: g.kind, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored });
       }
     }
     return out;
@@ -201,7 +223,7 @@
       } }) : null;
       const card = h("button", { class: "rdev" + (x.key === it.key ? " on" : "") + (x.all ? " all" : "") + (x.child ? " child" : ""), onClick: () => { st.sel = x.key; draw(); },
         title: x.stored ? App.t("rgb.keyboardTip") : null },
-        h("span", { class: "rt" }, h("b", { text: x.name }), group ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
+        h("span", { class: "rt" }, icon(x.kind), h("b", { text: x.name }), group ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
           !x.all && !x.child ? h("small", { class: "mono", text: x.vendor }) : null, h("span", { class: "rtag", hidden: true }), chev, sw),
         leds(nLeds(x)));
       cards.set(x.key, card);
@@ -245,7 +267,7 @@
       apply(it, { hue: hh, sat: df ? 90 : 0 }); upd();
     } }), { "--c": c })));
     const detail = h("section", { class: "card2 pad rdetail" },
-      h("div", { class: "rhd" }, h("h2", { text: it.name }),
+      h("div", { class: "rhd" }, icon(it.kind), h("h2", { text: it.name }),
         mk === "mixed" ? h("button", { class: "chip", text: App.t("rgb.unify"), title: App.t("rgb.unifyTip"), onClick: () => { apply(it, { ...itemLook(it) }); draw(); } }) : null,
         mk === "custom" ? h("button", { class: "chip", text: App.t("rgb.likeRest"), title: App.t("rgb.likeRestTip"), onClick: () => { apply(it, { ...lookOf(majorityMember()) }); draw(); } }) : null,
         h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), disabled: !itemDriven(it), onClick: () => giveBack(it) }), power),

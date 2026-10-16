@@ -1191,3 +1191,10 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rlist.still .rdev { animation: none; }
 .rhd .chip[disabled] { opacity: .4; cursor: default; }
 
+.ric { width: 20px; height: 20px; flex: none; color: var(--muted); display: inline-flex; transition: color var(--t) ease; }
+.ric svg { width: 100%; height: 100%; }
+.rdev:hover .ric { color: var(--text2); }
+.rdev.on .ric, .rhd .ric { color: var(--acc); }
+.rdev.idle:not(.on) .ric { color: var(--subtle); }
+.rdev.child .ric { width: 16px; height: 16px; }
+.rhd .ric { width: 22px; height: 22px; }
