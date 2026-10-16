@@ -1308,3 +1308,9 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rbig { gap: 1px; }
 .rbig i { border-radius: 1px; }
 
+.rprof .chip.rp .rx, .rdotm + .rx { display: none; }
+.rpbtn { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--raised); font: 600 16px/1 "Instrument Sans"; padding: 0 0 2px; cursor: pointer; transition: border-color var(--t) ease, background var(--t) ease; }
+.rpbtn.add { color: var(--acc); }
+.rpbtn.del { color: var(--rec); }
+.rpbtn.add:hover { border-color: var(--acc); background: var(--acc-dim); }
+.rpbtn.del:hover { border-color: var(--rec); background: #ff4d4d22; }

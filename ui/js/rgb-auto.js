@@ -37,18 +37,10 @@
       const names = stat.profiles || [], active = stat.profile, dirty = !!stat.profile_dirty, sizes = stat.profile_sizes || {};
       const bar = h("div", { class: "rprof" }, h("span", { class: "cap", text: App.t("rgb.profiles") }));
       const act = (fn) => async () => { try { await fn(); await A.refresh(); await reload(); } catch (e) { toast(e); } };
-      for (const n of names) {
-        const size = sizes[n] || 0, on = n === active;
-        const chip = h("button", { class: "chip rp" + (on ? " on" : "") + (size ? "" : " empty"),
-          title: size ? (on && dirty ? App.t("rgb.profileDirty") + " · " : "") + App.t("rgb.profileSize", { n: size }) : App.t("rgb.profileEmpty"),
-          onClick: act(() => inv("rgb_profile", { action: "load", name: n })) }, h("span", { text: n }));
-        if (on && dirty) chip.append(h("i", { class: "rdotm", "aria-hidden": "true" }));
-        if (on) chip.append(h("span", { class: "rx", role: "button", "aria-label": App.t("rgb.profileDel"), title: App.t("rgb.profileDel"), text: "×",
-          onClick: (e) => { e.stopPropagation(); act(() => inv("rgb_profile", { action: "delete", name: n }))(); } }));
-        bar.append(chip);
-      }
-      if (active && dirty) bar.append(h("button", { class: "chip rp hot", text: App.t("rgb.profileSaveChanges"), onClick: act(() => inv("rgb_profile", { action: "save", name: active })) }));
-      const add = h("button", { class: "chip rp add", text: "+ " + App.t("rgb.profileAdd"), title: App.t("rgb.profileNew") });
+      // two small buttons that always sit right behind the active profile: × deletes it (red), + makes a new one (green)
+      const del = (n) => h("button", { class: "rpbtn del", text: "×", "aria-label": App.t("rgb.profileDel"), title: App.t("rgb.profileDel"),
+        onClick: act(() => inv("rgb_profile", { action: "delete", name: n })) });
+      const add = h("button", { class: "rpbtn add", text: "+", "aria-label": App.t("rgb.profileNew"), title: App.t("rgb.profileNew") });
       add.onclick = () => {
         const inp = h("input", { class: "field rpname", placeholder: App.t("rgb.profileName"), maxlength: 40, spellcheck: false });
         const done = async () => {
@@ -66,10 +58,23 @@
         add.replaceWith(inp);
         inp.focus();
       };
-      bar.append(add);
+      let placed = false;
+      for (const n of names) {
+        const size = sizes[n] || 0, on = n === active;
+        const chip = h("button", { class: "chip rp" + (on ? " on" : "") + (size ? "" : " empty"),
+          title: size ? (on && dirty ? App.t("rgb.profileDirty") + " · " : "") + App.t("rgb.profileSize", { n: size }) : App.t("rgb.profileEmpty"),
+          onClick: act(() => inv("rgb_profile", { action: "load", name: n })) }, h("span", { text: n }));
+        if (on && dirty) chip.append(h("i", { class: "rdotm", "aria-hidden": "true" }));
+        bar.append(chip);
+        if (on) {
+          if (dirty) bar.append(h("button", { class: "chip rp hot", text: App.t("rgb.profileSaveChanges"), onClick: act(() => inv("rgb_profile", { action: "save", name: n })) }));
+          bar.append(del(n), add);
+          placed = true;
+        }
+      }
+      if (!placed) bar.append(add);   // no active profile: + goes to the end
       return bar;
     },
-
     /** The bar under the panel: when the lights go out by themselves, and a pop-up for the profile a game switches to. */
     bar(reload, devs) {
       const p = stat.power || { lock: true, idle_min: 0, schedule: false, from: 1380, to: 420 };

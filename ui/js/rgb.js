@@ -135,7 +135,7 @@
   function titleBox(it) {
     const box = h("span", { class: "rtitle" + (it.all ? "" : " tedit"), title: it.all ? null : App.t("rgb.rename") });
     const show = () => {
-      box.replaceChildren(h("h2", { text: it.label || it.name }), it.all ? null : App.pencil());
+      box.replaceChildren(...[h("h2", { text: it.label || it.name }), it.all ? null : App.pencil()].filter(Boolean));   // replaceChildren turns null into the text "null"
       box.onclick = it.all ? null : edit;
     };
     const edit = () => {
