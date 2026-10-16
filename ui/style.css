@@ -1223,4 +1223,7 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rauto summary::-webkit-details-marker { display: none; }
 .rauto[open] summary { margin-bottom: 8px; }
 .agames { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
-.rmiss { align-self: flex-start; margin: 2px 4px 8px; font-size: 12px; }
+.rmiss { align-self: flex-start; margin: 2px 4px 8px; font-size: 12px; }.rrow > .seg { align-self: flex-start; }
+
+.arow { flex-wrap: wrap; row-gap: 6px; }
+.rplus { align-self: flex-start; }

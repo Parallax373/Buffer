@@ -146,6 +146,22 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
   (lists devices, drives the headset briefly, checks restore; needs the task installed or a server running) and
   `cargo test -p ml-rgb install_and_uninstall -- --ignored` (UAC click, changes the machine).
 
+- **Simple page features (2026-10-16):** colour wheel + hex (HSV model: no saturation is white), effects Static / Breathing / Rainbow /
+  Wave rendered by the recorder (no positions needed), optional second colour (breathing, wave, device effects) and direction,
+  the device's OWN OpenRGB modes (`Look.native`; the recorder edits the mode bytes with `proto::edit_mode` and sends UPDATE_MODE,
+  throttled 0.6 s, 2 s for modes with the AUTOMATIC_SAVE flag), zone length for resizable zones (`rgb-zone`, remembered in
+  `rgb.json: zones` and re-applied at connect), profiles (`profiles`, `active_profile`) with per-game binding (`game_profiles`,
+  uses the EQ game detection `eq_game_stem`; the profile is an overlay, never saved over the scene), automation (`ml_rgb::power`:
+  lock via LogonUI.exe, idle via GetLastInputInfo, schedule; lights out = every device black, the keyboard too), resume after
+  sleep (a loop gap > 25 s restarts the server), conflict status (`away.rs` process list: SignalRGB, iCUE, Armoury Crate, G HUB,
+  Razer, NZXT CAM, MSI Center, SteelSeries GG ...), "Missing something?" opens a pre-filled GitHub issue (`open_issue_page`).
+- Device facts measured on the dev PC: the 4 RAM sticks have 9 own modes and ALL of them have the AUTOMATIC_SAVE flag (every
+  change is written to the stick's memory, so a native effect there survives boot and every update wears flash: do not run tests
+  that apply native modes to RAM); the GPU has Breathing / Spectrum Cycle / Strobe (no save); headset, board and keyboard have
+  Direct only. No zone is resizable on this PC (zone length is covered by a mocked browser test only).
+- Before Buffer starts: devices show their own saved mode (RAM: its last saved mode). The recorder autostarts at login and the
+  devices are under control about 5 s after it starts. After the window closes nothing changes; if the recorder quits,
+  the devices go back to the mode they had.
 ## Design language
 `DESIGN.md` (repo root) describes the look every UI follows, native windows included: lime "now" / faded "trail",
 scan bars, the animated logo, the tokens. Read it before adding a screen.
