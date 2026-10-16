@@ -1219,7 +1219,11 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .arow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
 .arow > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asched { display: inline-flex; align-items: center; gap: 8px; }
-.rauto summary { cursor: pointer; list-style: none; padding: 2px 0; }
+.rauto summary { cursor: pointer; list-style: none; padding: 2px 0; display: flex; align-items: center; gap: 8px; }
+.rauto { transition: border-color var(--t) ease; }
+.rauto:hover { border-color: var(--muted); }
+.rauto[open] .achev { transform: rotate(90deg); color: var(--acc); }
+.rauto .achev { margin-block: -6px; }
 .rauto summary::-webkit-details-marker { display: none; }
 .rauto[open] summary { margin-bottom: 8px; }
 .agames { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
@@ -1243,3 +1247,9 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rhid { display: flex; flex-direction: column; gap: 6px; }
 .rhid .rmiss { margin-bottom: 0; }
 
+.rtitle { display: inline-flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.rtitle h2 { margin: 0; font: 600 16px "Instrument Sans"; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rpen { padding: 4px 7px; border-radius: 7px; color: var(--muted); font-size: 13px; line-height: 1; transition: color var(--t) ease, background var(--t) ease; }
+.rpen:hover { color: var(--text); background: var(--raised); }
+.rname { width: min(320px, 100%); font: 600 15px "Instrument Sans"; padding: 5px 10px; }
+.rhid .rdev { animation: none; }

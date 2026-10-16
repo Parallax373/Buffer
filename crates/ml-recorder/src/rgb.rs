@@ -45,6 +45,9 @@ struct File {
     game_profiles: BTreeMap<String, String>,
     #[serde(default)]
     power: ml_rgb::power::Power,
+    /// names the user gave to devices (key "name#n" -> name); the key stays the identity, this is only what is shown
+    #[serde(default)]
+    names: BTreeMap<String, String>,
     /// devices the user hid (keys "name#n"): not shown, not driven, not part of "All devices"
     #[serde(default)]
     hidden: BTreeSet<String>,
@@ -227,7 +230,9 @@ impl Hub {
             .map(|(i, d)| {
                 let mut v = serde_json::to_value(d).unwrap_or_default();
                 v["index"] = json!(i);
-                v["hidden"] = json!(st.file.hidden.contains(&key(&st.devices, i)));
+                let k = key(&st.devices, i);
+                v["hidden"] = json!(st.file.hidden.contains(&k));
+                v["label"] = json!(st.file.names.get(&k));
                 v
             })
             .collect();
@@ -236,7 +241,7 @@ impl Hub {
             // not an OpenRGB device: shown to the page as one so it gets a card and a look like the others
             list.push(json!({
                 "index": KB_INDEX, "kind": 5, "name": KB_NAME, "vendor": "Dark Project", "description": "", "location": "",
-                "active_mode": 0, "modes": [], "zones": [], "stored": true, "colors": [],
+                "active_mode": 0, "modes": [], "zones": [], "stored": true, "colors": [], "label": st.file.names.get(&format!("{KB_NAME}#0")),
                 // one LED per key (the keyboard's own key table), so the page draws a keyboard and not a single bar
                 "led_names": ml_rgb::darkproject::MIDNIGHT_87_ANSI_LEDS.iter().filter(|n| !n.is_empty()).collect::<Vec<_>>(),
             }));
@@ -309,6 +314,21 @@ impl Hub {
                         f.game_profiles.remove(&stem);
                     } else {
                         f.game_profiles.insert(stem, name);
+                    }
+                })
+            }
+            "rgb-rename" => {
+                // `rgb-rename <name#n><TAB><new name>`; an empty name takes the original one back
+                let (k, name) = arg.split_once('\t').unwrap_or((arg, ""));
+                let (k, name) = (k.trim().to_string(), name.trim().chars().take(40).collect::<String>());
+                if k.is_empty() {
+                    return err("usage: rgb-rename <name#n><TAB><new name>");
+                }
+                self.edit(|f| {
+                    if name.is_empty() {
+                        f.names.remove(&k);
+                    } else {
+                        f.names.insert(k, name);
                     }
                 })
             }

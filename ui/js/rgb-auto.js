@@ -91,7 +91,7 @@
           }) : [h("div", { class: "faint", text: App.t(profs.length ? "rgb.gamesNone" : "rgb.gamesNoProfile") })]));
       };
       const box = h("details", { class: "card2 pad rauto" },
-        h("summary", { class: "cap", text: App.t("rgb.auto") }),
+        h("summary", { class: "asum", title: App.t("rgb.autoOpen") }, h("span", { class: "cap", text: App.t("rgb.auto") }), h("span", { class: "rchev achev", "aria-hidden": "true", text: "›" })),
         h("div", { class: "cap sub", text: App.t("rgb.autoLights"), title: App.t("rgb.autoTip") }),
         row(App.t("rgb.autoLock"), tog(p.lock, (v) => save({ lock: v }))),
         row(App.t("rgb.autoIdle"), idle),

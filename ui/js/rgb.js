@@ -12,7 +12,7 @@
   /** OpenRGB mode flags */
   const F = { SPEED: 1, DIR: 2, BRIGHT: 16, PERLED: 32, COLORS: 64, AUTOSAVE: 512 };
 
-  let page = null, st = { devs: [], sel: ALL }, mode = "simple", autoEl = null, showHidden = false;
+  let page = null, st = { devs: [], sel: ALL }, mode = "simple", autoEl = null, hidEl = null, showHidden = false;
   const sendTimers = new Map();
   /** per device (name#nth): { hue, sat, br, on, fx, speed, c2, rev, native }, loaded from the scene the recorder keeps and saved on every change */
   const look = new Map();
@@ -57,17 +57,17 @@
   function items() {
     const by = new Map();
     for (const d of st.devs.filter((x) => !x.hidden)) {
-      if (!by.has(d.name)) by.set(d.name, { key: d.name, name: d.name, vendor: d.vendor, kind: d.kind, members: [], n: 0, stored: !!d.stored, hid: !!d.hidden });
+      if (!by.has(d.name)) by.set(d.name, { key: d.name, name: d.name, vendor: d.vendor, kind: d.kind, members: [], n: 0, stored: !!d.stored, hid: !!d.hidden, label: d.label || d.name });
       const g = by.get(d.name);
       g.members.push(d); g.n += Math.max(1, d.led_names.length);
     }
     const shown = st.devs.filter((x) => !x.hidden);
-    const out = [{ key: ALL, name: App.t("rgb.all"), members: shown, n: shown.length, all: true, kind: "all" }];
+    const out = [{ key: ALL, name: App.t("rgb.all"), label: App.t("rgb.all"), members: shown, n: shown.length, all: true, kind: "all" }];
     for (const g of by.values()) {
       out.push(g);
       // a group can be opened to control its devices one by one
       if (g.members.length > 1 && open.has(g.key)) {
-        for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, vendor: g.vendor, kind: g.kind, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored, hid: !!m.hidden });
+        for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, label: m.label && m.label !== g.label ? m.label : `${g.label} ${m.nth + 1}`, vendor: g.vendor, kind: g.kind, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored, hid: !!m.hidden });
       }
     }
     return out;
@@ -122,6 +122,38 @@
     }
     if (on) st.sel = ALL;
     draw();
+  }
+
+  /** Renames a device (a group: every device in it; "" takes the original name back). The key stays the identity. */
+  async function rename(it, name) {
+    for (const m of it.members) {
+      try { await api.invoke("rgb_rename", { key: lkey(m), name }); m.label = name || null; } catch (e) { toast(e); }
+    }
+    draw();
+  }
+  /** A pencil button drawn in the page's line style (the text glyph renders as a coloured emoji on some systems). */
+  function pen(onClick) {
+    const b = h("button", { class: "rpen", "aria-label": App.t("rgb.rename"), title: App.t("rgb.rename"), onClick });
+    b.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>';
+    return b;
+  }
+  /** The title of the detail panel; a pencil turns it into a field. */
+  function titleBox(it) {
+    const box = h("span", { class: "rtitle" });
+    const show = () => {
+      box.replaceChildren(h("h2", { text: it.label || it.name }),
+        it.all ? null : pen(edit));
+    };
+    const edit = () => {
+      const inp = h("input", { class: "field rname", value: it.label || it.name, maxlength: 40, spellcheck: false, "aria-label": App.t("rgb.rename") });
+      let done = false;
+      const commit = (save) => { if (done) return; done = true; if (save) rename(it, inp.value.trim() === it.name ? "" : inp.value.trim()); else show(); };
+      inp.onkeydown = (e) => { if (e.key === "Enter") commit(true); if (e.key === "Escape") commit(false); };
+      inp.onblur = () => commit(true);
+      box.replaceChildren(inp); inp.focus(); inp.select();
+    };
+    show();
+    return box;
   }
 
   function leds(n) {
@@ -262,7 +294,7 @@
       } }) : null;
       const card = h("button", { class: "rdev" + (x.key === it.key ? " on" : "") + (x.all ? " all" : "") + (x.child ? " child" : "") + (x.hid ? " hid" : ""), onClick: () => { st.sel = x.key; draw(); },
         title: x.stored ? App.t("rgb.keyboardTip") : null },
-        h("span", { class: "rt" }, icon(x.kind), h("b", { text: x.name }), group ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
+        h("span", { class: "rt" }, icon(x.kind), h("b", { text: x.label || x.name }), group ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
           !x.all && !x.child ? h("small", { class: "mono", text: x.vendor }) : null, h("span", { class: "rtag", hidden: true }), chev,
           x.hid ? h("span", { class: "chip rshow", role: "button", text: App.t("rgb.unhide"), onClick: (e) => { e.stopPropagation(); hide(x, false); } }) : sw),
         x.hid ? null : leds(nLeds(x)));   // a hidden device is one compact line
@@ -345,7 +377,8 @@
       apply(it, v); upd();
     } }), { "--c": c })));
     const detail = h("section", { class: "card2 pad rdetail" },
-      h("div", { class: "rhd" }, icon(it.kind), h("h2", { text: it.name }),
+      h("div", { class: "rhd" }, icon(it.kind), titleBox(it),
+        it.stored ? h("button", { class: "chip", text: App.t("rgb.configurator") + " ↗", title: App.t("rgb.configuratorTip"), onClick: () => api.invoke("open_issue_page", { url: "https://software.darkproject.eu/" }).catch(toast) }) : null,
         mk === "mixed" ? h("button", { class: "chip", text: App.t("rgb.unify"), title: App.t("rgb.unifyTip"), onClick: () => { apply(it, { ...itemLook(it) }); draw(); } }) : null,
         mk === "custom" ? h("button", { class: "chip", text: App.t("rgb.likeRest"), title: App.t("rgb.likeRestTip"), onClick: () => { apply(it, { ...lookOf(majorityMember()) }); draw(); } }) : null,
         !it.all && !it.stored ? h("button", { class: "chip", text: it.hid ? App.t("rgb.unhide") : App.t("rgb.hide"), title: App.t("rgb.hideTip"), onClick: () => hide(it, !it.hid) }) : null,
@@ -366,12 +399,16 @@
     if (force || !autoEl) autoEl = App.RGBAuto.card(reload);
     // hidden devices live only here, under their own heading: one compact row each, with a way back
     const hiddenDevs = st.devs.filter((x) => x.hidden);
-    const hidBox = hiddenDevs.length ? h("div", { class: "rhid" },
-      h("button", { class: "linkbtn rmiss", text: App.t("rgb.hidden", { n: hiddenDevs.length }) + (showHidden ? " ▴" : " ▾"), onClick: () => { showHidden = !showHidden; draw(); } }),
-      showHidden ? hiddenDevs.map((d) => h("div", { class: "rdev hid" },
-        h("span", { class: "rt" }, icon(d.kind), h("b", { text: d.name + (hiddenDevs.filter((x) => x.name === d.name).length > 1 ? " " + (d.nth + 1) : "") }),
-          h("span", { class: "chip rshow", role: "button", text: App.t("rgb.unhide"), onClick: () => hide({ members: [d] }, false) })))) : null) : null;
-    const left = h("div", { class: "rleft" }, list, hidBox, autoEl, App.RGBAuto.missingLink(st.devs));
+    // the hidden section is kept between redraws (rebuilt only when what it shows changes), so a click elsewhere does not touch it
+    const hidSig = JSON.stringify([hiddenDevs.map((d) => [d.name, d.nth, d.label]), showHidden]);
+    if (force || !hidEl || hidEl.sig !== hidSig) {
+      hidEl = { sig: hidSig, el: !hiddenDevs.length ? null : h("div", { class: "rhid" },
+        h("button", { class: "linkbtn rmiss", text: App.t("rgb.hidden", { n: hiddenDevs.length }) + (showHidden ? " ▴" : " ▾"), onClick: () => { showHidden = !showHidden; draw(); } }),
+        showHidden ? hiddenDevs.map((d) => h("div", { class: "rdev hid" },
+          h("span", { class: "rt" }, icon(d.kind), h("b", { text: (d.label || d.name) + (!d.label && hiddenDevs.filter((x) => x.name === d.name).length > 1 ? " " + (d.nth + 1) : "") }),
+            h("span", { class: "chip rshow", role: "button", text: App.t("rgb.unhide"), onClick: () => hide({ members: [d] }, false) })))) : null) };
+    }
+    const left = h("div", { class: "rleft" }, list, hidEl.el, autoEl, App.RGBAuto.missingLink(st.devs));
     // redrawing in place (a click on the list must not replay the cards' entrance or lose the scroll position)
     const body = force ? null : page.querySelector(".rgb > .rbody");
     if (body) {

@@ -129,3 +129,9 @@ pub async fn rgb_game_profile(game: String, profile: String) -> Result<(), Strin
 pub async fn rgb_hide(key: String, on: bool) -> Result<(), String> {
     send(format!("rgb-hide {} {key}", if on { "on" } else { "off" })).await.map(|_| ())
 }
+
+/// Gives a device a name of the user's own (`key` = "name#n"); an empty name takes the original back.
+#[tauri::command]
+pub async fn rgb_rename(key: String, name: String) -> Result<(), String> {
+    send(format!("rgb-rename {key}\t{name}")).await.map(|_| ())
+}

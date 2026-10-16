@@ -484,11 +484,13 @@ fn rename_clip(path: String, title: String) -> Result<String, String> {
     Ok(dst.to_string_lossy().into_owned())
 }
 
-/// Opens the new-issue page of Buffer's GitHub project in the browser (the "Missing something?" button). Only that page.
+/// Opens one of a few known pages in the browser: Buffer's new-issue page ("Missing something?") and the web
+/// configurators of keyboard makers (a link on the keyboard's card). Nothing else.
 #[tauri::command]
 fn open_issue_page(url: String) -> Result<(), String> {
-    if !url.starts_with("https://github.com/Wheatlay/Buffer/issues/new") {
-        return Err("only the issue page can be opened".into());
+    const ALLOWED: [&str; 2] = ["https://github.com/Wheatlay/Buffer/issues/new", "https://software.darkproject.eu/"];
+    if !ALLOWED.iter().any(|p| url.starts_with(p)) {
+        return Err("this page cannot be opened from Buffer".into());
     }
     // rundll32 hands the address straight to the default browser (explorer.exe would open a folder window)
     Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn().map(|_| ()).map_err(|e| e.to_string())
@@ -901,6 +903,7 @@ fn main() {
             rgb::rgb_unlook,
             rgb::rgb_zone,
             rgb::rgb_hide,
+            rgb::rgb_rename,
             rgb::rgb_power,
             rgb::rgb_profile,
             rgb::rgb_game_profile,
