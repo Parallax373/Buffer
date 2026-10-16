@@ -37,7 +37,7 @@
       const names = stat.profiles || [], active = stat.profile, dirty = !!stat.profile_dirty, sizes = stat.profile_sizes || {};
       const bar = h("div", { class: "rprof" }, h("span", { class: "cap", text: App.t("rgb.profiles") }));
       const act = (fn) => async () => { try { await fn(); await A.refresh(); await reload(); } catch (e) { toast(e); } };
-      // two small buttons that always sit right behind the active profile: × deletes it (red), + makes a new one (green)
+      // two small buttons that always sit right behind the list of profiles: × deletes the active one (red), + makes a new one (green)
       const del = (n) => h("button", { class: "rpbtn del", text: "×", "aria-label": App.t("rgb.profileDel"), title: App.t("rgb.profileDel"),
         onClick: act(() => inv("rgb_profile", { action: "delete", name: n })) });
       const add = h("button", { class: "rpbtn add", text: "+", "aria-label": App.t("rgb.profileNew"), title: App.t("rgb.profileNew") });
@@ -58,7 +58,7 @@
         add.replaceWith(inp);
         inp.focus();
       };
-      let placed = false;
+      let placed = null;
       for (const n of names) {
         const size = sizes[n] || 0, on = n === active;
         const chip = h("button", { class: "chip rp" + (on ? " on" : "") + (size ? "" : " empty"),
@@ -66,13 +66,12 @@
           onClick: act(() => inv("rgb_profile", { action: "load", name: n })) }, h("span", { text: n }));
         if (on && dirty) chip.append(h("i", { class: "rdotm", "aria-hidden": "true" }));
         bar.append(chip);
-        if (on) {
-          if (dirty) bar.append(h("button", { class: "chip rp hot", text: App.t("rgb.profileSaveChanges"), onClick: act(() => inv("rgb_profile", { action: "save", name: n })) }));
-          bar.append(del(n), add);
-          placed = true;
-        }
+        if (on && dirty) bar.append(h("button", { class: "chip rp hot", text: App.t("rgb.profileSaveChanges"), onClick: act(() => inv("rgb_profile", { action: "save", name: n })) }));
+        if (on) placed = n;
       }
-      if (!placed) bar.append(add);   // no active profile: + goes to the end
+      // × and + stay in the same place, right behind the whole list of profiles (× only while a profile is active)
+      if (placed) bar.append(del(placed));
+      bar.append(add);
       return bar;
     },
     /** The bar under the panel: when the lights go out by themselves, and a pop-up for the profile a game switches to. */
