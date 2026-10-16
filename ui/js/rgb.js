@@ -1,26 +1,30 @@
 "use strict";
 /* RGB page: lights of the PC's devices through OpenRGB (downloaded only when the user enables it, see rgb.rs).
    Simple view: "All devices" first, then one card per device (same-named devices, like four RAM sticks, are one card);
-   colour, brightness and effect of the picked card on the right. Design: DESIGN.md. */
+   colour, brightness and effect of the picked card on the right. Profiles, automation and conflicts: rgb-auto.js.
+   Design: DESIGN.md. */
 
 (function () {
   const { h, S, api } = App;
   const SWATCHES = ["#c6f432", "#ff4d4d", "#ffb454", "#2ee6a8", "#38b6ff", "#8a6bff", "#ff5fd2", "#ffffff"];
   const FX = ["static", "breathing", "rainbow", "wave"];
   const ALL = "*";
+  /** OpenRGB mode flags */
+  const F = { SPEED: 1, DIR: 2, BRIGHT: 16, PERLED: 32, COLORS: 64, AUTOSAVE: 512 };
 
-  let page = null, st = { devs: [], sel: ALL }, mode = "simple";
+  let page = null, st = { devs: [], sel: ALL }, mode = "simple", autoEl = null;
   const sendTimers = new Map();
-  /** per device (name#nth): { hue, sat, br, on, fx, speed }, loaded from the scene the recorder keeps and saved on every change */
+  /** per device (name#nth): { hue, sat, br, on, fx, speed, c2, rev, native }, loaded from the scene the recorder keeps and saved on every change */
   const look = new Map();
   const lkey = (d) => d.name + "#" + d.nth;
   /** keys of devices Buffer drives; the others still show their own lighting, so their cards stay dim */
   const driven = new Set();
-  const fresh = () => ({ hue: 75, sat: 90, br: 100, on: true, fx: "static", speed: 1 });
+  const fresh = () => ({ hue: 75, sat: 90, br: 100, on: true, fx: "static", speed: 1, c2: null, rev: false, native: null });
   const lookOf = (d) => {
     if (!look.has(lkey(d))) look.set(lkey(d), fresh());
     return look.get(lkey(d));
   };
+  const toast = (e) => App.toast(App.t("rgb.err", { err: e }), "err");
 
   /** el with CSS custom properties (Object.assign(style) cannot set those) */
   const vars = (el, o) => { for (const [k, v] of Object.entries(o)) el.style.setProperty(k, v); return el; };
@@ -69,8 +73,7 @@
   }
   /** names of the groups that are opened */
   const open = new Set();
-  const current = () => items().find((i) => i.key === st.sel) || items()[0];
-  /** what an item shows: its first driven member's look (or a fresh one); for "All" the first member's */
+  /** what an item shows: its first driven member's look (or a fresh one); for "All" the one most devices share */
   const itemLook = (it) => lookOf(it.all ? majorityMember() : it.members.find((m) => driven.has(lkey(m))) || it.members[0]);
   /** the device whose look most driven devices share (what "All devices" shows) */
   function majorityMember() {
@@ -85,8 +88,7 @@
     driven.add(lkey(d));
     clearTimeout(sendTimers.get(d.index));
     sendTimers.set(d.index, setTimeout(() => {
-      api.invoke("rgb_look", { look: { name: d.name, nth: d.nth, ...lookOf(d) } })
-        .catch((e) => App.toast(App.t("rgb.err", { err: e }), "err"));
+      api.invoke("rgb_look", { look: { name: d.name, nth: d.nth, ...lookOf(d) } }).catch(toast);
     }, 40));
   }
 
@@ -106,7 +108,7 @@
     for (const m of it.members) {
       if (!driven.has(lkey(m))) continue;
       driven.delete(lkey(m)); look.delete(lkey(m));
-      await api.invoke("rgb_unlook", { name: m.name, nth: m.nth }).catch((e) => App.toast(App.t("rgb.err", { err: e }), "err"));
+      await api.invoke("rgb_unlook", { name: m.name, nth: m.nth }).catch(toast);
     }
     draw();
   }
@@ -118,7 +120,7 @@
   const nLeds = (it) => Math.min(24, Math.max(2, it.all ? 12 : it.n));
 
   /** how a driven device differs from the rest: the look signature, and the one most devices share */
-  const sigOf = (m) => { const l = lookOf(m); return `${l.hue}|${l.sat}|${l.br}|${l.on}|${l.fx}|${l.speed}`; };
+  const sigOf = (m) => { const l = lookOf(m); return [l.hue, l.sat, l.br, l.on, l.fx, l.speed, l.c2, l.rev, l.native].join("|"); };
   function reference() {
     const n = new Map();
     for (const d of st.devs) if (driven.has(lkey(d))) n.set(sigOf(d), (n.get(sigOf(d)) || 0) + 1);
@@ -157,29 +159,44 @@
     if (b && !busy) b.querySelector("button")?.setAttribute("title", App.t("rgb.tip"));
   }
 
+  /** The device list from the recorder, with each device's number among the ones of the same name. */
+  function adoptDevices(list) {
+    st.devs = list;
+    const seen = new Map();
+    for (const d of st.devs) { d.nth = seen.get(d.name) || 0; seen.set(d.name, d.nth + 1); }
+  }
+  /** The saved scene: which view, and the looks the Simple page drives. */
+  function adoptScene(sc) {
+    mode = sc.mode === "advanced" || sc.mode === "adv" ? "advanced" : "simple";
+    driven.clear(); look.clear();
+    for (const l of sc.simple || []) {
+      look.set(l.name + "#" + l.nth, { hue: l.hue, sat: l.sat, br: l.br, on: l.on, fx: l.fx || "static", speed: l.speed || 1, c2: l.c2 || null, rev: !!l.rev, native: l.native || null });
+      driven.add(l.name + "#" + l.nth);
+    }
+  }
+
   async function start() {
     gate(App.t("rgb.starting"), true);
     try {
-      st.devs = await api.invoke("rgb_start");
-      const seen = new Map();
-      for (const d of st.devs) { d.nth = seen.get(d.name) || 0; seen.set(d.name, d.nth + 1); }
-      const sc = await api.invoke("rgb_scene_get");
-      mode = sc.mode === "advanced" || sc.mode === "adv" ? "advanced" : "simple";
-      driven.clear(); look.clear();
-      for (const l of sc.simple || []) {
-        look.set(l.name + "#" + l.nth, { hue: l.hue, sat: l.sat, br: l.br, on: l.on, fx: l.fx || "static", speed: l.speed || 1 });
-        driven.add(l.name + "#" + l.nth);
-      }
+      adoptDevices(await api.invoke("rgb_start"));
+      adoptScene(await api.invoke("rgb_scene_get"));
+      await App.RGBAuto.refresh();
     } catch (e) { gate(String(e), false); return; }
     if (S.view !== "rgb") return;
-    draw();
+    draw(true);
   }
 
-  /** Title row shared by both views: name, backend chip, Simple | Advanced switch. */
+  /** The scene or the profile changed outside this page (a profile was loaded): read it again and draw from scratch. */
+  async function reload() {
+    try { adoptScene(await api.invoke("rgb_scene_get")); await App.RGBAuto.refresh(); } catch (e) { toast(e); }
+    draw(true);
+  }
+
+  /** Title row shared by both views: name, backend chip, Simple | Advanced switch, what needs attention. */
   function head(...extra) {
     return h("div", { class: "eqhead" }, h("h1", { text: "RGB" }), h("span", { class: "chip on", text: "OpenRGB" }),
       App.ui.segc([["simple", App.t("rgb.simple")], ["advanced", App.t("rgb.advanced")]], mode, setMode),
-      h("span", { class: "sp" }), ...extra);
+      h("span", { class: "sp" }), App.RGBAuto.awayChip(), App.RGBAuto.conflictChip(), ...extra);
   }
 
   /** Switching also tells the recorder which view the saved scene belongs to (rgb-scene-set replaces the whole scene). */
@@ -190,14 +207,24 @@
     try {
       const sc = await api.invoke("rgb_scene_get");
       if (sc.mode !== m) await api.invoke("rgb_scene_set", { scene: { ...sc, mode: m } });
-    } catch (e) { App.toast(App.t("rgb.err", { err: e }), "err"); }
-    draw();
+    } catch (e) { toast(e); }
+    draw(true);
   }
 
-  function draw() {
+  /** Small colour row for the second colour: swatches and a hex field. */
+  function colour2(it, l) {
+    const set = (v) => { apply(it, { c2: [v.hue, v.sat] }); draw(); };
+    const hex = h("input", { class: "field rhex mono", value: App.RGBWheel.toHex(l.c2[0], l.c2[1]), maxlength: 7, spellcheck: false, "aria-label": "hex",
+      onChange: (e) => { const c = App.RGBWheel.fromHex(e.target.value); if (c) set(c); else e.target.value = App.RGBWheel.toHex(l.c2[0], l.c2[1]); } });
+    return h("div", { class: "rcol2" },
+      h("div", { class: "rsw" }, SWATCHES.map((c) => vars(h("button", { "aria-label": c, onClick: () => set(App.RGBWheel.fromHex(c)) }), { "--c": c }))),
+      hex, h("button", { class: "chip", text: "✕", title: App.t("rgb.colour2Del"), onClick: () => { apply(it, { c2: null }); draw(); } }));
+  }
+
+  function draw(force = false) {
     if (mode === "advanced" && st.devs.length) {
       const box = h("div", { class: "radv" });
-      page.replaceChildren(h("div", { class: "rgb" }, head(), box));
+      page.replaceChildren(h("div", { class: "rgb" }, head(), App.RGBAuto.profileBar(reload), box));
       App.RGBAdv.render(box);
       return;
     }
@@ -234,6 +261,18 @@
     const paintAll = () => { const ref = reference(); all.forEach((x) => paintCard(cards.get(x.key), x, ref)); };
 
     const l = itemLook(it);
+    // the device's own modes: what OpenRGB can make the hardware do by itself (one device, or a group of equal ones)
+    const dev0 = it.members[0];
+    const nat = it.all || it.stored ? [] : (dev0.modes || []).filter((m) => !(m.flags & F.PERLED) && m.name.toLowerCase() !== "off");
+    const natMode = l.fx === "native" ? nat.find((m) => m.name === l.native) : null;
+    const wants = {
+      colour: !natMode || !!(natMode.flags & F.COLORS),
+      colour2: !it.stored && (natMode ? !!(natMode.flags & F.COLORS) && natMode.colors_max >= 2 : l.fx === "breathing" || l.fx === "wave"),
+      speed: natMode ? !!(natMode.flags & F.SPEED) : l.fx !== "static",
+      dir: natMode ? !!(natMode.flags & F.DIR) : l.fx === "wave" || l.fx === "rainbow",
+      bright: !natMode || !!(natMode.flags & (F.BRIGHT | F.COLORS)),
+    };
+
     const wheel = App.RGBWheel(l.hue, l.sat, (hh, ss) => { apply(it, { hue: hh, sat: ss }); hex.value = App.RGBWheel.toHex(hh, ss); upd(); });
     const hex = h("input", { class: "field rhex mono", value: App.RGBWheel.toHex(l.hue, l.sat), maxlength: 7, spellcheck: false, "aria-label": "hex", onChange: (e) => {
       const c = App.RGBWheel.fromHex(e.target.value);
@@ -249,14 +288,38 @@
     const mk = mark(it, reference());
     const rel = h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), disabled: !itemDriven(it), onClick: () => giveBack(it) });
     const power = h("button", { class: "chip" + (itemOn(it) ? " on" : ""), text: App.t(itemOn(it) ? "rgb.on" : "rgb.off"), onClick: () => { apply(it, { on: !itemOn(it) }); draw(); } });
+    const natSel = nat.length ? h("select", { class: "field rnat", title: App.t("rgb.nativeTip"), "aria-label": App.t("rgb.native") },
+      h("option", { value: "", text: App.t("rgb.native") }),
+      nat.map((m) => h("option", { value: m.name, text: m.name + (m.flags & F.AUTOSAVE ? "  ◆" : ""), selected: !!natMode && natMode.name === m.name }))) : null;
+    if (natSel) natSel.onchange = () => { apply(it, natSel.value ? { fx: "native", native: natSel.value } : { fx: "static", native: null }); draw(); };
     const fxBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.effect") })),
-      App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx || "static", (v) => { apply(it, { fx: v }); draw(); }));
+      h("div", { class: "rfx" },
+        App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx === "native" ? "" : l.fx || "static", (v) => { apply(it, { fx: v, native: null }); draw(); }),
+        natSel));
     const spdBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.speed") }),
       h("span", { class: "mono rval", id: "rspd", text: l.speed.toFixed(1) + "×" })), spd);
+    const dirBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.dir") })),
+      App.ui.segc([[false, "→"], [true, "←"]], !!l.rev, (v) => { apply(it, { rev: v }); draw(); }));
+    const c2Box = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour2") })),
+      l.c2 ? colour2(it, l) : h("button", { class: "chip rplus", text: "+ " + App.t("rgb.colour2"), onClick: () => { apply(it, { c2: [(l.hue + 180) % 360, 90] }); draw(); } }));
+    // addressable zones whose LED count can be set (an ARGB header: the strip or fans on it may have any length)
+    const zs = it.all || it.stored ? [] : (dev0.zones || []).map((z, zi) => ({ z, zi })).filter(({ z }) => z.leds_min !== z.leds_max);
+    const zBox = zs.length ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.zones"), title: App.t("rgb.zonesTip") })),
+      zs.map(({ z, zi }) => h("div", { class: "arow" }, h("span", { text: z.name }),
+        h("input", { class: "field rnum", type: "number", min: z.leds_min, max: z.leds_max, value: z.leds, "aria-label": z.name, onChange: async (e) => {
+          const v = Math.max(z.leds_min, Math.min(z.leds_max, Math.round(+e.target.value) || z.leds));
+          e.target.value = v;
+          try {
+            let list = null;
+            for (const m of it.members) list = await api.invoke("rgb_zone", { index: m.index, zone: zi, leds: v });
+            adoptDevices(list.filter((d) => !d.stored || true)); draw();
+          } catch (err) { toast(err); }
+        } })))) : null;
+
     const upd = () => {
       br.style.setProperty("--p", l.br + "%");
       spd.style.setProperty("--p", ((l.speed * 100 - 20) / 280 * 100) + "%");
-      prev.className = "rbig fx-" + (l.fx || "static");
+      prev.className = "rbig fx-" + (l.fx === "native" ? "static" : l.fx || "static");
       prev.style.setProperty("--c", css(l)); prev.style.setProperty("--br", itemOn(it) ? l.br / 100 : 0.08);
       prev.style.setProperty("--sp", (1 / l.speed).toFixed(2));
       bv.textContent = l.br + "%";
@@ -277,20 +340,27 @@
         mk === "custom" ? h("button", { class: "chip", text: App.t("rgb.likeRest"), title: App.t("rgb.likeRestTip"), onClick: () => { apply(it, { ...lookOf(majorityMember()) }); draw(); } }) : null,
         rel, power),
       prev,
-      h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour") })),
-        h("div", { class: "rcol" }, wheel, h("div", { class: "rcolr" }, swatches, hex))),
-      h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.brightness") }), bv), br),
+      wants.colour ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour") })),
+        h("div", { class: "rcol" }, wheel, h("div", { class: "rcolr" }, swatches, hex))) : null,
+      wants.colour2 ? c2Box : null,
+      wants.bright ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.brightness") }), bv), br) : null,
       fxBox,
-      l.fx && l.fx !== "static" ? spdBox : null);
+      wants.dir ? dirBox : null,
+      wants.speed ? spdBox : null,
+      zBox);
     upd();
+
+    // the left column keeps its automation card between redraws (an open card must not close when a card is clicked)
+    if (force || !autoEl) autoEl = App.RGBAuto.card(reload);
+    const left = h("div", { class: "rleft" }, list, autoEl, App.RGBAuto.missingLink(st.devs));
     // redrawing in place (a click on the list must not replay the cards' entrance or lose the scroll position)
-    const body = page.querySelector(".rgb > .rbody");
+    const body = force ? null : page.querySelector(".rgb > .rbody");
     if (body) {
-      const sl = body.querySelector(".rlist")?.scrollTop || 0, sd = body.querySelector(".rdetail")?.scrollTop || 0;
+      const sl = body.querySelector(".rleft")?.scrollTop || 0, sd = body.querySelector(".rdetail")?.scrollTop || 0;
       list.classList.add("still");
-      body.replaceChildren(list, detail);
-      list.scrollTop = sl; detail.scrollTop = sd;
-    } else page.replaceChildren(h("div", { class: "rgb" }, head(), h("div", { class: "rbody" }, list, detail)));
+      body.replaceChildren(left, detail);
+      left.scrollTop = sl; detail.scrollTop = sd;
+    } else page.replaceChildren(h("div", { class: "rgb" }, head(), App.RGBAuto.profileBar(reload), h("div", { class: "rbody" }, left, detail)));
   }
 
   App.RGB = {
@@ -301,7 +371,7 @@
       if (S.view !== "rgb") return;
       if (!s || !s.installed) gate();
       else if (!s.enabled) gate();
-      else if (s.running && st.devs.length) draw();
+      else if (s.running && st.devs.length) { await App.RGBAuto.refresh(); draw(true); }
       else start();
     },
     leave() { if (mode === "advanced") App.RGBAdv.leave(); },

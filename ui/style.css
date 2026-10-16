@@ -1044,7 +1044,8 @@ body:has(#pop .popover) #updpop .updpopover { right: 372px; }
 /* ───── RGB (rgb.js): device cards left, the picked device's colour and brightness right ───── */
 .rgb { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; padding: 14px 18px 18px; }
 .rbody { flex: 1; min-height: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; }
-.rlist { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding: 2px; margin: -2px; min-height: 0; align-content: start; }
+.rleft { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; padding: 2px; margin: -2px; min-height: 0; align-content: start; }
+.rlist { display: flex; flex-direction: column; gap: 10px; }
 .rdev { text-align: left; display: flex; flex-direction: column; gap: 9px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; transition: border-color var(--t) ease; animation: cardIn var(--a) ease both; }
 .rdev:hover { border-color: var(--muted); }
 .rdev.on { border-color: #c6f43299; }
@@ -1204,3 +1205,22 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rwheel canvas { display: block; border-radius: 50%; }
 .rwheel .rdot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1.5px #000a, 0 1px 4px #0008; pointer-events: none; }
 .rhex { width: 96px; text-transform: lowercase; }
+.rprof { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: -4px; }
+.rprof .cap { margin-right: 6px; }
+.rprof .chip, .rcol2 .chip, .rplus { cursor: pointer; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; color: var(--muted); background: var(--raised); }
+.rprof .chip.on { border-color: var(--acc); color: var(--acc); background: var(--acc-dim); }
+.rprof .chip:hover, .rcol2 .chip:hover, .rplus:hover { border-color: var(--muted); color: var(--text); }
+.rpname { width: 150px; padding: 4px 10px; }
+.rgb > .eqhead .chip.warn { border-color: var(--warn); color: var(--warn); background: transparent; cursor: default; }
+.rfx { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.rnat { max-width: 100%; }
+.rcol2 { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.rnum { width: 84px; }
+.arow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.arow > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asched { display: inline-flex; align-items: center; gap: 8px; }
+.rauto summary { cursor: pointer; list-style: none; padding: 2px 0; }
+.rauto summary::-webkit-details-marker { display: none; }
+.rauto[open] summary { margin-bottom: 8px; }
+.agames { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+.rmiss { align-self: flex-start; margin: 2px 4px 8px; font-size: 12px; }
