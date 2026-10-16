@@ -107,15 +107,14 @@
       document.addEventListener("click", (e) => { if (!pop.hidden && !pop.contains(e.target)) pop.hidden = true; });
 
       const grp = (label, ...ctl) => h("div", { class: "afg" }, h("span", { text: label }), ...ctl);
+      // two groups: what puts the lights out (left), and the actions (right); on a narrow window they stack, never wrap loosely
       return h("div", { class: "rfoot" },
-        h("span", { class: "cap", text: App.t("rgb.autoLights"), title: App.t("rgb.autoTip") }),
-        grp(App.t("rgb.autoLock"), tog(p.lock, (v) => save({ lock: v }))),
-        grp(App.t("rgb.autoIdle"), idle),
-        grp(App.t("rgb.autoSched"), from, h("span", { text: "–" }), to, tog(p.schedule, (v) => save({ schedule: v }))),
-        h("span", { class: "afdiv" }),
-        h("div", { class: "agwrap" }, gbtn, pop),
-        h("span", { class: "sp" }),
-        A.missingLink(devs));
+        h("div", { class: "rflights" },
+          h("span", { class: "cap", text: App.t("rgb.autoLights"), title: App.t("rgb.autoTip") }),
+          grp(App.t("rgb.autoLock"), tog(p.lock, (v) => save({ lock: v }))),
+          grp(App.t("rgb.autoIdle"), idle),
+          grp(App.t("rgb.autoSched"), from, h("span", { class: "dash", text: "–" }), to, tog(p.schedule, (v) => save({ schedule: v })))),
+        h("div", { class: "rfact" }, h("div", { class: "agwrap" }, gbtn, pop), A.missingLink(devs)));
     },
 
     /** "Missing something?": opens a pre-filled GitHub issue (nothing is sent until the user submits it there). */

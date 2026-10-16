@@ -1314,3 +1314,16 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rpbtn.del { color: var(--rec); }
 .rpbtn.add:hover { border-color: var(--acc); background: var(--acc-dim); }
 .rpbtn.del:hover { border-color: var(--rec); background: #ff4d4d22; }
+.rfoot { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 28px; padding: 12px 16px; }
+.rflights { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; min-width: 0; }
+.rflights .cap { white-space: nowrap; }
+.rflights .afg { white-space: nowrap; }
+.rflights .afg .dash { color: var(--muted); }
+.rfact { display: flex; align-items: center; gap: 18px; justify-content: flex-end; padding-left: 20px; border-left: 1px solid var(--line); }
+.rfoot .afdiv { display: none; }
+@media (max-width: 1360px) {
+  .rfoot { grid-template-columns: minmax(0, 1fr); }
+  .rfact { justify-content: flex-start; padding: 10px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 1360px) { .rfact { justify-content: space-between; } }
+
