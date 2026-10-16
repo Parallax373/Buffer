@@ -15,7 +15,7 @@ App.RecUI = (function () {
   const BASE = {
     output_dir: "", per_game_folders: true, post_roll_seconds: 15, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, quality: "std", monitor: 0,
-    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", popup: true, sounds: true, game_sound: true, sound_level: "normal", extra_games: [], ignore_apps: [],
+    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", output_hotkey: "", popup: true, sounds: true, game_sound: true, sound_level: "normal", extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
   };
   const RES = () => [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, App.t("res.native")]];
@@ -490,7 +490,9 @@ App.RecUI = (function () {
     const drawKeys = () => {
       keysBox.replaceChildren(
         keyRow(App.t("key.save"), "hotkey", cfg.hotkey),
-        keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey));
+        keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey),
+        keyRow(App.t("key.output"), "output_hotkey", cfg.output_hotkey || ""));
+      keysBox.lastChild.title = App.t("key.outputTip");
     };
     drawKeys();
 
@@ -652,15 +654,17 @@ App.RecUI = (function () {
 
   /* ───────────── first-run wizard ───────────── */
 
-  const STEPS = ["start", "audio", "picture", "done"];
+  const STEPS = ["start", "audio", "picture", "eq", "done"];
 
   async function wizard() {
     await load();
     const found = await api.invoke("detect_clip_folders").catch(() => []);
+    const apoNow = await api.invoke("eq_apo_status").catch(() => null);
     const fresh = !App.P.settings.onboarded;
     const w = {
       step: 0, dir: cfg.output_dir, cfg: JSON.parse(JSON.stringify(cfg)), autostart: true, adv: false,
       checks: [], checksDone: false, running: false, hits0: null, tested: false, editKey: false,
+      eq: false, apo: apoNow, hp: null, eqMsg: "",
     };
     // First choices: follow the Windows default output, a dedicated "chat" endpoint if there is one, the default mic.
     const hasChat = devices.render.find((d) => /chat|czat|communic/i.test(d.name));
@@ -817,6 +821,63 @@ App.RecUI = (function () {
         advBox);
     };
 
+    /** The headphone model to search for: from the default output's name, else from any output that names one. */
+    const hpGuess = () => {
+      const def = devices.render.find((d) => d.id === devices.default.render);
+      const dev = [def, ...devices.render].filter(Boolean).find((d) => App.EQ.guessModel(d.name));
+      w.hpDev = dev ? dev.id : "";              // the profile goes on the headphones it was guessed from
+      return dev ? App.EQ.guessModel(dev.name) : "";
+    };
+
+    /* Optional live EQ: off by default; switching it on installs Equalizer APO (UAC) if it isn't there yet. */
+    const stepEq = () => {
+      const box = h("div", { class: "stack12" });
+      const install = () => {
+        w.eqMsg = App.t("eq.installing"); draw();
+        // finish() waits for this, so "Next / Finish" during the install can't drop the user's choice
+        w.installing = api.invoke("eq_install_apo").then((apo) => {
+          w.apo = apo;
+          w.eqMsg = !apo.installed || apo.restart_pending ? App.t("eq.restart") : "";
+        }, (e) => { w.eq = false; w.eqMsg = App.t("eq.err", { err: e }); })
+          .finally(() => { w.installing = null; if (overlay.isConnected) draw(); });
+      };
+      const draw = () => put(box,
+        h("div", null, h("div", { class: "big", text: App.t("wz.eqQ") }), h("div", { class: "muted", text: App.t("wz.eqD") })),
+        h("div", { class: "card2 tgl" }, U.trow(App.t("wz.eqOn"), App.t(w.apo && w.apo.installed ? "wz.eqHave" : "wz.eqNeed"), w.eq, (v) => {
+          w.eq = v; draw();
+          if (v && !(w.apo && w.apo.installed)) install();
+        })),
+        w.eqMsg ? h("div", { class: "faint", text: w.eqMsg }) : null,
+        w.eq && w.apo && w.apo.installed
+          ? h("div", { class: "card2 eqcard" }, h("div", { class: "cap", text: App.t("eq.headphones"), title: App.t("eq.headphonesTip") }),
+            w.hp ? h("div", { class: "pathrow" }, h("span", { class: "chip on", text: w.hp.name }),
+              h("button", { class: "linkbtn", text: "✕", onClick: () => { w.hp = null; draw(); } }))
+              : App.EQ.hpSearch((p) => { w.hp = p; draw(); }, hpGuess()))
+          : null);
+      draw();
+      return box;
+    };
+
+    /** Turns the EQ on for the default output and mic (with the chosen headphone profile). */
+    async function applyEq() {
+      if (w.installing) await w.installing;
+      if (!w.eq || !(w.apo && w.apo.installed)) return;
+      // a recorder started by finish() needs a moment before it listens: try for ~10 s
+      let r = null;
+      for (let i = 0; i < 10 && !(r && r.ok); i++) {
+        r = await api.invoke("recorder_cmd", { cmd: "eq-get" }).catch(() => null);
+        if (!(r && r.ok)) await sleep(1000);
+      }
+      const d = await api.invoke("recorder_devices").catch(() => null);
+      if (!r || !r.ok || !d) { App.toast(App.t("eq.err", { err: App.t("eq.noRec") }), "err"); return; }
+      const st = r.state;
+      st.enabled = true;
+      if (!st.mic_device) st.mic_device = d.default.capture || "";
+      const out = (w.hp && w.hpDev) || d.default.render;
+      if (out) st.outputs[out] = { ...(st.outputs[out] || { enabled: true, preset: "flat", bands: App.EQ.flat() }), autoeq: w.hp || null };
+      await api.invoke("recorder_cmd", { cmd: "eq-set " + JSON.stringify(st) }).catch(() => {});
+    }
+
     const stepDone = () => {
       const e = estimates(w.cfg);
       const hotVal = h("span", { class: "mono" }), strip = h("div", { class: "keystrip" });
@@ -864,9 +925,9 @@ App.RecUI = (function () {
     function renderStep() {
       stopMeters();
       clearInterval(statusTimer);
-      const el = h("div", { class: "stepbox stepin" }, [stepStart, stepAudio, stepPicture, stepDone][w.step]());
+      const el = h("div", { class: "stepbox stepin" }, [stepStart, stepAudio, stepPicture, stepEq, stepDone][w.step]());
       body.replaceChildren(el);                // a new node each time restarts the animation
-      if (w.step === 3) armRecorder();
+      if (STEPS[w.step] === "done") armRecorder();
     }
 
     function renderAll() { railBox.replaceChildren(rail()); renderFooter(); renderStep(); }
@@ -915,6 +976,7 @@ App.RecUI = (function () {
       if (S.recorder) await api.invoke("recorder_cmd", { cmd: "reload" }).catch(() => {});
       else await api.invoke("recorder_launch").catch((e) => App.toast(String(e), "err"));
       setTimeout(App.Rec.refresh, 1500);
+      applyEq();                               // waits for a running APO install and for the recorder to listen
       close();
       App.toast(App.t("wz.toastDone"), "ok");
       await App.Lib.load();

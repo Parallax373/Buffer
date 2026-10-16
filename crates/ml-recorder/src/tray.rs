@@ -12,9 +12,115 @@ use std::{
     thread,
 };
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
     Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
 };
+
+/// The audio part of the tray menu, EarTrumpet style: pick the output, EQ on/off, preset of the output in use,
+/// hear my mic. Rebuilt only when something it shows has changed.
+struct AudioMenu {
+    output: Submenu,
+    preset: Submenu,
+    eq_on: CheckMenuItem,
+    listen: CheckMenuItem,
+    outputs: Vec<(CheckMenuItem, String)>,
+    presets: Vec<(CheckMenuItem, String)>,
+    shown: String,
+}
+
+/// The mic "Hear my mic" acts on: the EQ's mic, else the Windows default (it works without the EQ too).
+fn mic_of(st: &ml_eq::EqState) -> String {
+    if st.mic_device.is_empty() { crate::endpoints::default_capture().unwrap_or_default() } else { st.mic_device.clone() }
+}
+
+impl AudioMenu {
+    fn new() -> Self {
+        AudioMenu {
+            output: Submenu::new(crate::lang::t("menu.output"), true),
+            preset: Submenu::new(crate::lang::t("menu.eq_preset"), true),
+            eq_on: CheckMenuItem::new(crate::lang::t("menu.eq_on"), true, false, None),
+            listen: CheckMenuItem::new(crate::lang::t("menu.listen"), true, false, None),
+            outputs: Vec::new(),
+            presets: Vec::new(),
+            shown: String::new(),
+        }
+    }
+
+    fn refresh(&mut self, shared: &session::Shared) {
+        let outs = crate::endpoints::outputs();
+        let cur = crate::endpoints::default_output().unwrap_or_default();
+        let (enabled, preset, mut ids, mic) = {
+            let st = shared.eq.lock().unwrap();
+            let ids: Vec<(String, String)> = ml_eq::presets::IDS
+                .iter()
+                .map(|id| (id.to_string(), crate::lang::t(&format!("preset.{id}"))))
+                // an edited built-in is an override under the same id: it must not appear twice
+                .chain(st.user_presets.iter().filter(|p| !ml_eq::presets::IDS.contains(&p.name.as_str())).map(|p| (p.name.clone(), p.name.clone())))
+                .collect();
+            let preset = st.outputs.get(&cur).map(|c| c.preset.clone()).unwrap_or_else(|| "flat".into());
+            (st.enabled, preset, ids, mic_of(&st))
+        };
+        let apo = ml_eq::apo::config_dir().is_some();
+        let listening = !mic.is_empty() && crate::endpoints::listening(&mic);
+        let sig = format!("{outs:?}|{cur}|{enabled}|{preset}|{ids:?}|{listening}|{apo}");
+        if sig == self.shown {
+            return;
+        }
+        self.shown = sig;
+        for (item, _) in self.outputs.drain(..) {
+            let _ = self.output.remove(&item);
+        }
+        for e in outs {
+            let item = CheckMenuItem::new(&e.name, true, e.id == cur, None);
+            let _ = self.output.append(&item);
+            self.outputs.push((item, e.id));
+        }
+        for (item, _) in self.presets.drain(..) {
+            let _ = self.preset.remove(&item);
+        }
+        for (id, label) in ids.drain(..) {
+            let item = CheckMenuItem::new(label, apo && enabled, id == preset, None);
+            let _ = self.preset.append(&item);
+            self.presets.push((item, id));
+        }
+        self.eq_on.set_enabled(apo);
+        self.eq_on.set_checked(enabled);
+        self.listen.set_enabled(!mic.is_empty());
+        self.listen.set_checked(listening);
+    }
+
+    /// True when the click was one of ours.
+    fn handle(&mut self, shared: &session::Shared, id: &MenuId) -> bool {
+        if let Some((_, dev)) = self.outputs.iter().find(|(i, _)| i.id() == id) {
+            match crate::endpoints::set_default_output(dev) {
+                Ok(()) => crate::eq::follow_output(shared),
+                Err(e) => session::log(&format!("output switch: {e}")),
+            }
+        } else if let Some((_, p)) = self.presets.iter().find(|(i, _)| i.id() == id) {
+            if let Some(dev) = crate::endpoints::default_output() {
+                let p = p.clone();
+                crate::eq::update(shared, |st| {
+                    // picking a preset means "I want to hear it": switch the EQ on with it
+                    if st.set_preset(&dev, &p) {
+                        st.enabled = true;
+                    }
+                });
+            }
+        } else if id == self.eq_on.id() {
+            crate::eq::update(shared, |st| st.enabled = !st.enabled);
+        } else if id == self.listen.id() {
+            let mic = mic_of(&shared.eq.lock().unwrap());
+            if let Err(e) = crate::endpoints::set_listen(&mic, !crate::endpoints::listening(&mic), None) {
+                session::log(&format!("mic listen: {e}"));
+            }
+        } else {
+            return false;
+        }
+        self.shown.clear(); // check marks follow the new state on the next refresh
+        self.refresh(shared);
+        true
+    }
+}
 
 /// What the icon says. The logo mark carries the colour; a corner badge appears only for stopped, paused and errors.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -427,17 +533,24 @@ fn announce_game(shared: &session::Shared, game: &str) {
 }
 
 /// Never returns while the recorder runs.
-/// Registers the save and record-everything shortcuts, replacing the previous ones when the settings changed.
-fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String)) {
-    let (save, rec) = {
+/// Registers the save, record-everything and output-switch shortcuts, replacing the previous ones when the
+/// settings changed.
+fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String, String)) {
+    let (save, rec, out) = {
         let c = shared.cfg.lock().unwrap();
-        (c.hotkey.trim().to_string(), c.record_hotkey.trim().to_string())
+        (c.hotkey.trim().to_string(), c.record_hotkey.trim().to_string(), c.output_hotkey.trim().to_string())
     };
-    if *current == (save.clone(), rec.clone()) {
+    if *current == (save.clone(), rec.clone(), out.clone()) {
         return;
     }
     win::unregister_hotkey_id(1);
     win::unregister_hotkey_id(crate::input::RECORD as i32);
+    win::unregister_hotkey_id(crate::input::OUTPUT as i32);
+    if !out.is_empty() {
+        if let Err(e) = win::register_hotkey_id(&out, crate::input::OUTPUT as i32) {
+            session::log(&e);
+        }
+    }
     if !save.is_empty() {
         if let Err(e) = win::register_hotkey(&save) {
             session::log(&e);
@@ -449,7 +562,24 @@ fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String)) {
             session::log(&e);
         }
     }
-    *current = (save, rec);
+    *current = (save, rec, out);
+}
+
+/// The output-switch shortcut: next playback device, named in a popup (the EQ follows it by itself).
+fn switch_output(shared: &session::Shared) {
+    match crate::endpoints::cycle_output() {
+        Ok(name) => {
+            crate::eq::follow_output(shared);
+            shared.popup_with_sound(Event::Game, crate::win::Sound::Game, crate::lang::t("pop.output"), name)
+        }
+        Err(e) => session::log(&format!("output switch: {e}")),
+    }
+}
+
+thread_local! {
+    /// The audio part of the menu lives on the tray thread, where tray-icon also calls our event handler: a right
+    /// click refreshes it there, just before the menu opens (no polling of devices and registry in the background).
+    static AUDIO: std::cell::RefCell<Option<(AudioMenu, Arc<session::Shared>)>> = const { std::cell::RefCell::new(None) };
 }
 
 pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup>) {
@@ -458,7 +588,19 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
     let rec_i = MenuItem::new(crate::lang::t("menu.record"), true, None);
     let open_i = MenuItem::new(crate::lang::t("menu.open"), true, None);
     let quit_i = MenuItem::new(crate::lang::t("menu.quit"), true, None);
-    let _ = menu.append_items(&[&save_i, &rec_i, &open_i, &PredefinedMenuItem::separator(), &quit_i]);
+    let mut audio = AudioMenu::new();
+    audio.refresh(&shared);
+    // without Equalizer APO the EQ items would only sit there greyed out: leave them out (installing APO means a
+    // restart anyway, which brings them in)
+    let sep1 = PredefinedMenuItem::separator();
+    let sep2 = PredefinedMenuItem::separator();
+    let mut items: Vec<&dyn tray_icon::menu::IsMenuItem> = vec![&audio.output];
+    if ml_eq::apo::config_dir().is_some() {
+        items.push(&audio.eq_on);
+        items.push(&audio.preset);
+    }
+    items.extend([&audio.listen as &dyn tray_icon::menu::IsMenuItem, &sep1, &save_i, &rec_i, &open_i, &sep2, &quit_i]);
+    let _ = menu.append_items(&items);
 
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
@@ -468,9 +610,24 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
         .build()
         .map_err(|e| session::log(&format!("tray unavailable: {e}")))
         .ok();
+    AUDIO.with(|a| *a.borrow_mut() = Some((audio, shared.clone())));
+    // tray-icon sends the click, then shows the menu, both inside its window procedure on this thread
+    let (tray_tx, tray_rx) = std::sync::mpsc::channel::<TrayIconEvent>();
+    TrayIconEvent::set_event_handler(Some(move |ev: TrayIconEvent| {
+        if let TrayIconEvent::Click { button: MouseButton::Right, button_state: MouseButtonState::Up, .. } = ev {
+            AUDIO.with(|a| {
+                if let Ok(mut g) = a.try_borrow_mut() {
+                    if let Some((m, s)) = g.as_mut() {
+                        m.refresh(s);
+                    }
+                }
+            });
+        }
+        let _ = tray_tx.send(ev);
+    }));
 
     // keyboard shortcuts are (re)registered whenever the settings change; an empty one means "none"
-    let mut registered = (String::new(), String::new());
+    let mut registered = (String::new(), String::new(), String::new());
     apply_hotkeys(&shared, &mut registered);
     crate::input::spawn(shared.clone(), unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() });
 
@@ -489,6 +646,8 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
         win::Pump::Hotkey(id) => {
             if id == crate::input::RECORD {
                 crate::longrec::toggle(&hk_shared);
+            } else if id == crate::input::OUTPUT {
+                switch_output(&hk_shared);
             } else {
                 hk_shared.hotkey_hits.fetch_add(1, Ordering::Relaxed);
                 hotkey_save(&hk_shared);
@@ -507,7 +666,7 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
                 overlay.push(p);
             }
             // Left click opens the app; the context menu belongs to the right button.
-            while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
+            while let Ok(ev) = tray_rx.try_recv() {
                 // the icon can outlive the quit by a few seconds (the recording is finalised first): a click then must not reopen the app
                 if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
                     if !tick_shared.quit.load(Ordering::Relaxed) {
@@ -515,8 +674,15 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
                     }
                 }
             }
+            // a game preset moves with the output when Windows (or another app) switches it
+            crate::eq::expire_solo(&tick_shared);
+            if tick % 4 == 0 {
+                crate::eq::follow_output(&tick_shared);
+            }
             while let Ok(ev) = MenuEvent::receiver().try_recv() {
-                if ev.id == *save_i.id() {
+                let ours = AUDIO.with(|a| a.try_borrow_mut().ok().and_then(|mut g| g.as_mut().map(|(m, s)| m.handle(s, &ev.id))));
+                if ours == Some(true) {
+                } else if ev.id == *save_i.id() {
                     save_async(&tick_shared, false);
                 } else if ev.id == *rec_i.id() {
                     crate::longrec::toggle(&tick_shared);
@@ -558,6 +724,7 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
             if gone {
                 *tick_shared.active_game.lock().unwrap() = None;
                 apply_app_sources(&tick_shared);
+                crate::eq::on_game(&tick_shared, None, None);
             }
             // 2) a new game came to the foreground / the known one moved to another monitor
             if let Some(fg) = win::foreground() {
@@ -583,6 +750,7 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
                                 *tick_shared.active_game.lock().unwrap() =
                                     Some(ActiveGame { pid: fg.pid, name: name.clone(), monitor: fg.monitor });
                                 apply_app_sources(&tick_shared);
+                                crate::eq::on_game(&tick_shared, Some(&fg.stem), Some(&name));
                                 if cfg.follow_game_monitor
                                     && session::desired_monitor(&tick_shared, &cfg)
                                         != tick_shared.monitor_now.load(Ordering::Relaxed)

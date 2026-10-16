@@ -4,7 +4,7 @@
 
 (function () {
   const { h, S, api } = App;
-  const VIEWS = { lib: "#v-lib", ed: "#v-ed", set: "#v-set" };
+  const VIEWS = { lib: "#v-lib", ed: "#v-ed", eq: "#v-eq", set: "#v-set" };
 
   /* ───── navigation ───── */
 
@@ -12,6 +12,7 @@
     if (view === "exp") view = "lib";                       // the standalone exports page is gone
     if (view === "ed" && !App.Ed.current()) view = "lib";
     if (S.view === "ed" && view !== "ed") App.Ed.leave();
+    if (S.view === "eq" && view !== "eq") App.EQ.leave();
     const changed = S.view !== view;
     const prev = S.view;
     document.querySelectorAll("#views .view.leaving").forEach((e) => e.classList.remove("leaving"));
@@ -20,6 +21,7 @@
     if (changed && VIEWS[prev] && App.P.settings.anim !== false) keepUnderneath(prev);
     if (view === "lib") App.Lib.render(false);
     if (view === "set") Settings.render(true);
+    if (view === "eq" && changed) App.EQ.render();
     renderRail();
   };
 
@@ -55,12 +57,14 @@
     const nav = App.$("#nav");
     const defs = [
       ["lib", "▦", "nav.library", S.view === "lib" || S.view === "ed"],
+      ["eq", "≋", "nav.eq", S.view === "eq"],
       ["set", "⚙", "nav.settings", S.view === "set"],
     ];
     if (!railItems || !railItems.every((el) => el.isConnected)) {
       railItems = defs.map(([view, icon]) => h("button", { class: "item", onClick: () => App.go(view) },
         h("span", { class: "ic", text: icon }), h("span", { class: "lb" })));
-      nav.replaceChildren(railItems[0], h("div", { class: "grow" }), railItems[1]);
+      // everything but the last item sits at the top; settings stays pinned to the bottom
+      nav.replaceChildren(...railItems.slice(0, -1), h("div", { class: "grow" }), railItems[railItems.length - 1]);
     }
     defs.forEach(([, , key, on], i) => {
       const el = railItems[i], label = App.t(key);
@@ -84,6 +88,8 @@
   /* ───── top bar ───── */
 
   const recPill = h("button", { class: "recpill off", onClick: () => onRecClick() });
+  // the EQ status next to it: a status light too, a click opens the EQ page (hidden without Equalizer APO)
+  const eqPill = h("button", { class: "recpill eqpill", hidden: true, onClick: () => App.go("eq") });
   const chip = h("button", { class: "expchip", onClick: () => Exports.togglePop() });
 
   function buildTopbar() {
@@ -93,13 +99,16 @@
         S.q = e.target.value;
         if (S.view !== "lib") App.go("lib"); else App.Lib.render(false);
       } });
+    // left: the name and the status lights (recorder, EQ); middle: search; right: updates, exports, window buttons
     App.$("#topbar").replaceChildren(
-      h("div", { class: "brand", "data-tauri-drag-region": true },
-        h("div", { class: "mini" }, widths.map((w) => h("i", { style: { width: `${w}px` } }))),
-        h("b", { text: "Buffer" }),
-        App.isDev ? h("span", { class: "devbadge", text: "DEV", title: App.t("dev.badgeTip") }) : null),
+      h("div", { class: "lhs", "data-tauri-drag-region": true },
+        h("div", { class: "brand", "data-tauri-drag-region": true },
+          h("div", { class: "mini" }, widths.map((w) => h("i", { style: { width: `${w}px` } }))),
+          h("b", { text: "Buffer" }),
+          App.isDev ? h("span", { class: "devbadge", text: "DEV", title: App.t("dev.badgeTip") }) : null),
+        recPill, eqPill),
       h("label", { class: "search" }, h("span", { text: "⌕" }), search, h("kbd", { text: "Ctrl K" })),
-      h("div", { class: "right", "data-tauri-drag-region": true }, App.i18n.topbarChip(), App.Update.chip, recPill, chip, windowControls()));
+      h("div", { class: "right", "data-tauri-drag-region": true }, App.i18n.topbarChip(), App.Update.chip, chip, windowControls()));
     paintRec();
     paintChip();
   }
@@ -124,6 +133,21 @@
     recPill._sig = sig;
     recPill.className = `recpill ${cls}`;
     recPill.replaceChildren(h("span", { class: "dot" }), text);
+  }
+
+  /** EQ on / off, from the recorder's status. Shown only when there is an EQ to speak of: the recorder runs and
+   *  Equalizer APO is installed. */
+  function paintEq() {
+    const r = S.recorder;
+    eqPill.hidden = !(r && r.eq_apo);
+    if (eqPill.hidden) return;
+    const on = !!r.eq_on;
+    const sig = on + "|" + App.i18n.current();             // the label is rebuilt when the language changes too
+    eqPill.title = App.t("eq.pill.tip");
+    if (eqPill._sig === sig) return;
+    eqPill._sig = sig;
+    eqPill.className = `recpill eqpill ${on ? "eqon" : "eqoff"}`;
+    eqPill.replaceChildren(h("span", { class: "dot" }), App.t(on ? "eq.pill.on" : "eq.pill.off"));
   }
 
   function recTooltip() {
@@ -173,6 +197,7 @@
     try { S.recorder = await App.timeout(api.invoke("recorder_cmd", { cmd: "status" }), 4000); } catch { S.recorder = null; }
     watchdog();
     paintRec();
+    paintEq();
     // a clip the recorder just finished appears in the library without waiting for the window to regain focus
     const saved = S.recorder ? S.recorder.last_saved : "";
     if (Rec.lastSaved !== undefined && saved && saved !== Rec.lastSaved) {

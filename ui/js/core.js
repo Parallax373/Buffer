@@ -10,6 +10,11 @@ const App = {};
     invoke,
     src: (p) => T.core.convertFileSrc(p),
     listen: (n, f) => T.event.listen(n, f),
+    /** One file, e.g. a game's .exe; `ext` limits the dialog to those extensions. */
+    pickFile: async (name, ext) => {
+      const r = await T.dialog.open({ multiple: false, filters: [{ name, extensions: ext }] });
+      return typeof r === "string" ? r : null;
+    },
     pickFolder: async () => {
       const r = await T.dialog.open({ directory: true, multiple: false });
       return typeof r === "string" ? r : null;

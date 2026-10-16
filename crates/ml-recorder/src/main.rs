@@ -2,6 +2,8 @@
 
 mod audio;
 mod config;
+mod endpoints;
+mod eq;
 mod icons;
 mod identify;
 mod lang;
@@ -200,7 +202,13 @@ fn run() {
         long_stopping: AtomicBool::new(false),
         finalizing: AtomicBool::new(false),
         restart_pending: AtomicBool::new(false),
+        eq: Mutex::new(ml_eq::EqState::load()),
+        eq_live: Mutex::new(ml_eq::Live::default()),
+        eq_game_stem: Mutex::new(None),
+        eq_on: AtomicBool::new(false),
+        eq_solo_at: Mutex::new(None),
     });
+    eq::init(&shared);
     {
         let cfg = cfg.clone();
         std::thread::spawn(move || longrec::recover_orphans(&cfg));
@@ -278,6 +286,12 @@ fn main() {
                     Ok(r) => println!("{r}"),
                     Err(e) => println!("{e}"),
                 },
+                // uninstall: takes Buffer's line out of Equalizer APO's config (APO itself stays)
+                "eq-unhook" => {
+                    if let Err(e) = ml_eq::apo::unhook() {
+                        println!("{e}");
+                    }
+                }
                 "install-autostart" => autostart(true),
                 "uninstall-autostart" => autostart(false),
                 _ => println!("usage: buffer-recorder [run|devices|status|save|record|reload|quit|install-autostart|uninstall-autostart]"),

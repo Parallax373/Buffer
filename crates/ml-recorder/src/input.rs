@@ -16,6 +16,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_HOTKEY}
 /// Ids of the actions, as carried in `WM_HOTKEY`'s wParam.
 pub const SAVE: usize = 1;
 pub const RECORD: usize = 3;
+pub const OUTPUT: usize = 4;
 
 const MOD_CTRL: u8 = 1;
 const MOD_ALT: u8 = 2;
@@ -170,7 +171,7 @@ pub fn spawn(shared: Arc<Shared>, tray_thread: u32) {
         while !shared.quit.load(Ordering::Relaxed) {
             if refreshed.elapsed() > Duration::from_millis(500) {
                 let c = shared.cfg.lock().unwrap();
-                let next = vec![(SAVE, parse(&c.hotkey)), (RECORD, parse(&c.record_hotkey))];
+                let next = vec![(SAVE, parse(&c.hotkey)), (RECORD, parse(&c.record_hotkey)), (OUTPUT, parse(&c.output_hotkey))];
                 drop(c);
                 if next != bindings {
                     was = next.iter().map(|(_, t)| vec![true; t.len()]).collect(); // a held button must not fire on rebind

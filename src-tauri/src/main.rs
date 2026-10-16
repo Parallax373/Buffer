@@ -19,6 +19,8 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 
+mod eq;
+
 const VIDEO_EXT: [&str; 3] = ["mp4", "mkv", "mov"];
 /// Folders the app writes to or that only hold derived files.
 const SKIP_DIRS: [&str; 2] = ["Exported Clips", "Shared Clips"];
@@ -797,6 +799,13 @@ fn main() {
             detect_clip_folders,
             default_clips_dir,
             recorder_autostart,
+            eq::eq_spectrum_start,
+            eq::eq_spectrum_stop,
+            eq::eq_autoeq_search,
+            eq::eq_autoeq_fetch,
+            eq::eq_apo_status,
+            eq::eq_install_apo,
+            eq::eq_open_device_selector,
         ])
         .setup(|app| {
             // safety net: if the UI never reports in (a script error), the window still appears

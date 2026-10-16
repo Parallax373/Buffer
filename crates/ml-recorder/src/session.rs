@@ -79,6 +79,17 @@ pub struct Shared {
     pub finalizing: AtomicBool,
     /// A restart was asked for during a long recording; it happens once the recording ends.
     pub restart_pending: AtomicBool,
+    /// Live EQ state (see eq.rs); this process is its only writer.
+    pub eq: Mutex<ml_eq::EqState>,
+    /// Applied on top of `eq` and never saved: a band held in solo, the game preset of the game in front.
+    pub eq_live: Mutex<ml_eq::Live>,
+    /// Executable stem of the game in front, if any (for the EQ page's game-preset shortcut).
+    pub eq_game_stem: Mutex<Option<String>>,
+    /// Whether the EQ master switch is on, readable without taking the `eq` lock (the status poll uses it).
+    pub eq_on: std::sync::atomic::AtomicBool,
+    /// When the page last said a band is held in solo. A solo the page stops refreshing (focus lost, window closed
+    /// mid-drag) expires on its own, instead of leaving the output band-passed.
+    pub eq_solo_at: Mutex<Option<Instant>>,
 }
 
 /// The cue that goes with a popup. Callers that want another one (a long recording starts with the `Game` card

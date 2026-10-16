@@ -20,6 +20,17 @@ redistribute Buffer's installer you also redistribute that FFmpeg build and must
 corresponding source available (the links above satisfy this for the unmodified build). The full gyan.dev
 "release essentials" build can still be used instead: `scripts\fetch-ffmpeg.ps1 -Essentials`.
 
+## Equalizer APO (not shipped; installed on request)
+The live EQ is processed by **Equalizer APO** (GNU GPL v2), a separate program that runs inside the Windows audio
+engine. Buffer does not include or link it: when you turn the EQ on, Buffer downloads the official
+`EqualizerAPO-x64-1.4.2.exe` from SourceForge, checks its SHA-256 and runs it, and afterwards only writes its own
+`buffer.txt` into Equalizer APO's config folder. Uninstalling Buffer removes that file and its include line, not
+Equalizer APO. Project and source code: https://sourceforge.net/projects/equalizerapo/
+
+## AutoEq headphone profiles (downloaded on request)
+The headphone search reads the results of **AutoEq** by Jaakko Pasanen (MIT) from GitHub when you use it:
+https://github.com/jaakkopasanen/AutoEq
+
 ## Application framework and runtime
 * **Tauri** (MIT or Apache-2.0) and its plugins (dialog, drag, single-instance, updater): https://tauri.app/
 * **Microsoft Edge WebView2 Runtime**, used to display the interface; installed by Windows or by the installer

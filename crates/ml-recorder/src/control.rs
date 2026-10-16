@@ -1,5 +1,6 @@
 //! Tiny line-based control protocol on 127.0.0.1 so the UI (and `buffer-recorder save`) can talk to the
-//! running recorder. Commands: status | save | record | record-start | record-stop | reload | quit. One JSON line is returned per command.
+//! running recorder. Commands: status | save | record | record-start | record-stop | reload | quit | eq-* (eq.rs).
+//! One JSON line is returned per command.
 
 use crate::config::{Config, CONTROL_PORT};
 use crate::session::{buffered_seconds, save, Shared};
@@ -53,6 +54,9 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
         "capture": *shared.capture.lock().unwrap(),
         "sources": sources,
         "record_hotkey": cfg.record_hotkey,
+        // what the top bar's EQ pill shows: the EQ is on, and Equalizer APO is there to do the work
+        "eq_on": shared.eq_on.load(Ordering::Relaxed),
+        "eq_apo": crate::eq::apo_installed(),
         "long": {
             "active": crate::longrec::active(shared),
             "elapsed_s": crate::longrec::elapsed_secs(shared),
@@ -66,7 +70,9 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
     let Ok(read_half) = stream.try_clone() else { return };
     let mut out = stream;
     for line in BufReader::new(read_half).lines().map_while(Result::ok) {
+        let (cmd, arg) = line.trim().split_once(' ').unwrap_or((line.trim(), ""));
         let reply = match line.trim() {
+            _ if cmd.starts_with("eq-") => crate::eq::command(shared, cmd, arg),
             "status" => status_json(shared),
             "save" => match save(shared) {
                 Ok(p) => {

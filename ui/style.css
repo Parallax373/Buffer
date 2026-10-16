@@ -850,3 +850,85 @@ img.gi { width: 18px; height: 18px; border-radius: 4px; object-fit: contain; fle
 
 /* the update popover steps aside (to the left) while the export popover is open, instead of covering it */
 body:has(#pop .popover) #updpop .updpopover { right: 372px; }
+
+/* ───── live EQ (eq.js): FL Parametric EQ 2 layout in Buffer colours ───── */
+.eq { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; padding: 14px 18px 18px; overflow-y: auto; }
+.eqhead { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.eqhead h1 { font: 600 20px "Instrument Sans"; letter-spacing: -.01em; margin: 0 4px 0 0; }
+.eqhead .sp { flex: 1; }
+.eqhead select.dev { max-width: 280px; }
+.eqhead .pathrow { align-items: center; gap: 4px; }
+.btn.sm { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+.btn.cmp { font: 600 11.5px "JetBrains Mono", monospace; letter-spacing: .04em; }
+.btn.cmp.on { border-color: var(--warn); color: var(--warn); }
+.eqmaster { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.eqhead .chip, .eqnow .chip, .eqcard .chip { display: inline-block; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; color: var(--muted); background: var(--raised); }
+.eqhead .chip.warn, .eqnow .chip.warn, .eqcard .chip.warn { border-color: var(--warn); color: var(--warn); background: transparent; }
+.eqhead .chip.on, .eqnow .chip.on, .eqcard .chip.on { border-color: var(--acc); color: var(--acc); background: var(--acc-dim); }
+.eqmain { display: grid; grid-template-columns: minmax(0, 1fr) 20px auto; column-gap: 12px; row-gap: 0; padding: 12px 12px 10px 14px; min-height: 300px; flex: 1 1 340px; }
+.gwrap { position: relative; min-width: 0; min-height: 260px; border-radius: 10px; background: linear-gradient(#ffffff05, transparent 60%), var(--bg); border: 1px solid var(--line); overflow: hidden; }
+.eqgraph { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.eqside { display: flex; gap: 6px; align-items: stretch; overflow: hidden; max-width: var(--sw, 320px); transition: max-width var(--a) ease, opacity var(--t) ease, margin var(--a) ease; }
+.eqmain.fold .eqside { max-width: 0; opacity: 0; margin-left: -12px; pointer-events: none; }
+.eqside .strip { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 30px; padding: 4px 0; border-radius: 8px; transition: background var(--t) ease; }
+.eqside .strip.on { background: var(--raised); }
+.eqside .strip.off { opacity: .45; }
+.eqside .num { width: 20px; height: 20px; border-radius: 6px; color: #0b0c0f; font: 700 11px "Instrument Sans"; }
+.eqside .fwrap { flex: 1; position: relative; width: 30px; min-height: 120px; }
+.eqside .fader { position: absolute; left: 50%; top: 50%; width: var(--len, 150px); transform: translate(-50%, -50%) rotate(-90deg); background: linear-gradient(90deg, #ffffff14, #ffffff14); }
+.eqside .fader::-webkit-slider-thumb { width: 14px; height: 10px; border-radius: 3px; background: var(--c); border: 1px solid #0006; }
+.eqside .fader:disabled::-webkit-slider-thumb { background: var(--subtle); cursor: default; }
+.knob { width: 22px; height: 22px; border-radius: 50%; cursor: ns-resize; position: relative;
+  background: conic-gradient(from 225deg, var(--c) calc(var(--v) * 270deg), #ffffff1a 0 270deg, transparent 0); }
+.knob::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--panel); }
+.eqside .legend { display: flex; flex-direction: column; justify-content: flex-end; gap: 16px; padding-bottom: 6px; font: 600 9px "Instrument Sans"; letter-spacing: .08em; color: var(--subtle); }
+.eqbelow { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.eqcard { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.eqcard .cap { cursor: help; }
+.eqcard .grow2 { display: grid; grid-template-columns: minmax(0, 1fr) 150px auto; gap: 8px; align-items: center; }
+.eqhits { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; max-height: 190px; overflow-y: auto; }
+.eqhits .hit { display: flex; justify-content: space-between; gap: 10px; text-align: left; padding: 6px 8px; border-radius: 7px; }
+.eqhits .hit:hover { background: var(--raised); }
+.eqhits .hit b { font-weight: 500; }
+.eqcard input.field { width: 100%; }
+.eqmenu { position: fixed; z-index: 60; background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 4px; min-width: 170px; box-shadow: 0 10px 30px #0008; animation: pop var(--t) ease both; }
+.eqmenu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 10px; border-radius: 7px; text-align: left; font-size: 12.5px; }
+.eqmenu button:hover { background: var(--line); }
+.eqmenu button.on { color: var(--acc); }
+.eqmenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.shape { width: 22px; height: 12px; flex: none; border-bottom: 1.5px solid currentColor; position: relative; opacity: .8; }
+.shape.s-peak { border: 0; background: radial-gradient(ellipse 30% 90% at 50% 100%, currentColor 0 48%, transparent 52%); }
+.shape.s-notch { border: 0; background: linear-gradient(currentColor, currentColor) 50% 0 / 2px 100% no-repeat, linear-gradient(currentColor, currentColor) 0 100% / 100% 1.5px no-repeat; }
+.shape.s-band_pass { border: 0; background: radial-gradient(ellipse 22% 100% at 50% 100%, currentColor 0 48%, transparent 52%); }
+.shape.s-low_shelf { border-bottom: 0; background: linear-gradient(currentColor, currentColor) 0 2px / 45% 1.5px no-repeat, linear-gradient(currentColor, currentColor) 100% 100% / 55% 1.5px no-repeat; }
+.shape.s-high_shelf { border-bottom: 0; background: linear-gradient(currentColor, currentColor) 0 100% / 55% 1.5px no-repeat, linear-gradient(currentColor, currentColor) 100% 2px / 45% 1.5px no-repeat; }
+.shape.s-low_cut { border-bottom: 0; background: linear-gradient(currentColor, currentColor) 100% 2px / 70% 1.5px no-repeat, linear-gradient(60deg, transparent 45%, currentColor 47% 53%, transparent 55%) 0 0 / 30% 100% no-repeat; }
+.shape.s-high_cut { border-bottom: 0; background: linear-gradient(currentColor, currentColor) 0 2px / 70% 1.5px no-repeat, linear-gradient(-60deg, transparent 45%, currentColor 47% 53%, transparent 55%) 100% 0 / 30% 100% no-repeat; }
+.eqempty { height: 100%; }
+.eqhead .seg.eqpresets { flex-wrap: nowrap; white-space: nowrap; }
+.eqhead .seg.eqpresets > button { padding: 5px 11px; }
+.eqhead .pathrow { flex: none; }
+.eqquick { display: flex; flex-wrap: wrap; gap: 6px; }
+.eqquick .chip { cursor: pointer; }
+.eqquick .chip:hover { border-color: var(--muted); color: var(--text); }
+.btn.cmp { user-select: none; touch-action: none; }
+
+.eqgrip { width: 20px; border-radius: 8px; color: var(--subtle); font-size: 18px; line-height: 1; transition: all var(--t) ease; }
+.eqgrip:hover { color: var(--text); background: var(--raised); }
+
+/* ───── "now" bar, locked fader panel, game rows ───── */
+.eqnow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 28px; margin: -2px 0 -2px; }
+.eqnow b { font-weight: 600; }
+.eqnow .sp { flex: 1; }
+.eqside.locked { opacity: .45; pointer-events: none; }
+.eqcard .grow2 { grid-template-columns: minmax(0, 1fr) 170px auto; }
+.eqcard .grow2.live > span::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--acc); margin-right: 8px; box-shadow: 0 0 6px var(--acc); }.eqhead .pathrow.locked { opacity: .45; pointer-events: none; }
+
+/* ───── top bar: status lights on the left, updates + exports on the right ───── */
+#topbar .lhs { display: flex; align-items: center; gap: 14px; min-width: 0; min-height: 44px; }
+#topbar .lhs > * { flex-shrink: 0; white-space: nowrap; }
+.eqpill .dot { background: var(--muted); }
+.eqpill.eqon { color: var(--text); }
+.eqpill.eqon .dot { background: var(--acc); }
+.eqpill[hidden] { display: none; }.eqcard .addgame { align-self: flex-start; }
+.eqcard .cap .capnote { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--subtle); }

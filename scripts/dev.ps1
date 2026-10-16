@@ -2,10 +2,16 @@
 # Rust changes rebuild incrementally in debug mode (seconds instead of minutes of LTO).
 #   .\scripts\dev.ps1                # debug recorder + app with live UI
 #   .\scripts\dev.ps1 -NoRecorder    # app only (talks to an already running recorder)
+#   .\scripts\dev.ps1 -Inspect       # also opens WebView2's debug port 9222 on localhost, so the UI can be driven and
+#                                    # screenshotted from outside (CDP). Off by default: any local process could use it.
 # Note: a plain `cargo build -p buffer` copies ffmpeg.exe next to the debug exe; it fails while the debug recorder\n# is running from there (os error 32). Use this script (or stop the recorder first).
 # The installer is only for releases (build-installer.ps1 / publish.ps1).
-param([switch]$NoRecorder)
+param([switch]$NoRecorder, [switch]$Inspect)
 $ErrorActionPreference = "Stop"
+if ($Inspect) {
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
+    Write-Host "Inspect mode: UI debug port http://127.0.0.1:9222 is open (dev only)." -ForegroundColor Yellow
+}
 Set-Location (Split-Path -Parent $PSScriptRoot)
 if (-not $NoRecorder) {
     cargo build -p ml-recorder

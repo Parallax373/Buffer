@@ -64,6 +64,8 @@ pub struct Config {
     pub theme: String,
     /// Starts / stops a long recording (the whole session, not just the last minutes).
     pub record_hotkey: String,
+    /// Makes the next playback device the Windows default (like EarTrumpet); empty = none.
+    pub output_hotkey: String,
     pub game: SourceCfg,
     pub chat: SourceCfg,
     pub mic: SourceCfg,
@@ -104,6 +106,7 @@ impl Default for Config {
             lang: "en".into(),
             theme: "ink".into(),
             record_hotkey: "Alt+R".into(),
+            output_hotkey: String::new(),
             game: SourceCfg::default(),
             chat: SourceCfg::default(),
             mic: SourceCfg::default(),

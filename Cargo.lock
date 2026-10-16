@@ -383,9 +383,10 @@ dependencies = [
 
 [[package]]
 name = "buffer"
-version = "3.0.3"
+version = "3.0.6"
 dependencies = [
  "ml-core",
+ "ml-eq",
  "serde",
  "serde_json",
  "tauri",
@@ -395,6 +396,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "trash",
+ "wasapi",
 ]
 
 [[package]]
@@ -2288,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "ml-cli"
-version = "3.0.3"
+version = "3.0.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -2297,7 +2299,7 @@ dependencies = [
 
 [[package]]
 name = "ml-core"
-version = "3.0.3"
+version = "3.0.6"
 dependencies = [
  "anyhow",
  "serde",
@@ -2305,10 +2307,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ml-eq"
+version = "3.0.6"
+dependencies = [
+ "serde",
+ "serde_json",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "ml-recorder"
-version = "3.0.3"
+version = "3.0.6"
 dependencies = [
  "ml-core",
+ "ml-eq",
  "serde",
  "serde_json",
  "tray-icon 0.26.1",

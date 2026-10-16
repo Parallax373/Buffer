@@ -61,6 +61,47 @@ Each of Game/Chat/Mic has a primary and an optional secondary device (id + name)
 primary, else secondary, else wait. A configured-but-missing device never silently becomes the Windows default and
 settings are never rewritten by plug/unplug; the primary wins again as soon as it returns.
 
+## Live EQ (Sonar-like, on top of Equalizer APO)
+- Equalizer APO (free, GPL, not bundled) does all DSP inside the Windows audio engine: no added latency, works with
+  Buffer closed. Optional: first-run wizard step "EQ" (off by default) or the EQ page installs the pinned
+  `EqualizerAPO-x64-1.4.2.exe` (SHA-256 checked, UAC) — `src-tauri/src/eq.rs`.
+- `crates/ml-eq`: model (7 bands × 7 shapes, per-output System EQ + one Mic EQ, AutoEQ headphone stage, user and
+  per-game presets), `buffer.txt` writer, RBJ curve maths (mirrored in `ui/js/eq.js`), registry detection.
+- The **recorder is the only writer** of `%APPDATA%\moments-lite\eq.json` and `<APO>\config\buffer.txt`
+  (control commands `eq-get|eq-set|eq-bypass|eq-solo|eq-preset|eq-status|eq-outputs|eq-output|eq-listen`).
+  The app goes through `recorder_cmd`; uninstall runs `buffer-recorder eq-unhook`.
+- Measured on a real install (2026-10-16): APO's config folder is writable by Users (no elevation after install);
+  the audio engine can NOT read an include under the user profile (so buffer.txt lives in APO's folder); APO
+  hot-reloads an edited include in < 1 s; `Device: {endpoint guid}` scopes lines; all 7 generated filter lines work.
+  Hooking in replaces APO's stock config (it only adds -6 dB) with `Include: buffer.txt`, otherwise appends the line.
+- One `Device:` section per output, so the EQ follows the Windows default output by itself. Output switch
+  binding `output_hotkey` + tray "Output" submenu use the undocumented IPolicyConfig (`endpoints.rs`, like
+  EarTrumpet); same interface turns "Listen to this device" on for the mic (verified: on/off round-trip).
+- Game presets: while a game in `game_presets` is in front its preset is an in-memory overlay (`ml_eq::Live`,
+  like solo) on the output in use, never saved; it moves with the output when the default changes
+  (`eq::follow_output`, every 2 s and right after a switch from Buffer).
+- The EQ page (`ui/js/eq.js`) always says what is heard: a "now" bar (device · preset or `game → preset` · headphone
+  correction). While a game preset plays, `eq-get` returns its bands (`game_bands`); the graph draws those, locks the
+  dots, faders and preset chips, and shows my own EQ as a faint dashed line; "Edit my EQ" unlocks it (`viewOwn`, UI only).
+- The games card lists games that have a preset, the one in front and the last five from `eq.json: recent_games`
+  (recorder-owned, most recent first, capped at 30). Library clips can't seed it: their names (e.g. `Counter-Strike-2`)
+  don't map back to the exe stem the recorder matches on, so a game never seen in front is added by picking its .exe
+  (`App.api.pickFile` -> `eq-game-add <stem>`). The card for headphone profiles is called "AutoEQ" (headphones and
+  earphones only: the AutoEq database has no speakers).
+- Games are listed automatically: the recorder stores every game it sees in front in `eq.json: seen_games` (stem ->
+  name); each row has one choice (my EQ / a preset). The recorder owns that list (`eq-set` ignores the page's copy;
+  `eq-game-add|-forget <stem>` change it). Choosing a preset for the running game applies at once (`refresh_game`).
+  The built-in preset id `gaming` is shown as "Footsteps" ("Kroki") so it isn't mistaken for the per-game presets.
+  Debug builds have `eq-testgame <stem>|off` to fake a game in front.
+- The tray's audio items are refreshed in tray-icon's event handler on the right click, before the menu opens
+  (thread-local `AUDIO` in tray.rs); nothing polls devices in the background.
+- `apo::status().restart_pending`: APO's install folder or an attached device's FxProperties key is newer than
+  the last boot — shown as "Restart may be needed" (a hint; never seen true here, the user had rebooted).
+- **Clips and the EQ:** endpoint loopback and mic capture are post-APO, so Game/Chat (device sources) and Mic are
+  recorded WITH the EQ; per-app sources (`@app:`) are pre-APO and stay clean (measured).
+- Spectrum: the app opens its own WASAPI loopback/capture only while the EQ page is open (own radix-2 FFT, 160
+  log bins as raw bytes over a `tauri::ipc::Channel`, ~30 fps).
+
 ## Not verified by hand / known gaps
 - The installer itself was built but not run end-to-end on a clean machine (no sandbox available here).
 - Lip-sync of recorded clips (audio vs video) — durations match to ~5 ms and there is an `audio_offset_ms` knob.

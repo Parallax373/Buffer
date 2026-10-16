@@ -43,5 +43,7 @@
   Delete "$INSTDIR\ffmpeg.id"
   ExecWait '"$INSTDIR\buffer-recorder.exe" quit'
   ExecWait '"$INSTDIR\buffer-recorder.exe" uninstall-autostart'
+  ; live EQ: remove only our include line and file from Equalizer APO's config, never APO itself
+  ExecWait '"$INSTDIR\buffer-recorder.exe" eq-unhook'
   Sleep 1500
 !macroend
