@@ -278,63 +278,157 @@ pub fn eq_apo_status() -> ml_eq::apo::Status {
     ml_eq::apo::status()
 }
 
-/// Downloads the pinned Equalizer APO installer, checks its hash and runs it elevated (UAC). Its own device
-/// selector opens at the end; Windows may want a restart afterwards.
+/// What the EQ is for: every playback device that is plugged in, and the microphone (the one the Mic EQ is set to,
+/// else the Windows default). Same ids as the rest of the app (`{0.0.0.00000000}.{guid}`).
+fn wanted_endpoints() -> Vec<(ml_eq::apo::Kind, String)> {
+    use ml_eq::apo::{guid_of, Kind};
+    let _ = wasapi::initialize_mta();
+    let Ok(en) = DeviceEnumerator::new() else { return Vec::new() };
+    let mut out: Vec<(Kind, String)> = Vec::new();
+    if let Ok(coll) = en.get_device_collection(&Direction::Render) {
+        out.extend(coll.into_iter().flatten().filter_map(|d| d.get_id().ok()).map(|id| (Kind::Render, guid_of(&id))));
+    }
+    let chosen = ml_eq::EqState::load().mic_device;
+    let mic = en
+        .get_device(&chosen)
+        .ok()
+        .filter(|d| matches!(d.get_state(), Ok(wasapi::DeviceState::Active)))
+        .and_then(|d| d.get_id().ok())
+        .or_else(|| en.get_default_device_for_role(&Direction::Capture, &wasapi::Role::Console).ok()?.get_id().ok());
+    if let Some(id) = mic {
+        out.push((Kind::Capture, guid_of(&id)));
+    }
+    out.retain(|(_, g)| ml_eq::apo::is_guid(g));
+    out.dedup();
+    out
+}
+
+/// Runs the elevated setup script (one UAC prompt) and waits for it; its exit code says how it went.
+fn run_elevated(script: &str) -> Result<(), String> {
+    let mut c = Command::new("powershell");
+    // The script travels inline (-EncodedCommand), never as a file anyone else could replace before it runs.
+    c.args([
+        "-NoProfile",
+        "-Command",
+        "try { $p = Start-Process -FilePath powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden \
+         -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand',$env:BUFFER_APO_CMD; exit $p.ExitCode } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 99 }",
+    ])
+    .env("BUFFER_APO_CMD", ml_eq::apo::encode_command(script));
+    hide_window(&mut c);
+    let o = c.output().map_err(|e| e.to_string())?;
+    let code = o.status.code().unwrap_or(-1);
+    if code == 99 {
+        eprintln!("elevation: {}", String::from_utf8_lossy(&o.stderr));
+    }
+    match ml_eq::apo::exit_message(code) {
+        None => Ok(()),
+        Some(m) => Err(m.to_string()),
+    }
+}
+
+/// The pinned installer in the cache, downloaded and hash-checked if needed.
+fn apo_installer() -> Result<PathBuf, String> {
+    let exe = cache_dir().join("EqualizerAPO-x64-1.4.2.exe");
+    if sha256(&exe).ok().as_deref() != Some(APO_SHA256) {
+        std::fs::create_dir_all(cache_dir()).map_err(|e| e.to_string())?;
+        // 12 MB: a slow line needs far more than the 30 s a profile gets
+        std::fs::write(&exe, curl_for(APO_URL, 600)?).map_err(|e| e.to_string())?;
+        if sha256(&exe)? != APO_SHA256 {
+            let _ = std::fs::remove_file(&exe);
+            return Err("the downloaded installer does not match the expected hash".into());
+        }
+    }
+    Ok(exe)
+}
+
+/// Gets Equalizer APO working for Buffer in one step: installs it if it is not there (no wizard, no device picker),
+/// attaches it to the devices the EQ needs and restarts the Windows audio service so the engine loads it. One UAC
+/// prompt; all or nothing. Without anything to do it returns at once, without a prompt.
+fn apo_setup() -> Result<ml_eq::apo::Status, String> {
+    apo_setup_with(&[])
+}
+
+fn apo_setup_with(extra: &[ml_eq::apo::Op]) -> Result<ml_eq::apo::Status, String> {
+    let st = ml_eq::apo::status();
+    let todo = ml_eq::apo::missing(&st, &wanted_endpoints());
+    if st.installed && todo.is_empty() && extra.is_empty() {
+        return Ok(st);
+    }
+    let mut ops = ml_eq::apo::plan_attach(&todo)?;
+    ops.extend_from_slice(extra);
+    let exe = if st.installed { None } else { Some(apo_installer()?) };
+    // From the check below until the setup is done this handle stays open with only read sharing: nobody can change
+    // or swap the installer in between, so what runs elevated is exactly what was hashed. (The elevated script
+    // hashes it once more before it starts it.)
+    let _hold = match &exe {
+        Some(p) => {
+            use std::os::windows::fs::OpenOptionsExt;
+            let h = std::fs::OpenOptions::new().read(true).share_mode(1).open(p).map_err(|e| e.to_string())?; // FILE_SHARE_READ
+            if sha256(p)? != APO_SHA256 {
+                return Err("the installer on disk does not match the expected hash".into());
+            }
+            Some(h)
+        }
+        None => None,
+    };
+    run_elevated(&ml_eq::apo::setup_script(exe.as_deref(), APO_SHA256, &ops, None)?)?;
+    let st = ml_eq::apo::status();
+    if !st.installed {
+        return Err("Equalizer APO is not installed".into());
+    }
+    Ok(st)
+}
+
+/// Downloads the pinned Equalizer APO installer (hash checked), installs it and attaches it to the devices the EQ
+/// needs: a single UAC prompt, no installer pages, no device picker.
 #[tauri::command]
 pub async fn eq_install_apo() -> Result<ml_eq::apo::Status, String> {
+    tauri::async_runtime::spawn_blocking(apo_setup).await.map_err(|e| e.to_string())?
+}
+
+/// Attaches an installed Equalizer APO to the devices the EQ needs (the "not active on this device" chip).
+#[tauri::command]
+pub async fn eq_attach_apo() -> Result<ml_eq::apo::Status, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let exe = cache_dir().join("EqualizerAPO-x64-1.4.2.exe");
-        if sha256(&exe).ok().as_deref() != Some(APO_SHA256) {
-            std::fs::create_dir_all(cache_dir()).map_err(|e| e.to_string())?;
-            // 12 MB: a slow line needs far more than the 30 s a profile gets
-            std::fs::write(&exe, curl_for(APO_URL, 600)?).map_err(|e| e.to_string())?;
-            if sha256(&exe)? != APO_SHA256 {
-                let _ = std::fs::remove_file(&exe);
-                return Err("the downloaded installer does not match the expected hash".into());
-            }
+        if !ml_eq::apo::status().installed {
+            return Err("Equalizer APO is not installed".to_string());
         }
-        // From the check below until the installer is done this handle stays open with only read sharing: nobody can
-        // change or swap the file in between, so what runs elevated is exactly what was hashed.
-        use std::os::windows::fs::OpenOptionsExt;
-        let _hold = std::fs::OpenOptions::new().read(true).share_mode(1).open(&exe).map_err(|e| e.to_string())?; // FILE_SHARE_READ
-        if sha256(&exe)? != APO_SHA256 {
-            return Err("the installer on disk does not match the expected hash".into());
-        }
-        let mut c = Command::new("powershell");
-        // the installer ends by opening APO's device picker in its own process: wait for that too, so the status
-        // read below already sees the devices the user ticked
-        c.args([
-            "-NoProfile",
-            "-Command",
-            "Start-Process -FilePath $env:BUFFER_APO -Verb RunAs -Wait; Start-Sleep 2; \
-             while (Get-Process Configurator, DeviceSelector -ErrorAction SilentlyContinue) { Start-Sleep 1 }",
-        ])
-        .env("BUFFER_APO", &exe);
-        hide_window(&mut c);
-        let st = c.status().map_err(|e| e.to_string())?;
-        if !st.success() {
-            return Err("installation was cancelled".into());
-        }
-        Ok(ml_eq::apo::status())
+        apo_setup()
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// APO's own device selector (to attach it to a device it isn't on yet); asks for elevation itself.
-#[tauri::command]
-pub fn eq_open_device_selector() -> Result<(), String> {
-    let dir = ml_eq::apo::status().install_dir.ok_or("Equalizer APO is not installed")?;
-    let mut c = Command::new("powershell");
-    c.args(["-NoProfile", "-Command", "Start-Process -FilePath $env:BUFFER_APO -Verb RunAs"])
-        .env("BUFFER_APO", dir.join("DeviceSelector.exe"));
-    hide_window(&mut c);
-    c.spawn().map(|_| ()).map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Real machine, real UAC prompt, real audio service restart: `cargo test -p buffer apo_ -- --ignored --nocapture
+    /// --test-threads=1` on a PC WITHOUT Equalizer APO. The first test breaks the setup on purpose and expects the PC
+    /// to be exactly as before; the second one is the real thing.
+    #[test]
+    #[ignore]
+    fn apo_a_failed_setup_leaves_nothing_behind() {
+        assert!(!ml_eq::apo::status().installed, "run this on a PC without Equalizer APO");
+        let bogus = ml_eq::apo::Op::Sz(r"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\{00000000-0000-0000-0000-000000000000}\FxProperties".into(), "x".into(), "y".into());
+        let r = apo_setup_with(&[bogus]);
+        println!("result: {r:?}");
+        assert!(r.is_err());
+        assert!(!ml_eq::apo::status().installed);
+    }
+
+    #[test]
+    #[ignore]
+    fn apo_setup_end_to_end() {
+        assert!(!ml_eq::apo::status().installed, "run this on a PC without Equalizer APO");
+        let st = apo_setup().expect("setup");
+        println!("{st:#?}");
+        assert!(st.installed);
+        let want = wanted_endpoints();
+        assert!(ml_eq::apo::missing(&st, &want).is_empty(), "still not attached: {:?}", ml_eq::apo::missing(&st, &want));
+        // asking again changes nothing and shows no prompt
+        assert!(apo_setup().is_ok());
+    }
 
     #[test]
     fn sine_lands_in_its_bin() {

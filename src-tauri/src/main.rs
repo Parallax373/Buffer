@@ -20,6 +20,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 
 mod eq;
+mod rgb;
 
 const VIDEO_EXT: [&str; 3] = ["mp4", "mkv", "mov"];
 /// Folders the app writes to or that only hold derived files.
@@ -876,7 +877,18 @@ fn main() {
             eq::eq_autoeq_fetch,
             eq::eq_apo_status,
             eq::eq_install_apo,
-            eq::eq_open_device_selector,
+            eq::eq_attach_apo,
+            rgb::rgb_status,
+            rgb::rgb_install,
+            rgb::rgb_start,
+            rgb::rgb_set,
+            rgb::rgb_stop,
+            rgb::rgb_uninstall,
+            rgb::rgb_devices,
+            rgb::rgb_scene_get,
+            rgb::rgb_scene_set,
+            rgb::rgb_look,
+            rgb::rgb_keyboard,
         ])
         .setup(|app| {
             std::thread::spawn(prune_cache);
@@ -889,8 +901,9 @@ fn main() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Buffer");
+        .build(tauri::generate_context!())
+        .expect("error while building Buffer")
+        .run(|_, _| {}); // RGB belongs to the recorder: closing the window leaves the lights as they are
 }
 
 #[cfg(test)]

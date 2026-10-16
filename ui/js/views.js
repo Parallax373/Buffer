@@ -4,7 +4,7 @@
 
 (function () {
   const { h, S, api } = App;
-  const VIEWS = { lib: "#v-lib", ed: "#v-ed", eq: "#v-eq", snd: "#v-snd", set: "#v-set" };
+  const VIEWS = { lib: "#v-lib", ed: "#v-ed", eq: "#v-eq", snd: "#v-snd", rgb: "#v-rgb", set: "#v-set" };
 
   /* ───── navigation ───── */
 
@@ -14,6 +14,7 @@
     if (S.view === "ed" && view !== "ed") App.Ed.leave();
     if (S.view === "eq" && view !== "eq") App.EQ.leave();
     if (S.view === "snd" && view !== "snd") App.Sound.leave();
+    if (S.view === "rgb" && view !== "rgb") App.RGB.leave();
     const changed = S.view !== view;
     const prev = S.view;
     document.querySelectorAll("#views .view.leaving").forEach((e) => e.classList.remove("leaving"));
@@ -24,6 +25,7 @@
     if (view === "set") Settings.render(true);
     if (view === "eq" && changed) App.EQ.render();
     if (view === "snd" && changed) App.Sound.render();
+    if (view === "rgb" && changed) App.RGB.render();
     renderRail();
   };
 
@@ -61,6 +63,7 @@
       ["lib", "▦", "nav.library", S.view === "lib" || S.view === "ed"],
       ["eq", "≋", "nav.eq", S.view === "eq"],
       ["snd", "♪", "nav.sound", S.view === "snd"],
+      ["rgb", "◈", "nav.rgb", S.view === "rgb"],
       ["set", "⚙", "nav.settings", S.view === "set"],
     ];
     if (!railItems || !railItems.every((el) => el.isConnected)) {
@@ -665,7 +668,7 @@
 
   /* Zaawansowane: what is normally left alone: tools, the recorder's own status, the cache. */
   async function renderAdvancedTab(pane) {
-    const [tools, size0] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0)]);
+    const [tools, size0, rgb] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0), api.invoke("rgb_status").catch(() => null)]);
     const sizeLine = h("span", { text: App.t("cache.used", { size: App.fmtMB(size0) }) });
     pane.append(h("div", { class: "setcol" },
       h("div", null, U.cap(App.t("adv.diag")),
@@ -682,7 +685,22 @@
               await api.invoke("clear_cache").catch(() => {});
               App.toast(App.t("cache.cleared"), "ok");
               sizeLine.textContent = App.t("cache.used", { size: App.fmtMB(await api.invoke("cache_size").catch(() => 0)) });
-            } }))))));
+            } })))),
+      // RGB is all or nothing: the way out is here (turn off = devices get their own lighting back; remove = also uninstall)
+      rgb && rgb.installed ? h("div", null, U.cap("RGB"),
+        h("div", { class: "card2 pad stackrows" },
+          h("div", { class: "between" }, h("span", { text: App.t("rgb.state." + (rgb.enabled ? "on" : "off")) }),
+            h("span", { class: "pathrow" },
+              rgb.enabled ? h("button", { class: "btn", text: App.t("rgb.turnOff"), onClick: async (e) => {
+                e.currentTarget.disabled = true;
+                await api.invoke("rgb_stop").catch(() => {});
+                App.toast(App.t("rgb.stopped"), "ok"); App.Settings.render(true);
+              } }) : null,
+              h("button", { class: "btn", text: App.t("rgb.remove"), title: App.t("rgb.removeTip"), onClick: async (e) => {
+                e.currentTarget.disabled = true;
+                try { await api.invoke("rgb_uninstall"); App.toast(App.t("rgb.removed"), "ok"); } catch (err) { App.toast(App.t("rgb.err", { err }), "err"); }
+                App.Settings.render(true);
+              } }))))) : null));
   }
 
   // fill the version label once the settings page is on screen

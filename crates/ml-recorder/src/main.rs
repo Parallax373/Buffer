@@ -16,6 +16,7 @@ mod control;
 mod overlay;
 mod perf;
 mod pick;
+mod rgb;
 mod session;
 mod tray;
 mod win;
@@ -212,6 +213,7 @@ fn run() {
         eq_solo_at: Mutex::new(None),
     });
     eq::init(&shared);
+    rgb::init(&shared);
     {
         let cfg = cfg.clone();
         std::thread::spawn(move || longrec::recover_orphans(&cfg));
@@ -244,6 +246,7 @@ fn run() {
     }
     // closing the recorder must not lose a long recording in progress
     let _ = longrec::stop(&shared);
+    rgb::shutdown();
     stop_capture.store(true, Ordering::Relaxed);
     let _ = handle.join();
     log("recorder stopped");
@@ -284,6 +287,9 @@ fn main() {
                 "identify" => identify::run(),
                 "import-icons" => icons::run(std::env::args().skip(2).collect()),
                 "levels" => levels_json(std::env::args().skip(2).collect()),
+                // RGB: one elevated, all-or-nothing step (one Windows permission prompt), see ml-rgb install.rs
+                "rgb-install" => println!("{}", ml_rgb::install::install(&config::local_dir().join("rgb")).map_or_else(|e| format!("failed: {e}"), |_| "ok".into())),
+                "rgb-uninstall" => println!("{}", ml_rgb::install::uninstall().map_or_else(|e| format!("failed: {e}"), |_| "ok".into())),
                 "autostart-status" => println!("{}", if autostart_enabled() { "enabled" } else { "disabled" }),
                 "status" | "save" | "reload" | "quit" | "demo" | "record" | "record-start" | "record-stop" => match control::send(other) {
                     Ok(r) => println!("{r}"),
@@ -297,7 +303,7 @@ fn main() {
                 }
                 "install-autostart" => autostart(true),
                 "uninstall-autostart" => autostart(false),
-                _ => println!("usage: buffer-recorder [run|devices|status|save|record|reload|quit|install-autostart|uninstall-autostart]"),
+                _ => println!("usage: buffer-recorder [run|devices|status|save|record|reload|quit|rgb-install|rgb-uninstall|install-autostart|uninstall-autostart]"),
             }
         }
     }

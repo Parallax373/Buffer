@@ -1,0 +1,13 @@
+[package]
+name = "ml-rgb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Dark Project keyboard driver (darkproject.rs): pure-Rust Windows HID backend, no C build.
+[target.'cfg(windows)'.dependencies]
+hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }

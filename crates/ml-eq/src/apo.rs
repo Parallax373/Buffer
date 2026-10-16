@@ -2,6 +2,9 @@
 //! it is attached to. Measured on a real install (2026-10-16): the config folder is writable by Users, the audio
 //! engine cannot read files under the user profile, and `Device: {endpoint guid}` scopes the lines below it.
 
+mod setup;
+pub use setup::*;
+
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::SystemTime;
@@ -57,8 +60,9 @@ pub struct Status {
     pub hooked: bool,
     /// endpoint guids (`{...}`, lower case) APO is attached to, render and capture
     pub devices: Vec<String>,
-    /// APO was installed, or attached to a device, after Windows last started: the audio engine may not have
-    /// loaded it yet. A hint, not a proof (restarting the audio service is enough too).
+    /// APO was installed, or attached to a device, after the audio engine last started: it may not have loaded it
+    /// yet. A hint, not a proof. Buffer restarts the audio service itself when it attaches, so this only shows for
+    /// changes made by something else.
     pub restart_pending: bool,
 }
 
@@ -67,7 +71,8 @@ pub fn status() -> Status {
     let hooked = std::fs::read_to_string(dir.join("config.txt")).map(|c| c.lines().any(is_ours)).unwrap_or(false);
     let install_dir = reg::string(r"SOFTWARE\EqualizerAPO", "InstallPath").map(PathBuf::from);
     let (devices, newest) = attached_devices();
-    let boot = boot_time();
+    // the engine (audiodg) restarts with the Windows audio service, which is all a new attachment needs
+    let boot = reg::engine_started().or_else(boot_time);
     let installed_at = install_dir.as_ref().and_then(|d| std::fs::metadata(d).ok()?.created().ok());
     let restart_pending = boot.is_some_and(|b| installed_at.is_some_and(|t| t > b) || newest.is_some_and(|t| t > b));
     Status { installed: true, install_dir, config_dir: Some(dir), hooked, devices, restart_pending }
@@ -170,7 +175,7 @@ pub fn attached(status: &Status, endpoint_id: &str) -> bool {
 }
 
 #[cfg(windows)]
-mod reg {
+pub(crate) mod reg {
     use windows_sys::Win32::System::Registry::{
         RegCloseKey, RegEnumKeyExW, RegEnumValueW, RegGetValueW, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ,
         KEY_WOW64_64KEY, RRF_RT_REG_BINARY, RRF_RT_REG_SZ,
@@ -201,6 +206,102 @@ mod reg {
         Some(String::from_utf16_lossy(&buf))
     }
 
+    fn filetime_to_system(ft: windows_sys::Win32::Foundation::FILETIME) -> Option<std::time::SystemTime> {
+        // FILETIME: 100 ns ticks since 1601-01-01
+        let ticks = ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64;
+        let unix = ticks.checked_sub(116_444_736_000_000_000)? / 10;
+        Some(std::time::UNIX_EPOCH + std::time::Duration::from_micros(unix))
+    }
+
+    /// When the audio engine process (audiodg.exe) started; `None` when it is not running or cannot be queried.
+    pub fn engine_started() -> Option<std::time::SystemTime> {
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, FILETIME, INVALID_HANDLE_VALUE},
+            System::{
+                Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS},
+                Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+            },
+        };
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snap == INVALID_HANDLE_VALUE {
+                return None;
+            }
+            let mut e: PROCESSENTRY32W = std::mem::zeroed();
+            e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+            let mut pid = None;
+            let mut ok = Process32FirstW(snap, &mut e);
+            while ok != 0 {
+                let n = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+                if String::from_utf16_lossy(&e.szExeFile[..n]).eq_ignore_ascii_case("audiodg.exe") {
+                    pid = Some(e.th32ProcessID);
+                    break;
+                }
+                ok = Process32NextW(snap, &mut e);
+            }
+            CloseHandle(snap);
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid?);
+            if h.is_null() {
+                return None;
+            }
+            let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let (mut created, mut a, mut b, mut c) = (z, z, z, z);
+            let rc = GetProcessTimes(h, &mut created, &mut a, &mut b, &mut c);
+            CloseHandle(h);
+            if rc == 0 {
+                return None;
+            }
+            filetime_to_system(created)
+        }
+    }
+
+    /// Every value of a key as (name, registry type, data); `None` when the key does not exist.
+    pub fn values(key: &str) -> Option<Vec<(String, u32, Vec<u8>)>> {
+        let h = open(key)?;
+        let mut out = Vec::new();
+        for i in 0.. {
+            let mut name = [0u16; 256];
+            let mut name_len = name.len() as u32;
+            let mut ty = 0u32;
+            let mut data = vec![0u8; 8192];
+            let mut data_len = data.len() as u32;
+            let rc = unsafe {
+                RegEnumValueW(h, i, name.as_mut_ptr(), &mut name_len, std::ptr::null(), &mut ty, data.as_mut_ptr(), &mut data_len)
+            };
+            if rc == 234 {
+                // ERROR_MORE_DATA: a large blob; only its name and type matter here
+                out.push((String::from_utf16_lossy(&name[..name_len as usize]), ty, Vec::new()));
+                continue;
+            }
+            if rc != 0 {
+                break;
+            }
+            data.truncate(data_len as usize);
+            out.push((String::from_utf16_lossy(&name[..name_len as usize]), ty, data));
+        }
+        unsafe { RegCloseKey(h) };
+        Some(out)
+    }
+
+    pub fn has_value(key: &str, value: &str) -> bool {
+        values(key).is_some_and(|v| v.iter().any(|(n, _, _)| n.eq_ignore_ascii_case(value)))
+    }
+
+    pub fn dword(key: &str, value: &str) -> Option<u32> {
+        let mut v = 0u32;
+        let mut len = 4u32;
+        let rc = unsafe {
+            RegGetValueW(HKEY_LOCAL_MACHINE, wide(key).as_ptr(), wide(value).as_ptr(), 0x10 | 0x0001_0000, std::ptr::null_mut(), (&mut v as *mut u32).cast(), &mut len)
+        };
+        (rc == 0).then_some(v)
+    }
+
+    /// REG_SZ / REG_MULTI_SZ data as text (first string, without the terminator).
+    pub fn utf16_text(data: &[u8]) -> String {
+        let words: Vec<u16> = data.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|&w| w != 0).collect();
+        String::from_utf16_lossy(&words)
+    }
+
     /// Last write time of a key.
     pub fn written(key: &str) -> Option<std::time::SystemTime> {
         use windows_sys::Win32::{Foundation::FILETIME, System::Registry::RegQueryInfoKeyW};
@@ -212,10 +313,7 @@ mod reg {
         if rc != 0 {
             return None;
         }
-        // FILETIME: 100 ns ticks since 1601-01-01
-        let ticks = ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64;
-        let unix = ticks.checked_sub(116_444_736_000_000_000)? / 10;
-        Some(std::time::UNIX_EPOCH + std::time::Duration::from_micros(unix))
+        filetime_to_system(ft)
     }
 
     pub fn uptime() -> std::time::Duration {
@@ -297,7 +395,22 @@ mod reg {
 }
 
 #[cfg(not(windows))]
-mod reg {
+pub(crate) mod reg {
+    pub fn engine_started() -> Option<std::time::SystemTime> {
+        None
+    }
+    pub fn values(_: &str) -> Option<Vec<(String, u32, Vec<u8>)>> {
+        None
+    }
+    pub fn has_value(_: &str, _: &str) -> bool {
+        false
+    }
+    pub fn dword(_: &str, _: &str) -> Option<u32> {
+        None
+    }
+    pub fn utf16_text(_: &[u8]) -> String {
+        String::new()
+    }
     pub fn string(_: &str, _: &str) -> Option<String> {
         None
     }

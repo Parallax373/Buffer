@@ -1,5 +1,5 @@
 //! Tiny line-based control protocol on 127.0.0.1 so the UI (and `buffer-recorder save`) can talk to the
-//! running recorder. Commands: status | save | record | record-start | record-stop | reload | quit | eq-* (eq.rs).
+//! running recorder. Commands: status | save | record | record-start | record-stop | reload | quit | eq-* (eq.rs) | rgb-* (rgb.rs).
 //! One JSON line is returned per command.
 
 use crate::config::{Config, CONTROL_PORT};
@@ -98,6 +98,7 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
         let (cmd, arg) = line.trim().split_once(' ').unwrap_or((line.trim(), ""));
         let reply = match line.trim() {
             _ if cmd.starts_with("eq-") => crate::eq::command(shared, cmd, arg),
+            _ if cmd.starts_with("rgb-") => crate::rgb::command(cmd, arg),
             _ if cmd.starts_with("mix-") => crate::mixer::command(shared, cmd, arg),
             "status" => status_json(shared),
             "save" => match save(shared) {

@@ -27,6 +27,13 @@ engine. Buffer does not include or link it: when you turn the EQ on, Buffer down
 `buffer.txt` into Equalizer APO's config folder. Uninstalling Buffer removes that file and its include line, not
 Equalizer APO. Project and source code: https://sourceforge.net/projects/equalizerapo/
 
+## OpenRGB (not shipped; downloaded on request)
+The RGB page controls lights through **OpenRGB** (GNU GPL v2), a separate program. Buffer does not include or link
+it: when you click "Enable RGB", Buffer downloads the official `OpenRGB_1.0_Windows_64_81bbe18.zip` from the OpenRGB
+GitHub release, checks its SHA-256, unpacks it into its own data folder and runs it as a hidden background program
+that Buffer talks to over a local socket (127.0.0.1:6742). It is stopped when Buffer exits. Project and source code:
+https://gitlab.com/CalcProgrammer1/OpenRGB
+
 ## AutoEq headphone profiles (downloaded on request)
 The headphone search reads the results of **AutoEq** by Jaakko Pasanen (MIT) from GitHub when you use it:
 https://github.com/jaakkopasanen/AutoEq

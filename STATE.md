@@ -95,12 +95,56 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
   Debug builds have `eq-testgame <stem>|off` to fake a game in front.
 - The tray's audio items are refreshed in tray-icon's event handler on the right click, before the menu opens
   (thread-local `AUDIO` in tray.rs); nothing polls devices in the background.
+- **Seamless APO setup (2026-10-16):** one click, one UAC prompt, no wizard pages, no device picker, no reboot.
+  APO's NSIS installer has no switch to skip `DeviceSelector /i` (and that program only knows `/u`), so
+  `eq_install_apo` / `eq_attach_apo` (`src-tauri/src/eq.rs`) run ONE elevated PowerShell passed inline via
+  `-EncodedCommand` (`crates/ml-eq/src/apo_setup.ps1`, filled in by `ml_eq::apo::setup_script`; no file written):
+  re-hash the pinned installer, run it with `/S`, kill the picker the moment it starts, `regsvr32` if needed, apply
+  the registry ops, restart `audiosrv` (the engine reloads FxProperties; no reboot). Any failure undoes every write
+  of that run (undo log) and, if the run installed APO, runs its `Uninstall.exe` (the picker is killed after 12 s: it
+  lingers) and deletes `HKLMSOFTWAREEqualizerAPO`. The attach step is a port of `DeviceAPOInfo::install()`
+  (GPL source, mirror/equalizerapo) in `crates/ml-eq/src/apo/setup.rs`: pure `plan_device` -> ops, same `Child APOs`
+  records, so APO's own uninstaller restores each device. Targets: all active playback devices + the Mic EQ device (else the
+  default mic). The "Not active on this device" chip calls `eq_attach_apo` (replaces `eq_open_device_selector`).
+  Command line limit: ops use `%M`/`%C` prefix aliases, error if > ~30k chars. `restart_pending` now compares with
+  the start of audiodg.exe (not Windows boot). Tests: `cargo test -p ml-eq`; real machine (UAC, restarts audio, PC
+  without APO): `cargo test -p buffer apo_ -- --ignored --nocapture --test-threads=1`; `... -p ml-eq -- --ignored attached_here`
+  checks the plan against what the real picker wrote on this PC (identical for 3 outputs + 1 mic).
 - `apo::status().restart_pending`: APO's install folder or an attached device's FxProperties key is newer than
   the last boot — shown as "Restart may be needed" (a hint; never seen true here, the user had rebooted).
 - **Clips and the EQ:** endpoint loopback and mic capture are post-APO, so Game/Chat (device sources) and Mic are
   recorded WITH the EQ; per-app sources (`@app:`) are pre-APO and stay clean (measured).
 - Spectrum: the app opens its own WASAPI loopback/capture only while the EQ page is open (own radix-2 FFT, 160
   log bins as raw bytes over a `tauri::ipc::Channel`, ~30 fps).
+
+## RGB page (OpenRGB, opt-in)
+- Dark Project Midnight 87 (`342D:E40F`, `crates/ml-rgb/src/darkproject.rs`, protocol in `docs-rgb-keyboard.md`): a "Keyboard"
+  chip in the RGB header (shown only when the keyboard is found; off by default; `rgb-keyboard on|off`, `rgb.json: keyboard`).
+  On: the page shows it as a device (index 1000, `stored: true`) and the recorder writes its Simple look as a solid colour,
+  at most once per 2 s (every write rewrites the keyboard's stored profile). Before the first write the profile is saved in
+  `rgb.json: kb_backup`; opt-out, RGB off, leaving Simple mode and clean exit write it back (a crash is healed at the next
+  tick). Advanced scenes do not drive it. Compiled and unit-tested only; the recorder-side sync has not run against the keyboard.
+- The always-on recorder hosts RGB (`crates/ml-recorder/src/rgb.rs`): when `%APPDATA%\Buffer\rgb.json` says `enabled` it starts
+  OpenRGB, connects with `crates/ml-rgb` (SDK protocol 5, never linked: GPL) and shows the saved scene, so lights persist after the
+  window closes and come up with the recorder's autostart. Simple mode / paused = one frame, playing Advanced = a stream at the
+  scene's fps (default 30, cap 60) with no per-frame allocation; a dropped socket is retried with back-off. Devices it took over go
+  back to their earlier mode on `rgb-disable` and on clean recorder exit (mode names are kept in rgb.json, so a crash is covered too).
+  A server that already answers on :6742 is reused and never stopped.
+- Scene = `RGB-SCENE.md` (`ml-rgb/src/scene.rs`; the effect maths is `ml-rgb/src/engine.rs`, a port of the page's JS engine with golden
+  samples from node). Control commands: `rgb-status|rgb-scene-get|rgb-scene-set|rgb-look|rgb-devices|rgb-enable|rgb-disable|rgb-set`;
+  Tauri `rgb_*` commands in `src-tauri/src/rgb.rs` are pass-throughs.
+- Install (`ml-rgb/src/install.rs`, also `buffer-recorder rgb-install` / `rgb-uninstall`): OpenRGB sees the board and RAM only when
+  elevated, so one UAC prompt does everything all-or-nothing: re-verify the pinned zip (held open read-only), unpack into
+  `%ProgramFiles%\Buffer\OpenRGB` (admin-only write), register the on-demand task "Buffer OpenRGB" (highest privileges), install
+  PawnIO 2.2.0 only if its service is missing (hash + Authenticode checked; never uninstalled). The elevated script is passed
+  inline (`-EncodedCommand`), never as a file. The recorder starts/stops the server with `schtasks /Run` and `/End` (no prompt).
+- Page `ui/js/rgb.js` ("Simple": colour, brightness, power per device, saved via `rgb_look`). Advanced (3D placement, synced effects)
+  lives in `ui/js/rgb-adv.js` against the same scene.
+- Measured on the dev PC: without admin OpenRGB sees the PNY RTX 3090 and the Arctis 5; the MSI B450 board and RAM need the elevated
+  task. The Dark Project keyboard (eVision, `320F:706E`) has no OpenRGB controller.
+- Tests: `cargo test -p ml-rgb` (engine, scene, protocol); ignored, hardware: `cargo test -p ml-recorder rgb_hosting -- --ignored --nocapture`
+  (lists devices, drives the headset briefly, checks restore; needs the task installed or a server running) and
+  `cargo test -p ml-rgb install_and_uninstall -- --ignored` (UAC click, changes the machine).
 
 ## Design language
 `DESIGN.md` (repo root) describes the look every UI follows, native windows included: lime "now" / faded "trail",

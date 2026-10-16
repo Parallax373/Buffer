@@ -21,6 +21,7 @@
 
   let st = null;                 // EqState from the recorder
   let apo = null;                // Equalizer APO status
+  let attaching = false;         // the "not active" chip is turning APO on (one UAC prompt)
   let devs = { render: [], capture: [], default: {} };
   let tab = "sys";               // "sys" | "mic"
   let device = "";               // endpoint id being edited on the System tab
@@ -597,8 +598,7 @@
       } },
       isMic() && !st.mic_device ? h("option", { value: "", text: "—", selected: true }) : null,
       list.map((d) => h("option", { value: d.id, text: d.name + (d.id === (isMic() ? devs.default.capture : devs.default.render) ? " ★" : ""), selected: d.id === dev }))),
-      dev && apo && !attached ? h("button", { class: "chip warn", text: App.t("eq.notAttached"), title: App.t("eq.notAttachedTip"),
-        onClick: () => api.invoke("eq_open_device_selector").catch((e) => App.toast(String(e), "err")) }) : null,
+      dev && apo && !attached ? attachChip() : null,
       apo && apo.restart_pending ? h("span", { class: "chip warn", text: App.t("eq.restartChip"), title: App.t("eq.restart") }) : null,
       h("span", { class: "sp" }),
       presetBox,
@@ -744,17 +744,50 @@
     paintAll();
   }
 
+  /** A scan (DESIGN.md) for something that is happening but has no percentage: a lit stretch sweeps to the right. */
+  function scanBusy(n = 28, lit = 10) {
+    const bars = Array.from({ length: n }, () => h("i"));
+    const el = h("div", { class: "scan" }, bars);
+    let t = 0;
+    const tick = () => {
+      if (!el.isConnected && t > 2) { clearInterval(timer); return; }
+      t = (t + 1) % (n + lit);
+      bars.forEach((b, i) => { const d = t - i; b.style.opacity = d >= 0 && d < lit ? 0.35 + 0.65 * (1 - d / lit) : 0.1; });
+    };
+    const timer = setInterval(tick, 70);
+    tick();
+    return el;
+  }
+
+  /** "Not active on this device": one click installs nothing and asks nothing but the admin prompt. */
+  function attachChip() {
+    if (attaching) return h("span", { class: "chip warn busy", title: App.t("eq.notAttachedTip") }, h("span", { text: App.t("eq.attaching") }), scanBusy(8, 4));
+    return h("button", { class: "chip warn", text: App.t("eq.notAttached"), title: App.t("eq.notAttachedTip"), onClick: async () => {
+      attaching = true; paintHeader();
+      try { apo = await api.invoke("eq_attach_apo"); }
+      catch (e) { if (String(e) !== "cancelled") App.toast(App.t("eq.err", { err: e }), "err"); }
+      attaching = false;
+      if (S.view === "eq") { apo = await api.invoke("eq_apo_status").catch(() => apo); paintHeader(); }
+    } });
+  }
+
   function installState(box) {
-    let busy = false;
-    const draw = (msg) => box.replaceChildren(App.emptyState(App.t("eq.noApo"), msg || App.t("eq.noApoD"),
-      busy ? null : App.t("eq.install"), async () => {
-        busy = true; draw(App.t("eq.installing"));
+    let busy = false, err = "";
+    const draw = () => {
+      const el = App.emptyState(App.t("eq.noApo"), App.t("eq.noApoD"), busy ? null : App.t("eq.install"), async () => {
+        busy = true; err = ""; draw();
         try {
           apo = await api.invoke("eq_install_apo");
           busy = false;
-          if (apo.installed) App.EQ.render(); else draw(App.t("eq.restart"));
-        } catch (e) { busy = false; draw(String(e)); }
-      }));
+          if (apo.installed) { App.EQ.render(); return; }
+        } catch (e) { busy = false; err = String(e) === "cancelled" ? "" : App.t("eq.err", { err: e }); }
+        if (S.view === "eq") draw();
+      });
+      el.classList.add("eqempty");
+      if (busy) el.append(h("div", { class: "eqprog" }, h("div", { class: "muted", text: App.t("eq.installing") }), scanBusy()));
+      else if (err) el.append(h("div", { class: "eqerr", text: err }));
+      box.replaceChildren(el);
+    };
     draw();
   }
 
