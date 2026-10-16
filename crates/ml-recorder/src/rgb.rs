@@ -55,6 +55,28 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     (s.len() % 2 == 0).then(|| ()).and_then(|_| (0..s.len() / 2).map(|i| u8::from_str_radix(s.get(2 * i..2 * i + 2)?, 16).ok()).collect())
 }
 
+/// What the keyboard should show: (colour, effect id, brightness step 0..=4, speed step 1..=5).
+type KbWant = ([u8; 3], u8, u8, u8);
+
+/// The keyboard runs its own effects (one write each): Static = Solid, Breathing, Rainbow = Colour Cycle, Wave.
+/// Static keeps its colour pre-scaled by the brightness (full brightness step), the effects use the keyboard's own
+/// brightness steps. Off is solid black.
+fn kb_want(l: &Look) -> KbWant {
+    use ml_rgb::darkproject::effect;
+    let speed = (5.0 - 4.0 * ((l.speed - 0.2) / 2.8).clamp(0.0, 1.0)).round() as u8;
+    if !l.on {
+        return ([0; 3], effect::SOLID, 4, 3);
+    }
+    let step = ((l.br / 100.0 * 4.0).ceil() as u8).clamp(1, 4);
+    let full = Look { br: 100.0, ..l.clone() }.rgb();
+    match l.fx.as_str() {
+        "breathing" => (full, effect::BREATHING, step, speed),
+        "rainbow" => (full, effect::COLOR_CYCLE, step, speed),
+        "wave" => (full, effect::WAVE, step, speed),
+        _ => (l.rgb(), effect::SOLID, 4, 3),
+    }
+}
+
 fn kb_snapshot(b: &(u8, String)) -> Option<ml_rgb::darkproject::Snapshot> {
     Some(ml_rgb::darkproject::Snapshot { profile: b.0, profile_reply: unhex(&b.1)?, custom: None })
 }
@@ -181,7 +203,9 @@ impl Hub {
             // not an OpenRGB device: shown to the page as one so it gets a card and a look like the others
             list.push(json!({
                 "index": KB_INDEX, "kind": 5, "name": KB_NAME, "vendor": "Dark Project", "description": "", "location": "",
-                "active_mode": 0, "modes": [], "zones": [], "led_names": ["Keys"], "colors": [], "stored": true,
+                "active_mode": 0, "modes": [], "zones": [], "stored": true, "colors": [],
+                // one LED per key (the keyboard's own key table), so the page draws a keyboard and not a single bar
+                "led_names": ml_rgb::darkproject::MIDNIGHT_87_ANSI_LEDS.iter().filter(|n| !n.is_empty()).collect::<Vec<_>>(),
             }));
         }
         json!({ "ok": true, "devices": list })
@@ -304,7 +328,7 @@ struct Conn {
     taken: BTreeSet<usize>,
     /// the keyboard's HID handle, opened on first use (never moved to another thread)
     kb: Option<ml_rgb::darkproject::Keyboard>,
-    kb_last: Option<[u8; 3]>,
+    kb_last: Option<KbWant>,
     kb_at: Option<Instant>,
     scene: Scene,
     rev: u64,
@@ -528,7 +552,7 @@ impl Worker {
     fn kb_sync(&self, c: &mut Conn) -> Option<Duration> {
         let (on, look, held) = {
             let st = self.hub.lock();
-            let look = st.file.scene.simple.iter().find(|l| l.name == KB_NAME).map(|l| l.rgb());
+            let look = st.file.scene.simple.iter().find(|l| l.name == KB_NAME).map(kb_want);
             (true, look, st.file.kb_backup.is_some())
         };
         let simple = c.scene.mode == ml_rgb::scene::Mode::Simple;
@@ -565,7 +589,8 @@ impl Worker {
                 snap
             }
         };
-        match c.kb.as_ref().unwrap().apply_static(&snap, want) {
+        let (rgb, effect_id, brightness, speed) = want;
+        match c.kb.as_ref().unwrap().apply_effect(&snap, effect_id, rgb, brightness, speed) {
             Ok(()) => {
                 c.kb_last = Some(want);
                 c.kb_at = Some(Instant::now());

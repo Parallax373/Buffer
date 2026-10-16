@@ -1175,3 +1175,15 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rbig.fx-rainbow i { animation: rHue calc(8s * var(--sp, 1)) linear infinite; animation-delay: calc(var(--i) * -.12s * var(--sp, 1)); }
 .rbig.fx-wave i { animation: rWave calc(2.8s * var(--sp, 1)) ease-in-out infinite; animation-delay: calc(var(--i) * -.1s); }
 :root[data-anim="off"] .rbig, :root[data-anim="off"] .rbig i { animation: none !important; }
+.rchev { margin-left: auto; padding: 0 6px; color: var(--muted); font-size: 16px; line-height: 1; transition: transform var(--t) ease, color var(--t) ease; }
+.rchev:hover { color: var(--text); }
+.rchev.open { transform: rotate(90deg); color: var(--acc); }
+.rchev + .toggle { margin-left: 0; }
+.rdev.child { margin-left: 18px; padding: 9px 12px; }
+.rdev.child .rt b { font-weight: 500; font-size: 12.5px; }
+.rtag { margin-left: 0; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--acc); color: var(--acc); background: var(--acc-dim); font: 10.5px "Instrument Sans"; letter-spacing: .02em; flex: none; }
+.rtag.mix { border-color: var(--muted); color: var(--text2); background: transparent; }
+.rtag:not([hidden]) { margin-left: auto; }
+.rtag:not([hidden]) ~ .rchev, .rtag:not([hidden]) ~ .toggle { margin-left: 6px; }
+.rtag:not([hidden]) ~ .rchev + .toggle { margin-left: 0; }
+.rdev.diff { border-left: 3px solid var(--acc); }

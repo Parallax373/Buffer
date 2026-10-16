@@ -190,6 +190,27 @@ pub fn build_static(profile: u8, snapshot: &[u8], rgb: [u8; 3], brightness: u8) 
     Ok(p)
 }
 
+/// One of the keyboard's own effects (the keyboard animates it itself, so this is a single write): `effect_id` from
+/// [`effect`], `speed_step` 1 (slowest) ..= 5 (fastest), `brightness` step 0..=4. Colour 0 is `rgb`; the multicolour
+/// flag is off, except for Colour Cycle which ignores colours. Same bytes as [`build_static`] plus 23+e (speed).
+pub fn build_effect(profile: u8, snapshot: &[u8], effect_id: u8, rgb: [u8; 3], brightness: u8, speed_step: u8) -> Result<[u8; PAYLOAD_LEN]> {
+    if !matches!(effect_id, effect::WAVE | effect::COLOR_CYCLE | effect::BREATHING | effect::SOLID) {
+        return Err(Error::BadIndex);
+    }
+    let mut p = build_write_profile_from_snapshot(profile, snapshot)?;
+    let e = effect_id as usize;
+    p[8] = effect_id;
+    p[9 + e] = brightness.min(4);
+    p[23 + e] = speed_step.clamp(1, 5);
+    p[37 + e] = 0;
+    p[52] = 0;
+    p[58] = rgb[0];
+    p[66] = rgb[1];
+    p[74] = rgb[2];
+    p[82] = if effect_id == effect::BREATHING { 0 } else { 8 };
+    Ok(p)
+}
+
 /// Select the "Custom" (per-key) effect using stored preset `preset` (0-based) at brightness step 0..=4.
 /// Bytes that differ from the snapshot: 0, 8, 9+14, 52 (= preset + 1), 82. (Byte 37+14 would be 51, which the
 /// vendor overwrites with the wave direction, so it is left alone.)
@@ -421,6 +442,11 @@ mod win {
             self.send(&build_static(snap.profile, &snap.profile_reply, rgb, 4)?)
         }
 
+        /// One of the keyboard's own effects written onto the profile of `snap` (see [`build_effect`]).
+        pub fn apply_effect(&self, snap: &Snapshot, effect_id: u8, rgb: [u8; 3], brightness: u8, speed_step: u8) -> Result<()> {
+            self.send(&build_effect(snap.profile, &snap.profile_reply, effect_id, rgb, brightness, speed_step)?)
+        }
+
         /// Per-key colours (index = LED slot) in custom preset `preset` of the active profile, and select that
         /// preset. Overwrites the stored preset; returns the snapshot (profile + old preset) for `restore`.
         pub fn set_keys(&self, preset: u8, colors: &[[u8; 3]]) -> Result<Snapshot> {
@@ -510,6 +536,24 @@ mod tests {
         assert!(changed.iter().all(|i| allowed.contains(i)), "unexpected bytes changed: {changed:?}");
         assert_eq!((p[0], p[8], p[14], p[42], p[52], p[82]), (0x02, 5, 4, 0, 0, 8));
         assert_eq!((p[58], p[66], p[74]), (0xB4, 0xFF, 0x00));
+        // polling rate, latency, debounce preserved
+        assert_eq!((p[7], p[87], p[85]), (base[7], base[87], base[85]));
+    }
+
+    #[test]
+    fn effects_change_only_their_own_bytes() {
+        let r = fake_reply(0);
+        let base = build_write_profile_from_snapshot(0, &r).unwrap();
+        // breathing (3): brightness at 9+3, speed at 23+3, colour 0, byte 82 = 0
+        let p = build_effect(0, &r, effect::BREATHING, [1, 2, 3], 2, 4).unwrap();
+        assert_eq!((p[8], p[12], p[26], p[40], p[52], p[58], p[66], p[74], p[82]), (3, 2, 4, 0, 0, 1, 2, 3, 0));
+        assert!(diff(&base, &p).iter().all(|i| [8usize, 12, 26, 40, 52, 58, 66, 74, 82].contains(i)), "{:?}", diff(&base, &p));
+        // colour cycle (1), wave (0): speed clamps into 1..=5
+        assert_eq!(build_effect(0, &r, effect::COLOR_CYCLE, [0; 3], 4, 9).unwrap()[24], 5);
+        assert_eq!(build_effect(0, &r, effect::WAVE, [0; 3], 4, 0).unwrap()[23], 1);
+        // anything else (footprint, custom, reset-like ids) is refused
+        assert_eq!(build_effect(0, &r, effect::CUSTOM, [0; 3], 4, 3), Err(Error::BadIndex));
+        assert_eq!(build_effect(0, &r, 4, [0; 3], 4, 3), Err(Error::BadIndex));
         // polling rate, latency, debounce preserved
         assert_eq!((p[7], p[87], p[85]), (base[7], base[87], base[85]));
     }

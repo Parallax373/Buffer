@@ -34,8 +34,18 @@
       const g = by.get(d.name);
       g.members.push(d); g.n += Math.max(1, d.led_names.length);
     }
-    return [{ key: ALL, name: App.t("rgb.all"), members: st.devs, n: st.devs.length, all: true }, ...by.values()];
+    const out = [{ key: ALL, name: App.t("rgb.all"), members: st.devs, n: st.devs.length, all: true }];
+    for (const g of by.values()) {
+      out.push(g);
+      // a group can be opened to control its devices one by one
+      if (g.members.length > 1 && open.has(g.key)) {
+        for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, vendor: g.vendor, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored });
+      }
+    }
+    return out;
   }
+  /** names of the groups that are opened */
+  const open = new Set();
   const current = () => items().find((i) => i.key === st.sel) || items()[0];
   /** what an item shows: its first driven member's look (or a fresh one); for "All" the first member's */
   const itemLook = (it) => lookOf(it.members.find((m) => driven.has(lkey(m))) || it.members[0]);
@@ -79,8 +89,27 @@
   }
   const nLeds = (it) => Math.min(24, Math.max(2, it.all ? 12 : it.n));
 
-  function paintCard(card, it) {
+  /** how a driven device differs from the rest: the look signature, and the one most devices share */
+  const sigOf = (m) => { const l = lookOf(m); return `${l.hue}|${l.sat}|${l.br}|${l.on}|${l.fx}|${l.speed}`; };
+  function reference() {
+    const n = new Map();
+    for (const d of st.devs) if (driven.has(lkey(d))) n.set(sigOf(d), (n.get(sigOf(d)) || 0) + 1);
+    return [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  }
+  /** "mixed": the devices inside differ from each other; "custom": set differently from the rest; "" otherwise */
+  function mark(it, ref) {
+    const sigs = new Set(it.members.filter((m) => driven.has(lkey(m))).map(sigOf));
+    if (sigs.size > 1) return "mixed";
+    if (!it.all && sigs.size === 1 && !sigs.has(ref)) return "custom";
+    return "";
+  }
+
+  function paintCard(card, it, ref = reference()) {
     const l = itemLook(it), on = itemOn(it), dr = itemDriven(it);
+    const mk = mark(it, ref);
+    card.classList.toggle("diff", mk === "custom");
+    const tag = card.querySelector(".rtag");
+    if (tag) { tag.hidden = !mk; tag.textContent = mk ? App.t("rgb." + mk) : ""; tag.title = App.t(mk === "custom" ? "rgb.customTip" : "rgb.mixedTip"); tag.classList.toggle("mix", mk === "mixed"); }
     card.style.setProperty("--c", css(l));
     card.style.setProperty("--br", on ? l.br / 100 : 0.08);
     card.classList.toggle("off", dr && !l.on);
@@ -159,18 +188,24 @@
         paintAll();
         if (x.key === st.sel) draw();
       } });
-      const card = h("button", { class: "rdev" + (x.key === it.key ? " on" : "") + (x.all ? " all" : ""), onClick: () => { st.sel = x.key; draw(); },
+      const group = !x.all && !x.child && x.members.length > 1;
+      const chev = group ? h("span", { class: "rchev" + (open.has(x.key) ? " open" : ""), role: "button", title: App.t("rgb.ungroup"), text: "›", onClick: (e) => {
+        e.stopPropagation();
+        if (open.has(x.key)) { open.delete(x.key); if (st.sel.startsWith(x.key + "#")) st.sel = x.key; } else open.add(x.key);
+        draw();
+      } }) : null;
+      const card = h("button", { class: "rdev" + (x.key === it.key ? " on" : "") + (x.all ? " all" : "") + (x.child ? " child" : ""), onClick: () => { st.sel = x.key; draw(); },
         title: x.stored ? App.t("rgb.keyboardTip") : null },
-        h("span", { class: "rt" }, h("b", { text: x.name }), x.members.length > 1 && !x.all ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
-          !x.all ? h("small", { class: "mono", text: x.vendor }) : null, sw),
+        h("span", { class: "rt" }, h("b", { text: x.name }), group ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
+          !x.all && !x.child ? h("small", { class: "mono", text: x.vendor }) : null, h("span", { class: "rtag", hidden: true }), chev, sw),
         leds(nLeds(x)));
       cards.set(x.key, card);
       paintCard(card, x);
       return idx === 0 ? [card, h("div", { class: "rsep" })] : [card];
     }).flat());
-    const paintAll = () => all.forEach((x) => paintCard(cards.get(x.key), x));
+    const paintAll = () => { const ref = reference(); all.forEach((x) => paintCard(cards.get(x.key), x, ref)); };
 
-    const l = itemLook(it), isStored = it.members.every((m) => m.stored);
+    const l = itemLook(it);
     const hue = h("input", { class: "rhue", type: "range", min: 0, max: 359, value: l.hue, "aria-label": App.t("rgb.colour") });
     const br = h("input", { class: "rline", type: "range", min: 0, max: 100, value: l.br, "aria-label": App.t("rgb.brightness") });
     const spd = h("input", { class: "rline", type: "range", min: 20, max: 300, value: Math.round(l.speed * 100), "aria-label": App.t("rgb.speed") });
@@ -209,8 +244,8 @@
       prev,
       h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour") }), hv), swatches, hue),
       h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.brightness") }), bv), br),
-      isStored ? null : fxBox,
-      !isStored && l.fx && l.fx !== "static" ? spdBox : null);
+      fxBox,
+      l.fx && l.fx !== "static" ? spdBox : null);
     upd();
     page.replaceChildren(h("div", { class: "rgb" }, head(), h("div", { class: "rbody" }, list, detail)));
   }
