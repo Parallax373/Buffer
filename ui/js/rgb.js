@@ -56,23 +56,21 @@
   /** The list: "All devices", then devices grouped by name. An item is { key, name, members, n }. */
   function items() {
     const by = new Map();
-    for (const d of st.devs.filter((x) => !x.hidden || showHidden)) {
+    for (const d of st.devs.filter((x) => !x.hidden)) {
       if (!by.has(d.name)) by.set(d.name, { key: d.name, name: d.name, vendor: d.vendor, kind: d.kind, members: [], n: 0, stored: !!d.stored, hid: !!d.hidden });
       const g = by.get(d.name);
       g.members.push(d); g.n += Math.max(1, d.led_names.length);
     }
     const shown = st.devs.filter((x) => !x.hidden);
     const out = [{ key: ALL, name: App.t("rgb.all"), members: shown, n: shown.length, all: true, kind: "all" }];
-    const hiddenOut = [];   // hidden devices (when shown) go to the end, as compact rows
     for (const g of by.values()) {
-      if (g.hid) { hiddenOut.push(g); continue; }
       out.push(g);
       // a group can be opened to control its devices one by one
       if (g.members.length > 1 && open.has(g.key)) {
         for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, vendor: g.vendor, kind: g.kind, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored, hid: !!m.hidden });
       }
     }
-    return [...out, ...hiddenOut];
+    return out;
   }
   /** names of the groups that are opened */
   const open = new Set();
@@ -366,10 +364,14 @@
 
     // the left column keeps its automation card between redraws (an open card must not close when a card is clicked)
     if (force || !autoEl) autoEl = App.RGBAuto.card(reload);
-    const nHid = st.devs.filter((x) => x.hidden).length;
-    const left = h("div", { class: "rleft" }, list,
-      nHid ? h("button", { class: "linkbtn rmiss", text: App.t("rgb.hidden", { n: nHid }) + (showHidden ? " ▴" : " ▾"), onClick: () => { showHidden = !showHidden; draw(); } }) : null,
-      autoEl, App.RGBAuto.missingLink(st.devs));
+    // hidden devices live only here, under their own heading: one compact row each, with a way back
+    const hiddenDevs = st.devs.filter((x) => x.hidden);
+    const hidBox = hiddenDevs.length ? h("div", { class: "rhid" },
+      h("button", { class: "linkbtn rmiss", text: App.t("rgb.hidden", { n: hiddenDevs.length }) + (showHidden ? " ▴" : " ▾"), onClick: () => { showHidden = !showHidden; draw(); } }),
+      showHidden ? hiddenDevs.map((d) => h("div", { class: "rdev hid" },
+        h("span", { class: "rt" }, icon(d.kind), h("b", { text: d.name + (hiddenDevs.filter((x) => x.name === d.name).length > 1 ? " " + (d.nth + 1) : "") }),
+          h("span", { class: "chip rshow", role: "button", text: App.t("rgb.unhide"), onClick: () => hide({ members: [d] }, false) })))) : null) : null;
+    const left = h("div", { class: "rleft" }, list, hidBox, autoEl, App.RGBAuto.missingLink(st.devs));
     // redrawing in place (a click on the list must not replay the cards' entrance or lose the scroll position)
     const body = force ? null : page.querySelector(".rgb > .rbody");
     if (body) {
