@@ -1227,3 +1227,6 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 
 .arow { flex-wrap: wrap; row-gap: 6px; }
 .rplus { align-self: flex-start; }
+.rauto .cap.sub { margin: 2px 0 4px; }
+.rauto .arow:first-of-type { padding-top: 2px; }
+

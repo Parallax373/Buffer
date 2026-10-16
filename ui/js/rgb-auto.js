@@ -82,6 +82,7 @@
       };
       const box = h("details", { class: "card2 pad rauto" },
         h("summary", { class: "cap", text: App.t("rgb.auto") }),
+        h("div", { class: "cap sub", text: App.t("rgb.autoLights"), title: App.t("rgb.autoTip") }),
         row(App.t("rgb.autoLock"), tog(p.lock, (v) => save({ lock: v }))),
         row(App.t("rgb.autoIdle"), idle),
         row(App.t("rgb.autoSched"), h("span", { class: "asched" }, from, h("span", { text: "–" }), to, tog(p.schedule, (v) => save({ schedule: v })))),
