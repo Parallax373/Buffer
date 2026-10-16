@@ -1189,3 +1189,5 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rdev.diff { border-left: 3px solid var(--acc); }
 
 .rlist.still .rdev { animation: none; }
+.rhd .chip[disabled] { opacity: .4; cursor: default; }
+
