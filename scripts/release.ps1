@@ -1,6 +1,6 @@
 # One step release: bump the version, commit, push and tag. GitHub then builds, signs and publishes the
 # installer (about 10 minutes) and installed copies offer the update by themselves.
-#   .\scripts\release.ps1            # next patch version (0.2.3 -> 0.2.4)
+#   .\scripts\release.ps1            # next patch version (0.2.3 -> 0.2.4), or the current one if it was set by hand and has no tag yet
 #   .\scripts\release.ps1 0.3.0      # a specific version
 #   .\scripts\release.ps1 -DryRun    # run every check and show what would happen, change nothing
 #   .\scripts\release.ps1 -Local     # build here (tests, thin LTO, ~3 min) and publish from this machine instead of GitHub
@@ -37,8 +37,13 @@ Check ($behind -eq 0) "nothing newer on GitHub" "origin/main has $behind newer c
 
 $current = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
 if (-not $Version) {
-    $p = $current.Split('.')
-    $Version = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+    # a version set by hand (bump-version.ps1) and never released is released as it is; otherwise the next patch
+    if (-not (git tag --list "v$current") -and -not (git ls-remote --tags origin "v$current")) {
+        $Version = $current
+    } else {
+        $p = $current.Split('.')
+        $Version = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+    }
 }
 Check ($Version -match '^\d+\.\d+\.\d+$') "version '$Version' looks right"
 $tag = "v$Version"
@@ -58,7 +63,8 @@ if ($DryRun) {
 & "$root\scripts\bump-version.ps1" $Version
 if ($LASTEXITCODE -ne 0) { Fail "bump-version failed" }
 Invoke-Git @("add", "-A")
-Invoke-Git @("commit", "-m", "Release $Version")
+git diff --cached --quiet
+if ($LASTEXITCODE -ne 0) { Invoke-Git @("commit", "-m", "Release $Version") }   # nothing staged: the version was already committed
 Invoke-Git @("push", "origin", "main")
 if ($Local) {
     # build and publish from this machine; the release creates the tag (the workflow sees the release and stops)

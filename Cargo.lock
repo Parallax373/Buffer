@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "buffer"
-version = "3.0.6"
+version = "3.1.0"
 dependencies = [
  "ml-core",
  "ml-eq",
@@ -2290,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "ml-cli"
-version = "3.0.6"
+version = "3.1.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2299,7 +2299,7 @@ dependencies = [
 
 [[package]]
 name = "ml-core"
-version = "3.0.6"
+version = "3.1.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -2308,7 +2308,7 @@ dependencies = [
 
 [[package]]
 name = "ml-eq"
-version = "3.0.6"
+version = "3.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2317,7 +2317,7 @@ dependencies = [
 
 [[package]]
 name = "ml-recorder"
-version = "3.0.6"
+version = "3.1.0"
 dependencies = [
  "ml-core",
  "ml-eq",
