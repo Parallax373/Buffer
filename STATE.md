@@ -1,32 +1,32 @@
-# Moments Lite — project state
+# Moments Lite â€” project state
 
 A small, reliable Windows replacement for the SteelSeries GG "Moments" clip recorder and editor:
 no bloat, no launcher/update breakage, a richer editor, and a size-targeted exporter (e.g. for Discord).
 
 ## Layout
-- `crates/ml-core` — probe + export (ffmpeg wrapper: target size, trim, 16:9 crop, speed, loudness, NVENC).
-- `crates/ml-cli` — `ml` command line over ml-core.
-- `crates/ml-recorder` — background recorder (separate process, tray icon, global hotkey).
-- `src-tauri` + `ui/` — Tauri v2 app; plain HTML/CSS/JS, no bundler. Fonts are bundled in `ui/fonts`.
-- `build-installer.ps1` — builds recorder + app + NSIS installer (`target/release/bundle/nsis`).
+- `crates/ml-core` â€” probe + export (ffmpeg wrapper: target size, trim, 16:9 crop, speed, loudness, NVENC).
+- `crates/ml-cli` â€” `ml` command line over ml-core.
+- `crates/ml-recorder` â€” background recorder (separate process, tray icon, global hotkey).
+- `src-tauri` + `ui/` â€” Tauri v2 app; plain HTML/CSS/JS, no bundler. Fonts are bundled in `ui/fonts`.
+- `build-installer.ps1` â€” builds recorder + app + NSIS installer (`target/release/bundle/nsis`).
 
 ## Recorder (always-on)
-- ffmpeg `ddagrab` + a GPU encoder (NVENC, else AMF, else QuickSync, else x264) → rolling 2-second MPEG-TS segments in `%LOCALAPPDATA%\moments-lite\buffer`.
+- ffmpeg `ddagrab` + a GPU encoder (NVENC, else AMF, else QuickSync, else x264) â†’ rolling 2-second MPEG-TS segments in `%LOCALAPPDATA%\moments-lite\buffer`.
 - Audio is captured by the recorder itself via WASAPI (Game and Chat as loopback of playback endpoints, Mic as
   capture), fed to ffmpeg at real-time rate (zeros while silent/unplugged) so streams never desync or stall.
 - Save (hotkey / tray / UI) joins the last N seconds byte-wise (`concat:` protocol) and remuxes to MP4 with three
-  audio tracks tagged `Game`/`Chat`/`Mic` — the same layout as SteelSeries clips. File name `Game__YYYY-MM-DD__HH-MM-SS.mp4`
+  audio tracks tagged `Game`/`Chat`/`Mic` â€” the same layout as SteelSeries clips. File name `Game__YYYY-MM-DD__HH-MM-SS.mp4`
   (game = executable name of the foreground window, or `Desktop`; map names in `recorder.json: game_names`).
 - Reliability: supervisor restarts ffmpeg with back-off; audio sources reconnect every 2 s; single-instance mutex;
   ffmpeg lives in a kill-on-close job object; tray icon is green (all live) / amber (a source is down) / red (stopped).
-- Config: `%APPDATA%\moments-lite\recorder.json` (UI: Ustawienia → Nagrywanie). fps, width, bitrate, buffer length,
+- Config: `%APPDATA%\moments-lite\recorder.json` (UI: Ustawienia â†’ Nagrywanie). fps, width, bitrate, buffer length,
   monitor, hotkey, devices, audio offset (ms). Control: `ml-recorder status|save|reload|quit` on 127.0.0.1:47821.
 - Autostart: HKCU Run key (`ml-recorder install-autostart`), done by the installer and by Settings.
 
 ## UI (design handoff "Moments Lite")
 Library (virtualised grid, lazy thumbnails, categories/games/favourites, bulk bar, details panel),
 Editor (preview with per-track gain, waveforms, trim, 16:9 crop, speed, loudness, export panel, drag-out),
-Exports (history, drag-out), Settings (Nagrywanie, Wygląd, Ogólne, Eksport, Skróty, Zaawansowane).
+Exports (history, drag-out), Settings (Nagrywanie, WyglÄ…d, OgĂłlne, Eksport, SkrĂłty, Zaawansowane).
 Favourites/exports/settings persist in `%APPDATA%\moments-lite\app-state.json`.
 
 ## Distribution
@@ -64,8 +64,8 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
 ## Live EQ (Sonar-like, on top of Equalizer APO)
 - Equalizer APO (free, GPL, not bundled) does all DSP inside the Windows audio engine: no added latency, works with
   Buffer closed. Optional: first-run wizard step "EQ" (off by default) or the EQ page installs the pinned
-  `EqualizerAPO-x64-1.4.2.exe` (SHA-256 checked, UAC) — `src-tauri/src/eq.rs`.
-- `crates/ml-eq`: model (7 bands × 7 shapes, per-output System EQ + one Mic EQ, AutoEQ headphone stage, user and
+  `EqualizerAPO-x64-1.4.2.exe` (SHA-256 checked, UAC) â€” `src-tauri/src/eq.rs`.
+- `crates/ml-eq`: model (7 bands Ă— 7 shapes, per-output System EQ + one Mic EQ, AutoEQ headphone stage, user and
   per-game presets), `buffer.txt` writer, RBJ curve maths (mirrored in `ui/js/eq.js`), registry detection.
 - The **recorder is the only writer** of `%APPDATA%\moments-lite\eq.json` and `<APO>\config\buffer.txt`
   (control commands `eq-get|eq-set|eq-bypass|eq-solo|eq-preset|eq-status|eq-outputs|eq-output|eq-listen`).
@@ -80,7 +80,7 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
 - Game presets: while a game in `game_presets` is in front its preset is an in-memory overlay (`ml_eq::Live`,
   like solo) on the output in use, never saved; it moves with the output when the default changes
   (`eq::follow_output`, every 2 s and right after a switch from Buffer).
-- The EQ page (`ui/js/eq.js`) always says what is heard: a "now" bar (device · preset or `game → preset` · headphone
+- The EQ page (`ui/js/eq.js`) always says what is heard: a "now" bar (device Â· preset or `game â†’ preset` Â· headphone
   correction). While a game preset plays, `eq-get` returns its bands (`game_bands`); the graph draws those, locks the
   dots, faders and preset chips, and shows my own EQ as a faint dashed line; "Edit my EQ" unlocks it (`viewOwn`, UI only).
 - The games card lists games that have a preset, the one in front and the last five from `eq.json: recent_games`
@@ -111,7 +111,7 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
   without APO): `cargo test -p buffer apo_ -- --ignored --nocapture --test-threads=1`; `... -p ml-eq -- --ignored attached_here`
   checks the plan against what the real picker wrote on this PC (identical for 3 outputs + 1 mic).
 - `apo::status().restart_pending`: APO's install folder or an attached device's FxProperties key is newer than
-  the last boot — shown as "Restart may be needed" (a hint; never seen true here, the user had rebooted).
+  the last boot â€” shown as "Restart may be needed" (a hint; never seen true here, the user had rebooted).
 - **Clips and the EQ:** endpoint loopback and mic capture are post-APO, so Game/Chat (device sources) and Mic are
   recorded WITH the EQ; per-app sources (`@app:`) are pre-APO and stay clean (measured).
 - Spectrum: the app opens its own WASAPI loopback/capture only while the EQ page is open (own radix-2 FFT, 160
@@ -120,9 +120,9 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
 ## RGB page (OpenRGB, opt-in)
 - Dark Project Midnight 87 (`342D:E40F`, `crates/ml-rgb/src/darkproject.rs`, protocol in `docs-rgb-keyboard.md`): a "Keyboard"
   chip in the RGB header (shown only when the keyboard is found; off by default; `rgb-keyboard on|off`, `rgb.json: keyboard`).
-  On: the page shows it as a device (index 1000, `stored: true`) and the recorder writes its Simple look as a solid colour,
+  The page shows it as a device (index 1000, `stored: true`) and the recorder writes its Simple look as a solid colour,
   at most once per 2 s (every write rewrites the keyboard's stored profile). Before the first write the profile is saved in
-  `rgb.json: kb_backup`; opt-out, RGB off, leaving Simple mode and clean exit write it back (a crash is healed at the next
+  `rgb.json: kb_backup`; Give back (`rgb-unlook`), RGB off, leaving Simple mode and clean exit write it back (a crash is healed at the next
   tick). Advanced scenes do not drive it. Compiled and unit-tested only; the recorder-side sync has not run against the keyboard.
 - The always-on recorder hosts RGB (`crates/ml-recorder/src/rgb.rs`): when `%APPDATA%\Buffer\rgb.json` says `enabled` it starts
   OpenRGB, connects with `crates/ml-rgb` (SDK protocol 5, never linked: GPL) and shows the saved scene, so lights persist after the
@@ -193,13 +193,13 @@ scan bars, the animated logo, the tokens. Read it before adding a screen.
   "volume down" (the user's PgDn) sends VK_VOLUME_DOWN, so the binding is Ctrl+VolDown, as EarTrumpet took it.
 - Flyout layout: centred animated logo + name on top, device cards, a full-width "Open SoundSwitcher" button at
   the bottom. It runs `buffer.exe --view=snd`; the app reads `--view=` at start (`startup_view`) and a second
-  launch forwards it to the running window (single-instance → `open-view` event).
+  launch forwards it to the running window (single-instance â†’ `open-view` event).
 - SoundSwitcher page layout: device cards on the left (the picked one has a lime-tinted border), the picked
   device's apps on the right; the tray-icon switch sits top right where the EQ page has its on/off switch.
 
 ## Not verified by hand / known gaps
 - The installer itself was built but not run end-to-end on a clean machine (no sandbox available here).
-- Lip-sync of recorded clips (audio vs video) — durations match to ~5 ms and there is an `audio_offset_ms` knob.
+- Lip-sync of recorded clips (audio vs video) â€” durations match to ~5 ms and there is an `audio_offset_ms` knob.
 - Tray menu, global hotkey, popup over a real game, drag-out to Discord were not exercised by hand.
 - Popup cannot appear above exclusive-fullscreen games (borderless is fine); windowed games need "Dodatkowe gry".
 - Not done: multi-cut/join, captions, import of SteelSeries-saved edits.
@@ -210,6 +210,6 @@ scan bars, the animated logo, the tokens. Read it before adding a screen.
   the language is known only after the saved state loads.
 - English is the default (`settings.lang`). The OS language is only *suggested*: a link on wizard step 1 for new users, a one-time
   dismissible bar for returning users (`settings.langHint` = handled). Switching saves state and reloads the window.
-- All catalogs except `pl` are AI-translated; Settings → App → Language shows a small "AI-translated" note for them (`ai: true`).
+- All catalogs except `pl` are AI-translated; Settings â†’ App â†’ Language shows a small "AI-translated" note for them (`ai: true`).
 - Add a key to `en.js` first, then every locale; `node scripts/check-i18n.js` checks key/placeholder/plural parity.
 - The recorder (tray menu, tooltip, popups, overlay) uses `crates/ml-recorder/src/lang.rs` (same 9 languages); the app writes `lang` into recorder.json on boot and on language switch.

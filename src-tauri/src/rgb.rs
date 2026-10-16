@@ -82,10 +82,10 @@ pub async fn rgb_scene_set(scene: Value) -> Result<(), String> {
     send(format!("rgb-scene-set {}", serde_json::to_string(&scene).map_err(|e| e.to_string())?)).await.map(|_| ())
 }
 
-/// The Dark Project keyboard follows its Simple look (on) or is given back with its own profile (off).
+/// Gives a device back: its Simple look is dropped and it shows its own lighting again.
 #[tauri::command]
-pub async fn rgb_keyboard(on: bool) -> Result<(), String> {
-    send(format!("rgb-keyboard {}", if on { "on" } else { "off" })).await.map(|_| ())
+pub async fn rgb_unlook(name: String, nth: u32) -> Result<(), String> {
+    send(format!("rgb-unlook {nth} {name}")).await.map(|_| ())
 }
 
 /// One device's Simple look `{name, nth, hue, sat, br, on}`: saved, shown at once, switches to Simple mode.

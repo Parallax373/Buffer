@@ -36,9 +36,6 @@ struct File {
     /// device key -> name of the mode it had before Buffer took over (survives a recorder restart or crash)
     #[serde(default)]
     restore: BTreeMap<String, String>,
-    /// the Dark Project keyboard follows its Simple look (opt-in: every change rewrites the keyboard's stored profile)
-    #[serde(default)]
-    keyboard: bool,
     /// (profile, profile reply as hex) of the keyboard before Buffer wrote to it; present only while we hold it
     #[serde(default)]
     kb_backup: Option<(u8, String)>,
@@ -164,7 +161,7 @@ impl Hub {
             "ok": true, "installed": installed, "enabled": st.file.enabled, "running": st.connected, "connected": st.connected,
             "devices": st.devices.len(), "playing": st.file.scene.playing, "streaming": st.streaming,
             "fps": st.file.scene.fps(), "error": st.error,
-            "keyboard": st.file.keyboard, "keyboard_found": ml_rgb::darkproject::detect().is_some(),
+            "keyboard_found": ml_rgb::darkproject::detect().is_some(),
         })
     }
 
@@ -180,7 +177,7 @@ impl Hub {
             })
             .collect();
         let mut list = list;
-        if st.file.keyboard && ml_rgb::darkproject::detect().is_some() {
+        if ml_rgb::darkproject::detect().is_some() {
             // not an OpenRGB device: shown to the page as one so it gets a card and a look like the others
             list.push(json!({
                 "index": KB_INDEX, "kind": 5, "name": KB_NAME, "vendor": "Dark Project", "description": "", "location": "",
@@ -236,16 +233,13 @@ impl Hub {
                 }
                 self.devices(&st)
             }
-            "rgb-keyboard" => {
-                let on = match arg.trim() {
-                    "on" => true,
-                    "off" => false,
-                    _ => return err("usage: rgb-keyboard on|off"),
-                };
-                if on && ml_rgb::darkproject::detect().is_none() {
-                    return err("no Dark Project keyboard found");
+            "rgb-unlook" => {
+                // give a device back: `rgb-unlook <nth> <name>` (the name may contain spaces)
+                let Some((n, name)) = arg.split_once(' ') else { return err("usage: rgb-unlook <nth> <name>") };
+                match n.parse::<u32>() {
+                    Ok(n) => self.edit(|f| f.scene.remove_look(name, n)),
+                    Err(_) => err("bad arguments"),
                 }
-                self.edit(|f| f.keyboard = on)
             }
             "rgb-enable" => {
                 if !install::installed() && Client::connect().is_err() {
@@ -296,6 +290,7 @@ impl Hub {
 struct Planned {
     index: usize,
     fixed: Option<[u8; 3]>,
+    look: Option<Look>,
     pos: Vec<[f32; 3]>,
     buf: Vec<[u8; 3]>,
     last: Vec<[u8; 3]>,
@@ -534,7 +529,7 @@ impl Worker {
         let (on, look, held) = {
             let st = self.hub.lock();
             let look = st.file.scene.simple.iter().find(|l| l.name == KB_NAME).map(|l| l.rgb());
-            (st.file.keyboard, look, st.file.kb_backup.is_some())
+            (true, look, st.file.kb_backup.is_some())
         };
         let simple = c.scene.mode == ml_rgb::scene::Mode::Simple;
         let Some(want) = look.filter(|_| on && simple) else {
@@ -604,9 +599,17 @@ impl Worker {
 
     fn render(&self, c: &mut Conn) {
         let env = Env { origin: c.scene.origin, level: (self.hub.level)().clamp(0.0, 1.0), bright: (c.scene.bright / 100.0).clamp(0.0, 1.0) };
-        for p in c.plan.iter_mut().filter(|p| p.fixed.is_none()) {
-            for (o, pos) in p.buf.iter_mut().zip(&p.pos) {
-                *o = to_bytes(color_at(&c.scene.layers, *pos, c.t, &env));
+        for p in c.plan.iter_mut() {
+            if let Some(look) = p.look.as_ref().filter(|l| l.animated()) {
+                // Simple effects need no positions: an LED's place along the device is its index
+                let n = p.buf.len().max(2) as f32 - 1.0;
+                for (i, o) in p.buf.iter_mut().enumerate() {
+                    *o = look.at(c.t, i as f32 / n);
+                }
+            } else if p.fixed.is_none() {
+                for (o, pos) in p.buf.iter_mut().zip(&p.pos) {
+                    *o = to_bytes(color_at(&c.scene.layers, *pos, c.t, &env));
+                }
             }
         }
     }
@@ -646,7 +649,7 @@ impl Worker {
                 .map(|p| {
                     let n = names[p.index].1;
                     let buf = vec![p.fixed.unwrap_or([0; 3]); n];
-                    Planned { index: p.index, fixed: p.fixed, pos: p.pos, last: Vec::with_capacity(n), buf }
+                    Planned { index: p.index, fixed: p.fixed, look: p.look, pos: p.pos, last: Vec::with_capacity(n), buf }
                 })
                 .collect();
             // devices that dropped out of the scene go back to their own mode
@@ -659,10 +662,13 @@ impl Worker {
             c.replan = false;
             c.dirty = true;
         }
-        let animated = c.scene.mode == ml_rgb::scene::Mode::Advanced && c.scene.playing && !c.scene.layers.is_empty() && c.plan.iter().any(|p| p.fixed.is_none());
+        let advanced = c.scene.mode == ml_rgb::scene::Mode::Advanced && c.scene.playing && !c.scene.layers.is_empty() && c.plan.iter().any(|p| p.fixed.is_none());
+        let simple_fx = c.scene.mode == ml_rgb::scene::Mode::Simple && c.plan.iter().any(|p| p.look.as_ref().is_some_and(Look::animated));
+        let animated = advanced || simple_fx;
         let now = Instant::now();
         if animated {
-            c.t += (now - c.last_tick).as_secs_f64().min(0.1) * c.scene.speed.clamp(0.0, 3.0) as f64;
+            // Simple effects carry their own speed; the scene speed is the Advanced page's
+            c.t += (now - c.last_tick).as_secs_f64().min(0.1) * if simple_fx { 1.0 } else { c.scene.speed.clamp(0.0, 3.0) as f64 };
         }
         c.last_tick = now;
         if animated || c.dirty {
@@ -736,7 +742,7 @@ mod tests {
         struct Guard(Arc<Hub>);
         impl Drop for Guard {
             fn drop(&mut self) {
-                self.0.command("rgb-keyboard", "off");
+                self.0.command("rgb-unlook", &format!("0 {KB_NAME}"));
                 thread::sleep(Duration::from_secs(4));
                 self.0.command("rgb-disable", "");
                 self.0.shutdown();
@@ -744,7 +750,6 @@ mod tests {
         }
         let _guard = Guard(hub.clone());
         assert_eq!(hub.command("rgb-enable", "")["ok"], true);
-        assert_eq!(hub.command("rgb-keyboard", "on")["ok"], true);
         let devs = hub.command("rgb-devices", "");
         assert!(devs["devices"].as_array().unwrap().iter().any(|d| d["name"] == KB_NAME), "the keyboard is listed");
         let look = json!({ "name": KB_NAME, "nth": 0, "hue": 75, "sat": 90, "br": 100, "on": true });
@@ -760,7 +765,7 @@ mod tests {
         thread::sleep(Duration::from_secs(4));
         let second = read();
         assert_ne!((during[59], during[67], during[75]), (second[59], second[67], second[75]), "colour moved on");
-        assert_eq!(hub.command("rgb-keyboard", "off")["ok"], true);
+        assert_eq!(hub.command("rgb-unlook", &format!("0 {KB_NAME}"))["ok"], true);
         thread::sleep(Duration::from_secs(4));
         assert_eq!(read(), before, "the user's profile is back");
         assert!(hub.lock().file.kb_backup.is_none());

@@ -888,7 +888,7 @@ fn main() {
             rgb::rgb_scene_get,
             rgb::rgb_scene_set,
             rgb::rgb_look,
-            rgb::rgb_keyboard,
+            rgb::rgb_unlook,
         ])
         .setup(|app| {
             std::thread::spawn(prune_cache);
