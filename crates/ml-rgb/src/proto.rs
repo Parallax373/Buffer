@@ -15,6 +15,21 @@ pub const SET_NAME: u32 = 50;
 pub const UPDATE_LEDS: u32 = 1050;
 pub const SET_CUSTOM_MODE: u32 = 1100;
 pub const UPDATE_MODE: u32 = 1101;
+pub const RESIZE_ZONE: u32 = 1000;
+
+/// Mode flags (OpenRGB `MODE_FLAG_*`).
+pub mod flag {
+    pub const SPEED: u32 = 1 << 0;
+    pub const DIR_LR: u32 = 1 << 1;
+    pub const DIR_UD: u32 = 1 << 2;
+    pub const DIR_HV: u32 = 1 << 3;
+    pub const BRIGHTNESS: u32 = 1 << 4;
+    pub const PER_LED_COLOR: u32 = 1 << 5;
+    pub const MODE_COLORS: u32 = 1 << 6;
+    pub const RANDOM_COLOR: u32 = 1 << 7;
+    pub const MANUAL_SAVE: u32 = 1 << 8;
+    pub const AUTOMATIC_SAVE: u32 = 1 << 9;
+}
 
 /// One frame: `ORGB`, device index, packet id, payload size, payload.
 pub fn frame(dev: u32, id: u32, payload: &[u8]) -> Vec<u8> {
@@ -41,8 +56,16 @@ pub struct Mode {
     pub name: String,
     pub value: i32,
     pub flags: u32,
+    pub speed_min: u32,
+    pub speed_max: u32,
+    pub brightness_min: u32,
+    pub brightness_max: u32,
+    pub colors_min: u32,
+    pub colors_max: u32,
     pub speed: u32,
     pub brightness: u32,
+    pub direction: u32,
+    pub color_mode: u32,
     /// the mode as the server sent it, so it can be sent back unchanged (restore)
     #[serde(skip)]
     pub raw: Vec<u8>,
@@ -52,7 +75,16 @@ pub struct Mode {
 pub struct Zone {
     pub name: String,
     pub kind: i32,
+    pub leds_min: u32,
+    pub leds_max: u32,
     pub leds: u32,
+}
+
+impl Zone {
+    /// An addressable header whose length the user can set (min and max differ).
+    pub fn resizable(&self) -> bool {
+        self.leds_min != self.leds_max
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -126,19 +158,19 @@ pub fn parse_device(d: &[u8]) -> Result<Device, String> {
         let name = r.string()?;
         let value = r.i32()?;
         let flags = r.u32()?;
-        let (_smin, _smax, _bmin, _bmax, _cmin, _cmax) = (r.u32()?, r.u32()?, r.u32()?, r.u32()?, r.u32()?, r.u32()?);
+        let (speed_min, speed_max, brightness_min, brightness_max, colors_min, colors_max) = (r.u32()?, r.u32()?, r.u32()?, r.u32()?, r.u32()?, r.u32()?);
         let speed = r.u32()?;
         let brightness = r.u32()?;
-        let (_direction, _color_mode) = (r.u32()?, r.u32()?);
+        let (direction, color_mode) = (r.u32()?, r.u32()?);
         r.colors()?;
-        modes.push(Mode { name, value, flags, speed, brightness, raw: d[start..r.o].to_vec() });
+        modes.push(Mode { name, value, flags, speed_min, speed_max, brightness_min, brightness_max, colors_min, colors_max, speed, brightness, direction, color_mode, raw: d[start..r.o].to_vec() });
     }
     let n_zones = r.u16()?;
     let mut zones = Vec::with_capacity(n_zones as usize);
     for _ in 0..n_zones {
         let name = r.string()?;
         let kind = r.i32()?;
-        let (_min, _max, leds) = (r.u32()?, r.u32()?, r.u32()?);
+        let (leds_min, leds_max, leds) = (r.u32()?, r.u32()?, r.u32()?);
         let matrix = r.u16()? as usize;
         r.take(matrix)?;
         for _ in 0..r.u16()? {
@@ -148,7 +180,7 @@ pub fn parse_device(d: &[u8]) -> Result<Device, String> {
             r.u32()?;
         }
         r.u32()?; // zone flags
-        zones.push(Zone { name, kind, leds });
+        zones.push(Zone { name, kind, leds_min, leds_max, leds });
     }
     let n_leds = r.u16()?;
     let mut led_names = Vec::with_capacity(n_leds as usize);
@@ -185,6 +217,60 @@ pub fn write_leds_frame(buf: &mut Vec<u8>, dev: u32, colors: &[[u8; 3]]) {
     for c in colors {
         buf.extend_from_slice(&[c[0], c[1], c[2], 0]);
     }
+}
+
+/// What to change in a mode before it is sent back (`None` keeps the server's value).
+#[derive(Debug, Clone, Default)]
+pub struct ModeEdit {
+    pub speed: Option<u32>,
+    pub brightness: Option<u32>,
+    pub direction: Option<u32>,
+    pub color_mode: Option<u32>,
+    pub colors: Option<Vec<[u8; 3]>>,
+}
+
+/// A copy of a mode's bytes with `e` applied. Layout after the name: value, flags, speed min/max, brightness min/max,
+/// colours min/max, speed, brightness, direction, colour mode (u32 each), then the colour count (u16) and 4 bytes per colour.
+pub fn edit_mode(raw: &[u8], e: &ModeEdit) -> Result<Vec<u8>, String> {
+    let name = u16::from_le_bytes(raw.get(..2).ok_or("mode is cut short")?.try_into().unwrap()) as usize;
+    let o = 2 + name;
+    let colors_at = o + 48;
+    if raw.len() < colors_at + 2 {
+        return Err("mode is cut short".into());
+    }
+    let mut v = raw[..colors_at].to_vec();
+    let put = |v: &mut Vec<u8>, at: usize, x: u32| v[at..at + 4].copy_from_slice(&x.to_le_bytes());
+    if let Some(x) = e.speed { put(&mut v, o + 32, x); }
+    if let Some(x) = e.brightness { put(&mut v, o + 36, x); }
+    if let Some(x) = e.direction { put(&mut v, o + 40, x); }
+    if let Some(x) = e.color_mode { put(&mut v, o + 44, x); }
+    match &e.colors {
+        Some(c) => {
+            v.extend_from_slice(&(c.len() as u16).to_le_bytes());
+            for k in c {
+                v.extend_from_slice(&[k[0], k[1], k[2], 0]);
+            }
+        }
+        None => v.extend_from_slice(&raw[colors_at..]),
+    }
+    Ok(v)
+}
+
+/// UPDATE_MODE payload for a mode given as raw bytes (see [`edit_mode`]).
+pub fn mode_payload_raw(mode_index: u32, raw: &[u8]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(8 + raw.len());
+    v.extend_from_slice(&((8 + raw.len()) as u32).to_le_bytes());
+    v.extend_from_slice(&mode_index.to_le_bytes());
+    v.extend_from_slice(raw);
+    v
+}
+
+/// RESIZE_ZONE payload: zone index, new LED count.
+pub fn resize_payload(zone: u32, size: u32) -> Vec<u8> {
+    let mut v = Vec::with_capacity(8);
+    v.extend_from_slice(&zone.to_le_bytes());
+    v.extend_from_slice(&size.to_le_bytes());
+    v
 }
 
 /// UPDATE_MODE payload that makes `mode_index` active with the mode bytes as they came from the server.
@@ -242,6 +328,35 @@ mod tests {
         let mut b = Vec::new();
         write_leds_frame(&mut b, 7, &c);
         assert_eq!(b, frame(7, UPDATE_LEDS, &leds_payload(&c)));
+    }
+
+    /// A mode as the server sends it, built by hand ("Rainbow Wave": speed, brightness, direction, 2 mode colours).
+    fn fake_mode() -> Vec<u8> {
+        let mut v = Vec::new();
+        let name = b"Rainbow Wave\0";
+        v.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        v.extend_from_slice(name);
+        for x in [2u32, flag::SPEED | flag::DIR_LR | flag::BRIGHTNESS | flag::MODE_COLORS, 1, 5, 0, 100, 0, 2, 3, 100, 0, 2] {
+            v.extend_from_slice(&x.to_le_bytes());
+        }
+        v.extend_from_slice(&1u16.to_le_bytes());
+        v.extend_from_slice(&[9, 8, 7, 0]);
+        v
+    }
+
+    #[test]
+    fn edit_mode_changes_only_what_is_asked() {
+        let raw = fake_mode();
+        assert_eq!(edit_mode(&raw, &ModeEdit::default()).unwrap(), raw, "no edit, same bytes");
+        let e = edit_mode(&raw, &ModeEdit { speed: Some(5), direction: Some(1), colors: Some(vec![[1, 2, 3], [4, 5, 6]]), ..Default::default() }).unwrap();
+        let o = 2 + 13;
+        let u = |at: usize| u32::from_le_bytes(e[o + at..o + at + 4].try_into().unwrap());
+        assert_eq!((u(32), u(36), u(40), u(44)), (5, 100, 1, 2), "speed and direction set, brightness and colour mode kept");
+        assert_eq!(&e[o + 48..], &[2, 0, 1, 2, 3, 0, 4, 5, 6, 0], "two colours");
+        assert_eq!(&e[..o + 32], &raw[..o + 32], "everything before the values is untouched");
+        assert!(edit_mode(&raw[..10], &ModeEdit::default()).is_err());
+        assert_eq!(mode_payload_raw(3, &raw).len(), 8 + raw.len());
+        assert_eq!(resize_payload(1, 30), [1, 0, 0, 0, 30, 0, 0, 0]);
     }
 
     #[test]

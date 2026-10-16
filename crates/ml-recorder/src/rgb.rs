@@ -13,7 +13,7 @@ use ml_rgb::{
     engine::{color_at, to_bytes, Env},
     install,
     proto::Device,
-    scene::{Look, Scene},
+    scene::{DevPlan, Look, Scene},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -36,6 +36,18 @@ struct File {
     /// device key -> name of the mode it had before Buffer took over (survives a recorder restart or crash)
     #[serde(default)]
     restore: BTreeMap<String, String>,
+    /// named scenes (a snapshot of the whole scene), the one in use, and which game switches to which
+    #[serde(default)]
+    profiles: BTreeMap<String, Scene>,
+    #[serde(default)]
+    active_profile: Option<String>,
+    #[serde(default)]
+    game_profiles: BTreeMap<String, String>,
+    #[serde(default)]
+    power: ml_rgb::power::Power,
+    /// zone lengths the user set (device key -> zone index -> LEDs), applied again at every connect
+    #[serde(default)]
+    zones: BTreeMap<String, BTreeMap<u32, u32>>,
     /// (profile, profile reply as hex) of the keyboard before Buffer wrote to it; present only while we hold it
     #[serde(default)]
     kb_backup: Option<(u8, String)>,
@@ -56,7 +68,7 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 }
 
 /// What the keyboard should show: (colour, effect id, brightness step 0..=4, speed step 1..=5).
-type KbWant = ([u8; 3], u8, u8, u8);
+type KbWant = ([u8; 3], u8, u8, u8, bool);
 
 /// The keyboard runs its own effects (one write each): Static = Solid, Breathing, Rainbow = Colour Cycle, Wave.
 /// Static keeps its colour pre-scaled by the brightness (full brightness step), the effects use the keyboard's own
@@ -65,15 +77,15 @@ fn kb_want(l: &Look) -> KbWant {
     use ml_rgb::darkproject::effect;
     let speed = (5.0 - 4.0 * ((l.speed - 0.2) / 2.8).clamp(0.0, 1.0)).round() as u8;
     if !l.on {
-        return ([0; 3], effect::SOLID, 4, 3);
+        return ([0; 3], effect::SOLID, 4, 3, false);
     }
     let step = ((l.br / 100.0 * 4.0).ceil() as u8).clamp(1, 4);
     let full = Look { br: 100.0, ..l.clone() }.rgb();
     match l.fx.as_str() {
-        "breathing" => (full, effect::BREATHING, step, speed),
-        "rainbow" => (full, effect::COLOR_CYCLE, step, speed),
-        "wave" => (full, effect::WAVE, step, speed),
-        _ => (l.rgb(), effect::SOLID, 4, 3),
+        "breathing" => (full, effect::BREATHING, step, speed, false),
+        "rainbow" => (full, effect::COLOR_CYCLE, step, speed, false),
+        "wave" => (full, effect::WAVE, step, speed, l.rev),
+        _ => (l.rgb(), effect::SOLID, 4, 3, false),
     }
 }
 
@@ -117,19 +129,26 @@ struct St {
     error: String,
     /// raw colours for one device (`rgb-set`), applied once and not kept
     raw: Vec<(usize, Vec<[u8; 3]>)>,
+    /// why the lights are out right now ("lock", "idle", "schedule"), and the game profile in use
+    away: Option<&'static str>,
+    game_profile: Option<String>,
+    /// zone length changes asked for: (device index, zone index, LEDs)
+    zones: Vec<(usize, u32, u32)>,
 }
 
 pub struct Hub {
     st: Mutex<St>,
     cv: Condvar,
     level: Box<dyn Fn() -> f32 + Send + Sync>,
+    /// stem of the game in front (lower case), if any
+    game: Box<dyn Fn() -> Option<String> + Send + Sync>,
 }
 
 static HUB: OnceLock<Arc<Hub>> = OnceLock::new();
 
 /// Starts the worker; `level` is the loudness (0..1) the Audio generator follows.
-pub fn start(level: impl Fn() -> f32 + Send + Sync + 'static) -> Arc<Hub> {
-    let hub = Arc::new(Hub { st: Mutex::new(St { file: File::load(), ..St::default() }), cv: Condvar::new(), level: Box::new(level) });
+pub fn start(level: impl Fn() -> f32 + Send + Sync + 'static, game: impl Fn() -> Option<String> + Send + Sync + 'static) -> Arc<Hub> {
+    let hub = Arc::new(Hub { st: Mutex::new(St { file: File::load(), ..St::default() }), cv: Condvar::new(), level: Box::new(level), game: Box::new(game) });
     let w = hub.clone();
     thread::Builder::new().name("rgb".into()).spawn(move || Worker { hub: w, seen: 0, backoff: 1, ours: false }.run()).expect("spawn rgb thread");
     hub
@@ -138,7 +157,11 @@ pub fn start(level: impl Fn() -> f32 + Send + Sync + 'static) -> Arc<Hub> {
 /// Called once from main with the recorder's shared state.
 pub fn init(shared: &Arc<crate::session::Shared>) {
     let s = shared.clone();
-    let hub = start(move || s.sinks[0].level.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1000.0);
+    let g = shared.clone();
+    let hub = start(
+        move || s.sinks[0].level.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1000.0,
+        move || g.eq_game_stem.lock().unwrap().clone(),
+    );
     let _ = HUB.set(hub);
 }
 
@@ -184,6 +207,11 @@ impl Hub {
             "devices": st.devices.len(), "playing": st.file.scene.playing, "streaming": st.streaming,
             "fps": st.file.scene.fps(), "error": st.error,
             "keyboard_found": ml_rgb::darkproject::detect().is_some(),
+            "power": st.file.power, "away": st.away,
+            "profiles": st.file.profiles.keys().collect::<Vec<_>>(), "profile": st.file.active_profile,
+            "profile_dirty": st.file.active_profile.as_ref().and_then(|n| st.file.profiles.get(n)).is_some_and(|p| *p != st.file.scene),
+            "game_profiles": st.file.game_profiles, "game_profile": st.game_profile,
+            "conflicts": crate::away::conflicts(&crate::away::snapshot()),
         })
     }
 
@@ -228,6 +256,57 @@ impl Hub {
                 Ok(look) => self.edit(|f| f.scene.set_look(look)),
                 Err(e) => err(format!("invalid look: {e}")),
             },
+            "rgb-power" => match serde_json::from_str::<ml_rgb::power::Power>(arg) {
+                Ok(p) => self.edit(|f| f.power = p),
+                Err(e) => err(format!("invalid power settings: {e}")),
+            },
+            "rgb-profile-save" => {
+                let name = arg.trim().to_string();
+                if name.is_empty() || name.len() > 40 {
+                    return err("a profile needs a name of up to 40 characters");
+                }
+                self.edit(|f| {
+                    f.profiles.insert(name.clone(), f.scene.clone());
+                    f.active_profile = Some(name);
+                })
+            }
+            "rgb-profile-load" => {
+                let name = arg.trim().to_string();
+                if !self.lock().file.profiles.contains_key(&name) {
+                    return err("no such profile");
+                }
+                self.edit(|f| {
+                    if let Some(s) = f.profiles.get(&name) {
+                        f.scene = s.clone();
+                    }
+                    f.active_profile = Some(name);
+                })
+            }
+            "rgb-profile-delete" => {
+                let name = arg.trim().to_string();
+                self.edit(|f| {
+                    f.profiles.remove(&name);
+                    f.game_profiles.retain(|_, p| *p != name);
+                    if f.active_profile.as_deref() == Some(name.as_str()) {
+                        f.active_profile = None;
+                    }
+                })
+            }
+            "rgb-game-profile" => {
+                // `rgb-game-profile <game stem> <profile name>`; a profile name of "-" removes the binding
+                let Some((stem, name)) = arg.split_once(' ') else { return err("usage: rgb-game-profile <game> <profile|->") };
+                let (stem, name) = (stem.to_ascii_lowercase(), name.trim().to_string());
+                if name != "-" && !self.lock().file.profiles.contains_key(&name) {
+                    return err("no such profile");
+                }
+                self.edit(|f| {
+                    if name == "-" {
+                        f.game_profiles.remove(&stem);
+                    } else {
+                        f.game_profiles.insert(stem, name);
+                    }
+                })
+            }
             "rgb-set" => {
                 let Some((i, rest)) = arg.split_once(' ') else { return err("usage: rgb-set <index> <[[r,g,b],...]>") };
                 match (i.parse::<usize>(), serde_json::from_str::<Vec<[u8; 3]>>(rest)) {
@@ -242,6 +321,22 @@ impl Hub {
                     }
                     _ => err("bad arguments"),
                 }
+            }
+            "rgb-zone" => {
+                let p: Vec<&str> = arg.split(' ').collect();
+                let (Some(Ok(i)), Some(Ok(z)), Some(Ok(n))) = (p.first().map(|s| s.parse::<usize>()), p.get(1).map(|s| s.parse::<u32>()), p.get(2).map(|s| s.parse::<u32>())) else {
+                    return err("usage: rgb-zone <device index> <zone index> <leds>");
+                };
+                let mut st = self.lock();
+                if !st.connected {
+                    return err("RGB is not running");
+                }
+                st.zones.push((i, z, n));
+                st.refresh_req += 1;
+                let want = st.refresh_req;
+                self.poke(&mut st);
+                let st = self.wait_for(st, 30, |s| s.refreshed >= want || !s.connected);
+                self.devices(&st)
             }
             "rgb-devices" => {
                 let mut st = self.lock();
@@ -315,6 +410,9 @@ struct Planned {
     index: usize,
     fixed: Option<[u8; 3]>,
     look: Option<Look>,
+    /// signature and time of the last own-mode update sent to the device (they are throttled: some write flash)
+    applied: String,
+    applied_at: Option<Instant>,
     pos: Vec<[f32; 3]>,
     buf: Vec<[u8; 3]>,
     last: Vec<[u8; 3]>,
@@ -326,6 +424,11 @@ struct Conn {
     /// mode index each device had before we took it over
     orig: Vec<i32>,
     taken: BTreeSet<usize>,
+    /// devices that run one of their own modes now (they get no streamed frames)
+    native_on: BTreeSet<usize>,
+    /// why the lights are out ("lock", "idle", "schedule"), and what the scene shown was built from
+    away: Option<&'static str>,
+    eff: String,
     /// the keyboard's HID handle, opened on first use (never moved to another thread)
     kb: Option<ml_rgb::darkproject::Keyboard>,
     kb_last: Option<KbWant>,
@@ -426,6 +529,11 @@ impl Worker {
             if let Err(e) = self.tick(conn.as_mut().unwrap()) {
                 log(&format!("rgb: connection lost: {e}"));
                 conn = None; // the socket is gone: nothing to restore through, the saved modes cover a restart
+                if e == "resumed" && self.ours {
+                    // the PC slept: USB devices may have reset, so start a fresh server that scans them again
+                    install::stop_server();
+                    self.ours = false;
+                }
                 let mut st = self.hub.lock();
                 st.connected = false;
                 st.streaming = false;
@@ -478,7 +586,23 @@ impl Worker {
                 }
             }
         }
-        let devs = c.devices()?;
+        let mut devs = c.devices()?;
+        // zone lengths the user set come back after every start (OpenRGB does not keep them over the socket)
+        let sizes = self.hub.lock().file.zones.clone();
+        let mut resized = false;
+        for i in 0..devs.len() {
+            for (z, n) in sizes.get(&key(&devs, i)).into_iter().flatten() {
+                if let Some(zone) = devs[i].zones.get(*z as usize) {
+                    if zone.resizable() && zone.leds != *n && (zone.leds_min..=zone.leds_max).contains(n) {
+                        c.resize_zone(i as u32, *z, *n)?;
+                        resized = true;
+                    }
+                }
+            }
+        }
+        if resized {
+            devs = c.devices()?;
+        }
         let saved = self.hub.lock().file.restore.clone();
         let orig = (0..devs.len())
             .map(|i| saved.get(&key(&devs, i)).and_then(|n| devs[i].modes.iter().position(|m| &m.name == n)).map(|p| p as i32).unwrap_or(devs[i].active_mode))
@@ -488,6 +612,9 @@ impl Worker {
             devs,
             orig,
             taken: BTreeSet::new(),
+            native_on: BTreeSet::new(),
+            away: None,
+            eff: String::new(),
             kb: None,
             kb_last: None,
             kb_at: None,
@@ -552,10 +679,16 @@ impl Worker {
     fn kb_sync(&self, c: &mut Conn) -> Option<Duration> {
         let (on, look, held) = {
             let st = self.hub.lock();
-            let look = st.file.scene.simple.iter().find(|l| l.name == KB_NAME).map(kb_want);
+            let look = c.scene.simple.iter().find(|l| l.name == KB_NAME).map(kb_want);
             (true, look, st.file.kb_backup.is_some())
         };
-        let simple = c.scene.mode == ml_rgb::scene::Mode::Simple;
+        // lights out: the keyboard goes black too (its own profile comes back with the lights)
+        let look = if c.away.is_some() {
+            Some(kb_want(&Look { name: KB_NAME.into(), nth: 0, hue: 0.0, sat: 0.0, br: 0.0, on: false, fx: "static".into(), speed: 1.0, c2: None, rev: false, native: None }))
+        } else {
+            look
+        };
+        let simple = c.scene.mode == ml_rgb::scene::Mode::Simple || c.away.is_some();
         let Some(want) = look.filter(|_| on && simple) else {
             if held {
                 self.kb_release(c); // opt-out, or the scene left Simple mode: give the keyboard back
@@ -589,8 +722,8 @@ impl Worker {
                 snap
             }
         };
-        let (rgb, effect_id, brightness, speed) = want;
-        match c.kb.as_ref().unwrap().apply_effect(&snap, effect_id, rgb, brightness, speed) {
+        let (rgb, effect_id, brightness, speed, reverse) = want;
+        match c.kb.as_ref().unwrap().apply_effect(&snap, effect_id, rgb, brightness, speed, reverse) {
             Ok(()) => {
                 c.kb_last = Some(want);
                 c.kb_at = Some(Instant::now());
@@ -601,6 +734,84 @@ impl Worker {
             }
         }
         None
+    }
+
+    /// Devices set to one of their own modes: the mode is sent when the look changes (not streamed), at most every
+    /// 0.6 s, every 2 s for modes that save to the device's memory. Returns how long to wait for a held-back update.
+    fn native_pass(&self, c: &mut Conn) -> Result<Option<Duration>, String> {
+        let mut plan = std::mem::take(&mut c.plan);
+        let mut wait: Option<Duration> = None;
+        let mut res = Ok(());
+        for p in plan.iter_mut() {
+            let Some(look) = p.look.as_ref().filter(|l| l.is_native()).cloned() else { continue };
+            match self.apply_native(c, p, &look) {
+                Ok(Some(w)) => wait = Some(wait.map_or(w, |x| x.min(w))),
+                Ok(None) => {}
+                Err(e) => {
+                    res = Err(e);
+                    break;
+                }
+            }
+        }
+        c.plan = plan;
+        res?;
+        Ok(wait)
+    }
+
+    fn apply_native(&self, c: &mut Conn, p: &mut Planned, look: &Look) -> Result<Option<Duration>, String> {
+        use ml_rgb::proto::{edit_mode, flag, ModeEdit};
+        let i = p.index;
+        let Some(name) = look.native.as_deref() else { return Ok(None) };
+        let Some(mi) = c.devs[i].modes.iter().position(|m| m.name == name) else { return Ok(None) };
+        let m = c.devs[i].modes[mi].clone();
+        let sig = format!("{name}|{}|{}|{}|{:?}|{}|{}", look.hue, look.sat, look.br, look.c2, look.rev, look.speed);
+        if p.applied == sig {
+            return Ok(None);
+        }
+        let gap = if m.flags & flag::AUTOMATIC_SAVE != 0 { Duration::from_secs(2) } else { Duration::from_millis(600) };
+        if let Some(t) = p.applied_at {
+            if t.elapsed() < gap {
+                return Ok(Some(gap - t.elapsed()));
+            }
+        }
+        let lerp = |lo: u32, hi: u32, t: f32| (lo as f32 + (hi as f32 - lo as f32) * t.clamp(0.0, 1.0)).round() as u32;
+        let mut e = ModeEdit::default();
+        if m.flags & flag::SPEED != 0 && m.speed_min != m.speed_max {
+            e.speed = Some(lerp(m.speed_min, m.speed_max, (look.speed - 0.2) / 2.8));
+        }
+        let has_brightness = m.flags & flag::BRIGHTNESS != 0 && m.brightness_min != m.brightness_max;
+        if has_brightness {
+            e.brightness = Some(lerp(m.brightness_min, m.brightness_max, look.br / 100.0));
+        }
+        if m.flags & flag::DIR_LR != 0 {
+            e.direction = Some(look.rev as u32);
+        }
+        if m.flags & flag::MODE_COLORS != 0 && m.colors_max > 0 {
+            let (a, b) = look.colors();
+            let scale = if has_brightness { 1.0 } else { look.br / 100.0 };
+            let s = |k: [u8; 3]| [0, 1, 2].map(|j| (k[j] as f32 * scale).round() as u8);
+            let n = (if look.c2.is_some() { 2 } else { 1 }).min(m.colors_max).max(m.colors_min).max(1) as usize;
+            e.colors = Some([s(a), s(b)].into_iter().cycle().take(n).collect());
+            e.color_mode = Some(2); // mode specific colours
+        }
+        let raw = edit_mode(&m.raw, &e)?;
+        // remember what to restore before the first change, like take_over
+        {
+            let k = key(&c.devs, i);
+            let mut st = self.hub.lock();
+            if !st.file.restore.contains_key(&k) {
+                if let Some(o) = c.devs[i].modes.get(c.orig[i] as usize) {
+                    st.file.restore.insert(k, o.name.clone());
+                    let _ = st.file.save();
+                }
+            }
+        }
+        c.c.set_mode_raw(i as u32, mi as u32, &raw)?;
+        c.taken.insert(i);
+        c.native_on.insert(i);
+        p.applied = sig;
+        p.applied_at = Some(Instant::now());
+        Ok(None)
     }
 
     fn take_over(&self, c: &mut Conn, i: usize, colors: &[[u8; 3]]) -> Result<(), String> {
@@ -645,10 +856,42 @@ impl Worker {
             let mut st = self.hub.lock();
             (st.rev, st.refresh_req > st.refreshed, std::mem::take(&mut st.raw))
         };
-        if rev != c.rev {
-            c.scene = self.hub.lock().file.scene.clone();
+        // the PC slept (this loop did not run for a long time): the devices may have been reset, start over
+        if c.last_tick.elapsed() > Duration::from_secs(25) {
+            return Err("resumed".into());
+        }
+        // what is shown: the saved scene, or the profile of the game in front; and whether the lights are out
+        let procs = crate::away::snapshot();
+        let (scene, away, game_profile, power_on) = {
+            let st = self.hub.lock();
+            let p = &st.file.power;
+            let away = if p.active() { p.away(crate::away::locked(&procs), crate::away::idle_secs(), crate::away::minutes_now()) } else { None };
+            let gp = (self.hub.game)().and_then(|g| st.file.game_profiles.get(&g).cloned()).filter(|n| st.file.profiles.contains_key(n));
+            let scene = gp.as_ref().and_then(|n| st.file.profiles.get(n)).unwrap_or(&st.file.scene).clone();
+            (scene, away, gp, p.active())
+        };
+        let eff = format!("{rev}|{game_profile:?}|{away:?}");
+        if eff != c.eff {
+            c.eff = eff;
             c.rev = rev;
+            c.scene = scene;
+            c.away = away;
             c.replan = true;
+            let mut st = self.hub.lock();
+            st.away = away;
+            st.game_profile = game_profile;
+            self.hub.cv.notify_all();
+        }
+        // zone lengths first: the device list that is read right after already has them
+        let zones = std::mem::take(&mut self.hub.lock().zones);
+        for (i, zone, size) in zones {
+            if i < c.devs.len() {
+                c.c.resize_zone(i as u32, zone, size)?;
+                let k = key(&c.devs, i);
+                let mut st = self.hub.lock();
+                st.file.zones.entry(k).or_default().insert(zone, size);
+                let _ = st.file.save();
+            }
         }
         if refresh {
             c.devs = c.c.devices()?;
@@ -664,17 +907,22 @@ impl Worker {
                 self.take_over(c, i, &colors)?;
             }
         }
+
         if c.replan {
             let names: Vec<(&str, usize)> = c.devs.iter().map(|d| (d.name.as_str(), d.led_names.len())).collect();
-            c.plan = c
-                .scene
-                .plan(&names)
+            // lights out: every device black (the ones the scene does not drive too), the earlier modes come back afterwards
+            let plans: Vec<DevPlan> = if c.away.is_some() {
+                (0..names.len()).map(|index| DevPlan { index, fixed: Some([0; 3]), look: None, pos: Vec::new() }).collect()
+            } else {
+                c.scene.plan(&names)
+            };
+            c.plan = plans
                 .into_iter()
                 .filter(|p| names[p.index].1 > 0)
                 .map(|p| {
                     let n = names[p.index].1;
                     let buf = vec![p.fixed.unwrap_or([0; 3]); n];
-                    Planned { index: p.index, fixed: p.fixed, look: p.look, pos: p.pos, last: Vec::with_capacity(n), buf }
+                    Planned { index: p.index, fixed: p.fixed, look: p.look, applied: String::new(), applied_at: None, pos: p.pos, last: Vec::with_capacity(n), buf }
                 })
                 .collect();
             // devices that dropped out of the scene go back to their own mode
@@ -700,7 +948,10 @@ impl Worker {
             self.render(c);
             let mut plan = std::mem::take(&mut c.plan);
             let mut r = Ok(());
-            for p in plan.iter_mut().filter(|p| p.buf != p.last) {
+            for p in plan.iter_mut().filter(|p| !p.look.as_ref().is_some_and(Look::is_native) && p.buf != p.last) {
+                if c.native_on.remove(&p.index) {
+                    c.taken.remove(&p.index); // back from a device mode: take over again (Direct mode) before streaming
+                }
                 r = self.take_over(c, p.index, &p.buf);
                 if r.is_err() {
                     break;
@@ -723,12 +974,19 @@ impl Worker {
             c.last_beat = Instant::now();
         }
         let kb_wait = self.kb_sync(c);
+        let native_wait = self.native_pass(c)?;
+        let kb_wait = match (kb_wait, native_wait) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         if animated {
             let frame = Duration::from_secs_f64(1.0 / c.scene.fps() as f64);
             let spent = now.elapsed();
             self.nap(frame.saturating_sub(spent));
         } else {
-            self.nap(kb_wait.unwrap_or(Duration::from_secs(5)).min(Duration::from_secs(5)));
+            // with lights that follow the lock screen, the idle time or the clock the loop looks twice a second-ish
+            let poll = if power_on { Duration::from_secs(2) } else { Duration::from_secs(5) };
+            self.nap(kb_wait.unwrap_or(poll).min(poll));
         }
         Ok(())
     }
@@ -762,7 +1020,7 @@ mod tests {
             k.snapshot(p, None).unwrap().profile_reply
         };
         let before = read();
-        let hub = start(|| 0.0);
+        let hub = start(|| 0.0, || None);
         /// a failed assertion must not leave the keyboard on our colour
         struct Guard(Arc<Hub>);
         impl Drop for Guard {
@@ -812,7 +1070,7 @@ mod tests {
             println!("OpenRGB task not installed and no server running: skipping");
             return;
         }
-        let hub = start(|| 0.0);
+        let hub = start(|| 0.0, || None);
         let r = hub.command("rgb-enable", "");
         assert_eq!(r["ok"], true, "{r}");
         let devs = hub.command("rgb-devices", "");

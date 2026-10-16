@@ -71,6 +71,15 @@ pub struct Look {
     pub fx: String,
     #[serde(default = "one")]
     pub speed: f32,
+    /// second colour (hue, saturation) for breathing and wave, and for the device's own effects that take colours
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub c2: Option<[f32; 2]>,
+    /// the effect travels the other way (wave, rainbow, a device effect with a direction)
+    #[serde(default)]
+    pub rev: bool,
+    /// name of one of the device's own OpenRGB modes (it runs the effect itself); then `fx` is "native"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<String>,
 }
 
 fn fx_static() -> String {
@@ -166,6 +175,18 @@ impl Look {
         self.on && matches!(self.fx.as_str(), "breathing" | "rainbow" | "wave")
     }
 
+    /// The device runs its own mode (see `native`).
+    pub fn is_native(&self) -> bool {
+        self.on && self.native.is_some()
+    }
+
+    /// Colour 1 and colour 2 at full brightness (colour 2 falls back to colour 1).
+    pub fn colors(&self) -> ([u8; 3], [u8; 3]) {
+        let a = Self::hsv(self.hue, self.sat, 1.0);
+        let b = self.c2.map(|c| Self::hsv(c[0], c[1], 1.0)).unwrap_or(a);
+        (a, b)
+    }
+
     /// The colour of the LED at relative position `u` (0..1 along the device) at time `t` seconds.
     pub fn at(&self, t: f64, u: f32) -> [u8; 3] {
         if !self.on {
@@ -174,9 +195,18 @@ impl Look {
         let s = self.speed.clamp(0.1, 5.0) as f64;
         let br = self.br / 100.0;
         let wave = |x: f64| (0.5 + 0.5 * (x * std::f64::consts::TAU).sin()) as f32;
+        let u = if self.rev { 1.0 - u } else { u };
+        // two colours: the effect blends between them at full brightness instead of dimming
+        let mix = |w: f32| {
+            let (a, b) = self.colors();
+            let m = |i: usize| ((a[i] as f32 + (b[i] as f32 - a[i] as f32) * w) * br).round().clamp(0.0, 255.0) as u8;
+            [m(0), m(1), m(2)]
+        };
         match self.fx.as_str() {
+            "breathing" if self.c2.is_some() => mix(wave(t * 0.25 * s - 0.25)),
             "breathing" => Self::hsv(self.hue, self.sat, br * (0.1 + 0.9 * wave(t * 0.25 * s - 0.25))),
             "rainbow" => Self::hsv(((t * 45.0 * s) as f32 + u * 160.0).rem_euclid(360.0), self.sat.max(80.0), br),
+            "wave" if self.c2.is_some() => mix(wave(u as f64 - t * 0.35 * s)),
             "wave" => Self::hsv(self.hue, self.sat, br * (0.08 + 0.92 * wave(u as f64 - t * 0.35 * s))),
             _ => self.rgb(),
         }
@@ -302,7 +332,7 @@ mod tests {
 
     #[test]
     fn simple_colours_follow_the_pages_formula() {
-        let look = |hue, sat, br, on| Look { name: "x".into(), nth: 0, hue, sat, br, on, fx: "static".into(), speed: 1.0 };
+        let look = |hue, sat, br, on| Look { name: "x".into(), nth: 0, hue, sat, br, on, fx: "static".into(), speed: 1.0, c2: None, rev: false, native: None };
         assert_eq!(look(0.0, 90.0, 100.0, true).rgb(), [255, 26, 26]);
         assert_eq!(look(120.0, 100.0, 100.0, true).rgb(), [0, 255, 0]);
         assert_eq!(look(75.0, 90.0, 100.0, false).rgb(), [0, 0, 0]);
@@ -312,7 +342,7 @@ mod tests {
 
     #[test]
     fn simple_effects_move_over_time_and_stay_in_range() {
-        let mut l = Look { name: "x".into(), nth: 0, hue: 200.0, sat: 90.0, br: 100.0, on: true, fx: "static".into(), speed: 1.0 };
+        let mut l = Look { name: "x".into(), nth: 0, hue: 200.0, sat: 90.0, br: 100.0, on: true, fx: "static".into(), speed: 1.0, c2: None, rev: false, native: None };
         assert!(!l.animated());
         assert_eq!(l.at(3.0, 0.5), l.rgb(), "static ignores time");
         for fx in ["breathing", "rainbow", "wave"] {
@@ -324,11 +354,21 @@ mod tests {
         }
         l.fx = "wave".into();
         assert_ne!(l.at(0.0, 0.0), l.at(0.0, 0.25), "a wave differs along the device");
+        // a second colour blends between the two instead of dimming; reversing flips the wave along the device
+        l.fx = "wave".into();
+        l.c2 = Some([0.0, 100.0]);
+        let (a, b) = l.colors();
+        let end = l.at(0.0, 0.25);
+        assert!(end.iter().zip(a.iter().zip(&b)).all(|(x, (p, q))| *x >= *p.min(q) && *x <= *p.max(q)), "stays between the two colours");
+        let fwd = l.at(0.7, 0.2);
+        l.rev = true;
+        assert_eq!(l.at(0.7, 0.8), fwd, "reversed is the mirror image");
+        l.rev = false;
         l.on = false;
         assert_eq!(l.at(1.0, 0.3), [0, 0, 0]);
         assert!(!l.animated(), "off needs no loop");
         let mut s = Scene::default();
-        s.set_look(Look { name: "A".into(), nth: 0, hue: 1.0, sat: 1.0, br: 1.0, on: true, fx: "static".into(), speed: 1.0 });
+        s.set_look(Look { name: "A".into(), nth: 0, hue: 1.0, sat: 1.0, br: 1.0, on: true, fx: "static".into(), speed: 1.0, c2: None, rev: false, native: None });
         s.remove_look("A", 0);
         assert!(s.simple.is_empty());
         let old: Look = serde_json::from_str(r#"{"name":"A","hue":10}"#).unwrap();
@@ -356,7 +396,7 @@ mod tests {
         let w = r.world(12);
         assert!(w[11][0].abs() < 1e-4 && (w[11][2] + 9.0).abs() < 1e-4);
         s.mode = Mode::Simple;
-        s.set_look(Look { name: "Headset".into(), nth: 1, hue: 75.0, sat: 90.0, br: 100.0, on: true, fx: "static".into(), speed: 1.0 });
+        s.set_look(Look { name: "Headset".into(), nth: 1, hue: 75.0, sat: 90.0, br: 100.0, on: true, fx: "static".into(), speed: 1.0, c2: None, rev: false, native: None });
         assert_eq!(s.plan(&devs).iter().map(|d| d.index).collect::<Vec<_>>(), [2]);
         assert!(s.plan(&devs)[0].fixed.is_some());
     }

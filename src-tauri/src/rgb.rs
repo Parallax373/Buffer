@@ -93,3 +93,33 @@ pub async fn rgb_unlook(name: String, nth: u32) -> Result<(), String> {
 pub async fn rgb_look(look: Value) -> Result<(), String> {
     send(format!("rgb-look {}", serde_json::to_string(&look).map_err(|e| e.to_string())?)).await.map(|_| ())
 }
+
+/// Sets the number of LEDs of an addressable zone (`zone` is its index inside the device); returns the device list again.
+#[tauri::command]
+pub async fn rgb_zone(index: u32, zone: u32, leds: u32) -> Result<Value, String> {
+    Ok(send(format!("rgb-zone {index} {zone} {leds}")).await?["devices"].clone())
+}
+
+/// When the lights go out by themselves `{lock, idle_min, schedule, from, to}`.
+#[tauri::command]
+pub async fn rgb_power(power: Value) -> Result<(), String> {
+    send(format!("rgb-power {}", serde_json::to_string(&power).map_err(|e| e.to_string())?)).await.map(|_| ())
+}
+
+/// Saves the scene in use under `name` (also overwrites), loads one, or deletes one.
+#[tauri::command]
+pub async fn rgb_profile(action: String, name: String) -> Result<(), String> {
+    let cmd = match action.as_str() {
+        "save" => "rgb-profile-save",
+        "load" => "rgb-profile-load",
+        "delete" => "rgb-profile-delete",
+        _ => return Err("unknown profile action".into()),
+    };
+    send(format!("{cmd} {name}")).await.map(|_| ())
+}
+
+/// Switches to a profile while a game is in front (`profile` "-" removes the binding).
+#[tauri::command]
+pub async fn rgb_game_profile(game: String, profile: String) -> Result<(), String> {
+    send(format!("rgb-game-profile {game} {profile}")).await.map(|_| ())
+}

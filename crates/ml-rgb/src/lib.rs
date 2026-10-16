@@ -5,5 +5,6 @@ pub mod client;
 pub mod darkproject;
 pub mod engine;
 pub mod install;
+pub mod power;
 pub mod proto;
 pub mod scene;

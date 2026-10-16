@@ -75,6 +75,16 @@ impl Client {
         self.s.write_all(&self.buf).map_err(|e| e.to_string())
     }
 
+    /// Makes `mode_index` active with the given mode bytes (see `proto::edit_mode`).
+    pub fn set_mode_raw(&mut self, index: u32, mode_index: u32, raw: &[u8]) -> Result<(), String> {
+        self.send(index, proto::UPDATE_MODE, &proto::mode_payload_raw(mode_index, raw))
+    }
+
+    /// Sets the LED count of an addressable zone (the device's list must be read again afterwards).
+    pub fn resize_zone(&mut self, index: u32, zone: u32, size: u32) -> Result<(), String> {
+        self.send(index, proto::RESIZE_ZONE, &proto::resize_payload(zone, size))
+    }
+
     /// Puts a mode (as read earlier) back, e.g. the one a device was in before Buffer took over.
     pub fn restore_mode(&mut self, index: u32, d: &Device) -> Result<(), String> {
         let m = d.modes.get(d.active_mode as usize).ok_or("no such mode")?;

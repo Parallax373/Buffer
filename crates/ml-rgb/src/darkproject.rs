@@ -193,7 +193,7 @@ pub fn build_static(profile: u8, snapshot: &[u8], rgb: [u8; 3], brightness: u8) 
 /// One of the keyboard's own effects (the keyboard animates it itself, so this is a single write): `effect_id` from
 /// [`effect`], `speed_step` 1 (slowest) ..= 5 (fastest), `brightness` step 0..=4. Colour 0 is `rgb`; the multicolour
 /// flag is off, except for Colour Cycle which ignores colours. Same bytes as [`build_static`] plus 23+e (speed).
-pub fn build_effect(profile: u8, snapshot: &[u8], effect_id: u8, rgb: [u8; 3], brightness: u8, speed_step: u8) -> Result<[u8; PAYLOAD_LEN]> {
+pub fn build_effect(profile: u8, snapshot: &[u8], effect_id: u8, rgb: [u8; 3], brightness: u8, speed_step: u8, reverse: bool) -> Result<[u8; PAYLOAD_LEN]> {
     if !matches!(effect_id, effect::WAVE | effect::COLOR_CYCLE | effect::BREATHING | effect::SOLID) {
         return Err(Error::BadIndex);
     }
@@ -208,6 +208,9 @@ pub fn build_effect(profile: u8, snapshot: &[u8], effect_id: u8, rgb: [u8; 3], b
     p[66] = rgb[1];
     p[74] = rgb[2];
     p[82] = if effect_id == effect::BREATHING { 0 } else { 8 };
+    if effect_id == effect::WAVE {
+        p[51] = if reverse { 1 } else { 0 }; // direction: 0 right, 1 left
+    }
     Ok(p)
 }
 
@@ -443,8 +446,8 @@ mod win {
         }
 
         /// One of the keyboard's own effects written onto the profile of `snap` (see [`build_effect`]).
-        pub fn apply_effect(&self, snap: &Snapshot, effect_id: u8, rgb: [u8; 3], brightness: u8, speed_step: u8) -> Result<()> {
-            self.send(&build_effect(snap.profile, &snap.profile_reply, effect_id, rgb, brightness, speed_step)?)
+        pub fn apply_effect(&self, snap: &Snapshot, effect_id: u8, rgb: [u8; 3], brightness: u8, speed_step: u8, reverse: bool) -> Result<()> {
+            self.send(&build_effect(snap.profile, &snap.profile_reply, effect_id, rgb, brightness, speed_step, reverse)?)
         }
 
         /// Per-key colours (index = LED slot) in custom preset `preset` of the active profile, and select that
@@ -545,15 +548,16 @@ mod tests {
         let r = fake_reply(0);
         let base = build_write_profile_from_snapshot(0, &r).unwrap();
         // breathing (3): brightness at 9+3, speed at 23+3, colour 0, byte 82 = 0
-        let p = build_effect(0, &r, effect::BREATHING, [1, 2, 3], 2, 4).unwrap();
+        let p = build_effect(0, &r, effect::BREATHING, [1, 2, 3], 2, 4, false).unwrap();
         assert_eq!((p[8], p[12], p[26], p[40], p[52], p[58], p[66], p[74], p[82]), (3, 2, 4, 0, 0, 1, 2, 3, 0));
         assert!(diff(&base, &p).iter().all(|i| [8usize, 12, 26, 40, 52, 58, 66, 74, 82].contains(i)), "{:?}", diff(&base, &p));
         // colour cycle (1), wave (0): speed clamps into 1..=5
-        assert_eq!(build_effect(0, &r, effect::COLOR_CYCLE, [0; 3], 4, 9).unwrap()[24], 5);
-        assert_eq!(build_effect(0, &r, effect::WAVE, [0; 3], 4, 0).unwrap()[23], 1);
+        assert_eq!(build_effect(0, &r, effect::COLOR_CYCLE, [0; 3], 4, 9, false).unwrap()[24], 5);
+        assert_eq!(build_effect(0, &r, effect::WAVE, [0; 3], 4, 0, false).unwrap()[23], 1);
+        assert_eq!(build_effect(0, &r, effect::WAVE, [0; 3], 4, 3, true).unwrap()[51], 1, "wave direction left");
         // anything else (footprint, custom, reset-like ids) is refused
-        assert_eq!(build_effect(0, &r, effect::CUSTOM, [0; 3], 4, 3), Err(Error::BadIndex));
-        assert_eq!(build_effect(0, &r, 4, [0; 3], 4, 3), Err(Error::BadIndex));
+        assert_eq!(build_effect(0, &r, effect::CUSTOM, [0; 3], 4, 3, false), Err(Error::BadIndex));
+        assert_eq!(build_effect(0, &r, 4, [0; 3], 4, 3, false), Err(Error::BadIndex));
         // polling rate, latency, debounce preserved
         assert_eq!((p[7], p[87], p[85]), (base[7], base[87], base[85]));
     }

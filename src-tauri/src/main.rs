@@ -484,6 +484,15 @@ fn rename_clip(path: String, title: String) -> Result<String, String> {
     Ok(dst.to_string_lossy().into_owned())
 }
 
+/// Opens the new-issue page of Buffer's GitHub project in the browser (the "Missing something?" button). Only that page.
+#[tauri::command]
+fn open_issue_page(url: String) -> Result<(), String> {
+    if !url.starts_with("https://github.com/Wheatlay/Buffer/issues/new") {
+        return Err("only the issue page can be opened".into());
+    }
+    Command::new("explorer").arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn reveal(path: String) -> Result<(), String> {
     Command::new("explorer")
@@ -889,6 +898,11 @@ fn main() {
             rgb::rgb_scene_set,
             rgb::rgb_look,
             rgb::rgb_unlook,
+            rgb::rgb_zone,
+            rgb::rgb_power,
+            rgb::rgb_profile,
+            rgb::rgb_game_profile,
+            open_issue_page,
         ])
         .setup(|app| {
             std::thread::spawn(prune_cache);
