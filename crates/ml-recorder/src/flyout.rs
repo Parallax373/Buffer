@@ -33,7 +33,7 @@ use windows_sys::Win32::UI::Input::{
 use windows_sys::Win32::UI::Shell::ExtractIconExW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DrawIconEx, GetCursorPos, KillTimer, LoadCursorW, RegisterClassW, SetCursor, SetForegroundWindow,
-    SetTimer, SetWindowPos, ShowWindow, UpdateLayeredWindow, DI_NORMAL, HICON, HWND_TOPMOST, IDC_ARROW, IDC_HAND, RI_MOUSE_WHEEL,
+    SetTimer, SetWindowPos, ShowWindow, UpdateLayeredWindow, DI_NORMAL, HICON, HWND_TOPMOST, IDC_ARROW, IDC_HAND, IDC_SIZEALL, RI_MOUSE_WHEEL,
     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WA_INACTIVE, WM_ACTIVATE, WM_INPUT, WM_KEYDOWN,
     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_SETCURSOR, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
     WS_EX_TOPMOST, WS_POPUP,
@@ -61,6 +61,8 @@ const SL_X1: f64 = W - PAD - 60.0;
 const NUM_RIGHT: f64 = W - PAD - 14.0;
 /// Clicks left of this on a slider row toggle mute (the speaker glyph / the app icon).
 const MUTE_X: f64 = PAD + 44.0;
+/// An app row's grip (the six dots that say "drag me onto another device") ends here.
+const GRIP_X: f64 = PAD + 12.0;
 const OPEN_MS: f64 = 190.0;
 const CLOSE_MS: f64 = 110.0;
 
@@ -100,6 +102,11 @@ fn cref(c: Rgb) -> u32 {
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
+}
+
+/// The chip on an idle pinned app: "Pinned · not playing".
+fn idle_chip() -> String {
+    format!("{} · {}", crate::lang::t("mix.pinned"), crate::lang::t("mix.idle"))
 }
 
 fn ease_out(t: f64) -> f64 {
@@ -285,6 +292,21 @@ enum Kind {
     Label(usize),
     Master(usize),
     App(usize, usize),
+    /// An app pinned to this device that isn't playing: greyed, with a chip that unpins it.
+    Idle(usize, usize),
+}
+
+/// An app being dragged onto another device (pointer in logical client px).
+struct Moving {
+    key: String,
+    name: String,
+    icon: String,
+    /// Its device (card index).
+    from: usize,
+    x: f64,
+    y: f64,
+    /// The card under the pointer, when it is another device.
+    over: Option<usize>,
 }
 
 struct Row {
@@ -304,6 +326,8 @@ struct Fonts {
     /// Widths (logical px) for centring: "Buffer" in `brand`, the open button's label in `button`.
     brand_w: f64,
     open_w: f64,
+    /// The idle chip's width: fits both "Pinned · not playing" and "Unpin" in `small`.
+    chip_w: f64,
 }
 
 enum Anim {
@@ -334,6 +358,13 @@ struct Flyout {
     fonts: Option<Fonts>,
     icons: HashMap<String, HICON>,
     drag: Option<Target>,
+    /// Running apps pinned to an output with Windows' per-app setting: app key -> device id.
+    pins: HashMap<String, String>,
+    /// Per device: the apps Buffer pinned there that aren't playing.
+    idle: Vec<Vec<crate::appdev::Pin>>,
+    /// Left button down on an app's grip or icon (device, app, x, y): a drag once it moves, a mute click if not.
+    press: Option<(usize, usize, f64, f64)>,
+    moving: Option<Moving>,
     hover: Option<usize>,
     hover_x: f64,
     tracking: bool,
@@ -448,6 +479,10 @@ pub fn init(shared: Arc<session::Shared>) {
                 fonts: None,
                 icons: HashMap::new(),
                 drag: None,
+                pins: HashMap::new(),
+                idle: Vec::new(),
+                press: None,
+                moving: None,
                 hover: None,
                 hover_x: 0.0,
                 tracking: false,
@@ -541,6 +576,8 @@ impl Flyout {
         self.anim = Some(Anim::Closing(Instant::now()));
         self.closed_at = Some(Instant::now());
         self.drag = None;
+        self.press = None;
+        self.moving = None;
         self.hover = None;
         unsafe {
             ReleaseCapture();
@@ -574,7 +611,7 @@ impl Flyout {
         let mono = if std::path::Path::new(&crate::win::expand_env(r"%WINDIR%\Fonts\CascadiaMono.ttf")).exists() { "Cascadia Mono" } else { "Consolas" };
         // ClearType for its sharpness; its colour fringes are taken out after drawing (`present`'s caller greys the text)
         let font = |face: &str, size: f64, weight: i32| unsafe { CreateFontW(-((size * s).round() as i32), 0, 0, 0, weight, 0, 0, 0, 1, 0, 0, 5, 0, wide(face).as_ptr()) };
-        let (brand, button) = (font("Segoe UI", 14.0, 700), font("Segoe UI", 12.5, 600));
+        let (brand, button, small) = (font("Segoe UI", 14.0, 700), font("Segoe UI", 12.5, 600), font("Segoe UI", 11.0, 400));
         let measure = |f: HFONT, text: &str| unsafe {
             let dc = GetDC(std::ptr::null_mut());
             let old = SelectObject(dc, f);
@@ -588,19 +625,48 @@ impl Flyout {
         self.fonts = Some(Fonts {
             brand_w: measure(brand, "Buffer"),
             open_w: measure(button, &crate::lang::t("mix.open")),
+            chip_w: measure(small, &idle_chip()).max(measure(small, &crate::lang::t("mix.unpin"))) + 18.0,
             brand,
             label: font("Segoe UI", 11.0, 600),
             big: font(mono, 15.0, 400),
             num: font(mono, 13.0, 400),
-            small: font("Segoe UI", 11.0, 400),
+            small,
             button,
         });
+    }
+
+    /// The idle chip's span (logical x), right-aligned with the numbers.
+    fn chip(&self) -> (f64, f64) {
+        (NUM_RIGHT - self.fonts.as_ref().map_or(120.0, |f| f.chip_w), NUM_RIGHT)
+    }
+
+    /// Apps can be moved to another output; system sounds can't (Windows has no per-app output for them).
+    fn movable(&self, d: usize, a: usize) -> bool {
+        self.devs.get(d).and_then(|d| d.apps.get(a)).is_some_and(|a| a.key != "#system")
+    }
+
+    /// Short device name: "Zestaw słuchawkowy (Arctis 5 Chat)" -> "Arctis 5 Chat".
+    fn short_dev(&self, id: &str) -> Option<String> {
+        let name = &self.devs.iter().find(|d| d.id == id)?.name;
+        let inner = name.rfind('(').and_then(|i| name[i + 1..].strip_suffix(')'));
+        Some(inner.unwrap_or(name).to_string())
     }
 
     /// Re-reads devices and apps and lays the cards out.
     fn refresh(&mut self) {
         let hidden = self.shared.cfg.lock().unwrap().hidden_outputs.clone();
         self.devs = mixer::snapshot().into_iter().filter(|d| d.default || !hidden.contains(&d.id)).collect();
+        crate::appdev::settle(&self.devs);
+        let apps: Vec<&mixer::App> = self.devs.iter().flat_map(|d| d.apps.iter()).collect();
+        let outs = crate::appdev::app_outputs(&apps.iter().map(|a| a.pids.first().copied().unwrap_or(0)).collect::<Vec<_>>());
+        self.pins = apps.iter().zip(outs).filter_map(|(a, o)| Some((a.key.clone(), o?))).collect();
+        let running: Vec<&str> = apps.iter().map(|a| a.key.as_str()).collect();
+        let all = crate::appdev::pins();
+        self.idle = self
+            .devs
+            .iter()
+            .map(|d| all.iter().filter(|p| !p.unpin && p.dev == d.id && !running.contains(&p.key.as_str())).cloned().collect())
+            .collect();
         self.rows.clear();
         self.cards.clear();
         let mut y = PAD;
@@ -614,6 +680,10 @@ impl Flyout {
             y += MASTER;
             for a in 0..dev.apps.len() {
                 self.rows.push(Row { kind: Kind::App(d, a), y, h: APP });
+                y += APP;
+            }
+            for i in 0..self.idle.get(d).map_or(0, |v| v.len()) {
+                self.rows.push(Row { kind: Kind::Idle(d, i), y, h: APP });
                 y += APP;
             }
             y += CARD_BOTTOM;
@@ -723,7 +793,7 @@ impl Flyout {
 
     fn target_of(&self, kind: Kind) -> Option<Target> {
         match kind {
-            Kind::Top | Kind::Footer | Kind::Label(_) => None,
+            Kind::Top | Kind::Footer | Kind::Label(_) | Kind::Idle(..) => None,
             Kind::Master(d) => Some(Target::Dev(self.devs.get(d)?.id.clone())),
             Kind::App(d, a) => {
                 let dev = self.devs.get(d)?;
@@ -793,7 +863,7 @@ impl Flyout {
                     _ => {}
                 }
                 self.frame += 1;
-                if matches!(self.anim, Some(Anim::Open)) && self.frame % 30 == 0 && self.drag.is_none() {
+                if matches!(self.anim, Some(Anim::Open)) && self.frame % 30 == 0 && self.drag.is_none() && self.press.is_none() {
                     self.refresh();
                     self.fit();
                 }
@@ -813,14 +883,17 @@ impl Flyout {
                 Some(0)
             }
             WM_SETCURSOR => {
-                let clickable = self.hover.and_then(|i| self.rows.get(i)).is_some_and(|r| match r.kind {
-                    Kind::Label(d) => self.devs.get(d).is_some_and(|d| !d.default),
-                    Kind::Footer => (PAD..W - PAD).contains(&self.hover_x),
-                    _ => false,
+                let (chip0, chip1) = self.chip();
+                let cursor = self.hover.and_then(|i| self.rows.get(i)).and_then(|r| match r.kind {
+                    Kind::Label(d) => self.devs.get(d).is_some_and(|d| !d.default).then_some(IDC_HAND),
+                    Kind::Footer => (PAD..W - PAD).contains(&self.hover_x).then_some(IDC_HAND),
+                    Kind::App(d, a) => (self.hover_x < GRIP_X && self.movable(d, a)).then_some(IDC_SIZEALL),
+                    Kind::Idle(..) => (chip0..=chip1).contains(&self.hover_x).then_some(IDC_HAND),
+                    _ => None,
                 });
-                if clickable {
+                if let Some(c) = cursor {
                     unsafe {
-                        SetCursor(LoadCursorW(std::ptr::null_mut(), IDC_HAND));
+                        SetCursor(LoadCursorW(std::ptr::null_mut(), c));
                     }
                     return Some(1);
                 }
@@ -852,8 +925,30 @@ impl Flyout {
                             crate::tray::audio_changed();
                         }
                     }
+                    Kind::Idle(d, i) => {
+                        let (c0, c1) = self.chip();
+                        if (c0..=c1).contains(&lx) {
+                            if let Some(p) = self.idle.get(d).and_then(|v| v.get(i)) {
+                                if let Err(e) = crate::appdev::unpin(&p.key, None) {
+                                    session::log(&format!("unpin: {e}"));
+                                }
+                            }
+                            self.refresh();
+                            self.fit();
+                        }
+                    }
                     _ => {
                         let Some(t) = self.target_of(kind) else { return Some(0) };
+                        // an app's grip or icon: dragging moves it to another device, a plain click still mutes
+                        if let (Kind::App(d, a), true) = (kind, lx < MUTE_X) {
+                            if self.movable(d, a) {
+                                self.press = Some((d, a, lx, ly));
+                                unsafe {
+                                    SetCapture(self.hwnd);
+                                }
+                                return Some(0);
+                            }
+                        }
                         if lx < MUTE_X {
                             if let Some((_, m)) = self.get(&t) {
                                 self.set(&t, None, Some(!m));
@@ -873,6 +968,24 @@ impl Flyout {
             WM_MOUSEMOVE => {
                 let (lx, ly) = (lo(lp) as f64 / s, hi(lp) as f64 / s);
                 self.hover_x = lx;
+                if let Some((d, a, x0, y0)) = self.press {
+                    if self.moving.is_none() && (lx - x0).hypot(ly - y0) > 4.0 {
+                        if let Some(app) = self.devs.get(d).and_then(|dv| dv.apps.get(a)) {
+                            self.moving = Some(Moving { key: app.key.clone(), name: app.name.clone(), icon: app.icon.clone(), from: d, x: lx, y: ly, over: None });
+                        }
+                    }
+                    if let Some(m) = self.moving.as_mut() {
+                        let y = ly + self.scroll;
+                        m.x = lx;
+                        m.y = ly;
+                        m.over = self.cards.iter().position(|&(t, b)| y >= t && y < b && (PAD..=W - PAD).contains(&lx)).filter(|&c| c != m.from);
+                        // captured: no WM_SETCURSOR while dragging
+                        unsafe {
+                            SetCursor(LoadCursorW(std::ptr::null_mut(), IDC_SIZEALL));
+                        }
+                    }
+                    return Some(0);
+                }
                 if let Some(t) = self.drag.clone() {
                     self.set(&t, Some(Self::value_at(lx)), None);
                 } else {
@@ -886,6 +999,34 @@ impl Flyout {
                 Some(0)
             }
             WM_LBUTTONUP => {
+                if let Some((d, a, ..)) = self.press.take() {
+                    unsafe {
+                        ReleaseCapture();
+                    }
+                    match self.moving.take() {
+                        Some(m) => {
+                            if let Some(to) = m.over.and_then(|c| self.devs.get(c)).map(|d| d.id.clone()) {
+                                // dropped on the default output = unpinned (appdev::move_app)
+                                if let Some(app) = self.devs.iter().flat_map(|d| d.apps.iter()).find(|x| x.key == m.key) {
+                                    if let Err(e) = crate::appdev::move_app(app, &to) {
+                                        session::log(&format!("app move: {e}"));
+                                    }
+                                }
+                                self.refresh();
+                                self.fit();
+                            }
+                        }
+                        None => {
+                            if let Some(t) = self.target_of(Kind::App(d, a)) {
+                                if let Some((_, m)) = self.get(&t) {
+                                    self.set(&t, None, Some(!m));
+                                }
+                            }
+                        }
+                    }
+                    self.paint();
+                    return Some(0);
+                }
                 if self.drag.take().is_some() {
                     unsafe {
                         ReleaseCapture();
@@ -958,13 +1099,19 @@ impl Flyout {
         cv.fill(0.0, 0.0, w, h, th.line);
         cv.rrect(1.0, 1.0, w - 1.0, h - 1.0, RADIUS * s - 1.0, th.bg);
         let y_of = |y: f64| (y - self.scroll) * s;
-        for &(top, bottom) in &self.cards {
+        for (c, &(top, bottom)) in self.cards.iter().enumerate() {
             let (y0, y1) = (y_of(top), y_of(bottom));
             if y1 < 0.0 || y0 > h {
                 continue;
             }
-            cv.rrect(PAD * s, y0, (W - PAD) * s, y1, 12.0 * s, th.line);
-            cv.rrect(PAD * s + 1.0, y0 + 1.0, (W - PAD) * s - 1.0, y1 - 1.0, 12.0 * s - 1.0, th.panel);
+            // while an app is dragged the other devices are drop targets: a lime hint, full lime under the pointer
+            let (edge, bw) = match &self.moving {
+                Some(m) if m.over == Some(c) => (ACC, 2.0),
+                Some(m) if m.from != c => (mix(th.line, ACC, 0.3), 1.0),
+                _ => (th.line, 1.0),
+            };
+            cv.rrect(PAD * s, y0, (W - PAD) * s, y1, 12.0 * s, edge);
+            cv.rrect(PAD * s + bw, y0 + bw, (W - PAD) * s - bw, y1 - bw, 12.0 * s - bw, th.panel);
         }
         // values read once per frame and reused by the text pass
         struct Line {
@@ -983,7 +1130,7 @@ impl Flyout {
                 continue;
             }
             let (v, muted, peak) = match r.kind {
-                Kind::Top | Kind::Footer | Kind::Label(_) => (0.0, false, 0.0),
+                Kind::Top | Kind::Footer | Kind::Label(_) | Kind::Idle(..) => (0.0, false, 0.0),
                 Kind::Master(d) => self.devs.get(d).map(|d| (d.volume(), d.muted(), d.peak())).unwrap_or_default(),
                 Kind::App(d, a) => self.devs.get(d).and_then(|dv| dv.apps.get(a).map(|ap| (ap.volume(), ap.muted(), peaks[d].get(a).copied().unwrap_or(0.0)))).unwrap_or_default(),
             };
@@ -1050,23 +1197,73 @@ impl Flyout {
                     if let Kind::Master(_) = r.kind {
                         draw_speaker(&mut cv, (PAD + 12.0) * s, yc - 12.0 * s, 24.0 * s, waves_for(v), muted);
                     }
+                    // the grip: two columns of three dots, faint until the row is hovered
+                    if let Kind::App(d, a) = r.kind {
+                        if self.movable(d, a) {
+                            let hot = self.hover == Some(i) || self.press.is_some_and(|p| (p.0, p.1) == (d, a));
+                            let (c, al) = if hot { (TEXT, 0.9) } else { (MUTED, 0.45) };
+                            for gx in [PAD + 5.0, PAD + 9.0] {
+                                for gy in [-4.0, 0.0, 4.0] {
+                                    let (cx, cy) = (gx * s, yc + gy * s);
+                                    let r_ = 1.1 * s;
+                                    cv.rrect_a(cx - r_, cy - r_, cx + r_, cy + r_, r_, c, al);
+                                }
+                            }
+                        }
+                    }
+                }
+                Kind::Idle(..) => {
+                    // the chip that unpins it
+                    let (c0, c1) = self.chip();
+                    let yc = top + r.h * s / 2.0;
+                    let hot = self.hover == Some(i) && (c0..=c1).contains(&self.hover_x);
+                    let edge = if hot { mix(th.line, TEXT, 0.3) } else { th.line };
+                    cv.rrect(c0 * s, yc - 10.0 * s, c1 * s, yc + 10.0 * s, 10.0 * s, edge);
+                    cv.rrect(c0 * s + 1.0, yc - 10.0 * s + 1.0, c1 * s - 1.0, yc + 10.0 * s - 1.0, 10.0 * s - 1.0, if hot { th.raised } else { th.panel });
                 }
             }
             lines.push(Line { top, h: r.h * s, kind: r.kind, v, muted });
         }
         // GDI pass: text and app icons
-        let mut icons: Vec<(HICON, String)> = Vec::new();
+        // app and idle rows: icon, name, the name with its pin when hovered, pin badge (0 none, 1 here, 2 on its way elsewhere)
+        let mut icons: Vec<(HICON, String, String)> = Vec::new();
+        let mut badges: Vec<(f64, f64, u8)> = Vec::new();
         for l in &lines {
-            if let Kind::App(d, a) = l.kind {
-                let (src, name) = match self.devs.get(d).and_then(|d| d.apps.get(a)) {
-                    Some(app) => (app.icon.clone(), app.name.clone()),
-                    None => (String::new(), String::new()),
-                };
-                icons.push((self.icon(&src), name));
-            }
+            let (src, name, hint) = match l.kind {
+                Kind::App(d, a) => {
+                    let Some((dev, app)) = self.devs.get(d).and_then(|dv| Some((dv, dv.apps.get(a)?))) else {
+                        icons.push((std::ptr::null_mut(), String::new(), String::new()));
+                        continue;
+                    };
+                    let hint = match self.pins.get(&app.key) {
+                        Some(to) if *to == dev.id => {
+                            badges.push((l.top, l.h, 1));
+                            format!("{} · {}", app.name, crate::lang::t("mix.pinned"))
+                        }
+                        Some(to) => {
+                            badges.push((l.top, l.h, 2));
+                            format!("{} · \u{2192} {}", app.name, self.short_dev(to).unwrap_or_else(|| crate::lang::t("mix.pinned")))
+                        }
+                        None => app.name.clone(),
+                    };
+                    (app.icon.clone(), app.name.clone(), hint)
+                }
+                Kind::Idle(d, i) => match self.idle.get(d).and_then(|v| v.get(i)) {
+                    Some(p) => (p.icon.clone(), p.name.clone(), String::new()),
+                    None => (String::new(), String::new(), String::new()),
+                },
+                _ => continue,
+            };
+            icons.push((self.icon(&src), name, hint));
         }
+        let ghost_icon = match self.moving.as_ref().map(|m| m.icon.clone()) {
+            Some(src) => self.icon(&src),
+            None => std::ptr::null_mut(),
+        };
+        let (chip0, chip1) = self.chip();
         let Some(f) = self.fonts.as_ref() else { return };
         let (brand, label, big, num, small, button, brand_w, open_w) = (f.brand, f.label, f.big, f.num, f.small, f.button, f.brand_w, f.open_w);
+        let mut dim: Vec<RECT> = Vec::new();
         unsafe {
             let dc = self.mem;
             SetBkMode(dc, TRANSPARENT as i32);
@@ -1096,9 +1293,18 @@ impl Flyout {
                         // the app's section caption: small caps, spaced out
                         let c = if dev.default || hovered { TEXT } else { MUTED };
                         let x = if dev.default { PAD + 26.0 } else { PAD + 14.0 };
+                        // while dragging an app, the other cards say what dropping there does
+                        let drop = self.moving.as_ref().filter(|m| m.from != d).map(|m| {
+                            let what = crate::lang::t(if dev.default { "mix.dropDefault" } else { "mix.drop" });
+                            (what, if m.over == Some(d) { ACC } else { MUTED })
+                        });
+                        let right = if drop.is_some() { W - PAD - 150.0 } else { W - PAD - 14.0 };
                         SetTextCharacterExtra(dc, (1.0 * s).round() as i32);
-                        text(label, c, x * s, l.top + 4.0 * s, (W - PAD - 14.0) * s, l.top + l.h, &dev.name.to_uppercase(), DT_LEFT | DT_END_ELLIPSIS);
+                        text(label, c, x * s, l.top + 4.0 * s, right * s, l.top + l.h, &dev.name.to_uppercase(), DT_LEFT | DT_END_ELLIPSIS);
                         SetTextCharacterExtra(dc, 0);
+                        if let Some((what, col)) = drop {
+                            text(small, col, right * s + 8.0 * s, l.top + 4.0 * s, (W - PAD - 14.0) * s, l.top + l.h, &what, DT_RIGHT | DT_END_ELLIPSIS);
+                        }
                     }
                     Kind::Master(_) | Kind::App(..) => {
                         let font = if matches!(l.kind, Kind::Master(_)) { big } else { num };
@@ -1106,7 +1312,7 @@ impl Flyout {
                         let n = format!("{}", (l.v * 100.0).round() as i32);
                         text(font, c, (SL_X1 + 8.0) * s, l.top, NUM_RIGHT * s, l.top + l.h, &n, DT_RIGHT);
                         if let Kind::App(..) = l.kind {
-                            let (hicon, name) = &icons[app_i];
+                            let (hicon, name, hint) = &icons[app_i];
                             app_i += 1;
                             let sz = (20.0 * s).round() as i32;
                             let (ix, iy) = (((PAD + 14.0) * s).round() as i32, (l.top + (l.h - sz as f64) / 2.0).round() as i32);
@@ -1117,9 +1323,23 @@ impl Flyout {
                                 text(label, MUTED, ix as f64, iy as f64, (ix + sz) as f64, (iy + sz) as f64, &first, DT_CENTER);
                             }
                             if hovered {
-                                text(small, MUTED, SL_X0 * s, l.top, SL_X1 * s, l.top + 12.0 * s, name, DT_LEFT | DT_END_ELLIPSIS);
+                                text(small, MUTED, SL_X0 * s, l.top, SL_X1 * s, l.top + 12.0 * s, hint, DT_LEFT | DT_END_ELLIPSIS);
                             }
                         }
+                    }
+                    Kind::Idle(..) => {
+                        let (hicon, name, _) = &icons[app_i];
+                        app_i += 1;
+                        let sz = (20.0 * s).round() as i32;
+                        let (ix, iy) = (((PAD + 14.0) * s).round() as i32, (l.top + (l.h - sz as f64) / 2.0).round() as i32);
+                        if !hicon.is_null() {
+                            DrawIconEx(dc, ix, iy, *hicon, sz, sz, 0, std::ptr::null_mut(), DI_NORMAL);
+                            dim.push(RECT { left: ix, top: iy, right: ix + sz, bottom: iy + sz });
+                        }
+                        text(small, SUBTLE, SL_X0 * s, l.top, (chip0 - 8.0) * s, l.top + l.h, name, DT_LEFT | DT_END_ELLIPSIS);
+                        let hot = hovered && (chip0..=chip1).contains(&self.hover_x);
+                        let chip = if hot { crate::lang::t("mix.unpin") } else { idle_chip() };
+                        text(small, if hot { TEXT } else { MUTED }, chip0 * s, l.top, chip1 * s, l.top + l.h, &chip, DT_CENTER);
                     }
                 }
             }
@@ -1135,6 +1355,23 @@ impl Flyout {
                     }
                 }
             }
+            // idle apps' icons: grey and faded into the card
+            for rc in &dim {
+                for y in rc.top.max(0)..rc.bottom.min(self.h) {
+                    for x in rc.left.max(0)..rc.right.min(self.w) {
+                        let p = self.px.add((y * self.w + x) as usize);
+                        let l = (((*p >> 16) & 0xff) + ((*p >> 8) & 0xff) + (*p & 0xff)) / 3;
+                        let (r, g, b) = mix((l as u8, l as u8, l as u8), th.panel, 0.55);
+                        *p = (r as u32) << 16 | (g as u32) << 8 | b as u32;
+                    }
+                }
+            }
+        }
+        // pinned apps: a dot on the icon's top corner (lime: pinned here; grey: moves once the app reopens its sound)
+        for &(top, lh, kind) in &badges {
+            let (cx, cy) = ((PAD + 33.0) * s, top + lh / 2.0 - 7.0 * s);
+            cv.disc(cx, cy, 4.5 * s, th.panel);
+            cv.disc(cx, cy, 3.0 * s, if kind == 1 { ACC } else { MUTED });
         }
         // muted apps: a small red cross on the icon's corner
         for l in &lines {
@@ -1146,6 +1383,36 @@ impl Flyout {
                     let t = (-3.0 + 6.0 * i as f64 / steps as f64) * s;
                     cv.disc(cx + t, cy + t, 1.0 * s, BAD);
                     cv.disc(cx + t, cy - t, 1.0 * s, BAD);
+                }
+            }
+        }
+        // the dragged app follows the pointer, over everything
+        if let Some(m) = &self.moving {
+            let (gw, gh) = (200.0 * s, 32.0 * s);
+            let gx = ((m.x + 14.0) * s).min(w - gw - 4.0 * s).max(4.0 * s);
+            let gy = ((m.y - 16.0) * s).clamp(4.0 * s, (h - gh - 4.0 * s).max(4.0 * s));
+            cv.rrect(gx, gy, gx + gw, gy + gh, 10.0 * s, ACC);
+            cv.rrect(gx + 1.0, gy + 1.0, gx + gw - 1.0, gy + gh - 1.0, 10.0 * s - 1.0, th.raised);
+            unsafe {
+                let dc = self.mem;
+                let sz = (18.0 * s).round() as i32;
+                let (ix, iy) = ((gx + 8.0 * s).round() as i32, (gy + (gh - sz as f64) / 2.0).round() as i32);
+                if !ghost_icon.is_null() {
+                    DrawIconEx(dc, ix, iy, ghost_icon, sz, sz, 0, std::ptr::null_mut(), DI_NORMAL);
+                }
+                SelectObject(dc, small);
+                SetTextColor(dc, cref(TEXT));
+                let mut rc = RECT { left: ix + sz + (8.0 * s) as i32, top: gy as i32, right: (gx + gw - 10.0 * s) as i32, bottom: (gy + gh) as i32 };
+                let grey = rc;
+                let t = wide(&m.name);
+                DrawTextW(dc, t.as_ptr(), (t.len() - 1) as i32, &mut rc, DT_LEFT | DT_END_ELLIPSIS | DT_SINGLELINE | DT_NOPREFIX | DT_VCENTER);
+                GdiFlush();
+                for y in grey.top.max(0)..grey.bottom.min(self.h) {
+                    for x in grey.left.max(0)..grey.right.min(self.w) {
+                        let p = self.px.add((y * self.w + x) as usize);
+                        let l = (((*p >> 16) & 0xff) + ((*p >> 8) & 0xff) + (*p & 0xff)) / 3;
+                        *p = l << 16 | l << 8 | l;
+                    }
                 }
             }
         }
