@@ -8,6 +8,7 @@ mod icons;
 mod identify;
 mod lang;
 mod mixer;
+mod appdev;
 mod flyout;
 mod input;
 mod longrec;

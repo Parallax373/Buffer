@@ -119,7 +119,8 @@
       e.preventDefault();
       setV(Math.min(1, Math.max(0, (Math.round(r.v * 20) + d) * 0.05)));
     });
-    r.wrap = h("div", { class: "svrow" + (opt.named ? " named" : "") }, mute, opt.named ? h("span", { class: "sname", text: opt.name, title: opt.name }) : null, line, num);
+    const name = opt.named ? h("span", { class: "sname" }, h("span", { class: "nm", text: opt.name, title: opt.name }), opt.chip || null) : null;
+    r.wrap = h("div", { class: "svrow" + (opt.named ? " named" : "") + (opt.handle ? " movable" : "") }, opt.handle || null, mute, name, line, num);
     rows.set(key, r);
     return r;
   }
@@ -186,7 +187,8 @@
     cardEls.clear();
     const cards = shown.map((d) => {
       const master = volRow(d.id, { dev: d.id }, { segs: 24, name: d.name });
-      const card = h("div", { class: "card2 scard" + (d.default ? " def" : ""), tabindex: 0,
+      const card = h("div", { class: "card2 scard" + (d.default ? " def" : ""), tabindex: 0, "data-id": d.id,
+        "data-drop": App.t(d.default ? "snd.dropDefault" : "snd.dropHere"),
         onClick: () => { if (sel !== d.id) { sel = d.id; paintCards(); buildDetail(); } },
         onKeydown: (e) => { if (e.key === "Enter" && e.target === e.currentTarget) e.currentTarget.click(); } },
         h("div", { class: "shead" },
@@ -227,18 +229,102 @@
   }
 
   /** The apps of the selected device on the right. */
-  /** What the right panel is built from: the device, its apps, whether it is the default. */
+  /** What the right panel is built from: the device, its apps and their pins, whether it is the default. */
   const sigDetail = () => {
     const d = devs.find((x) => x.id === sel);
-    return JSON.stringify([sel, d ? d.apps.map((a) => a.key) : [], d && d.default]);
+    return JSON.stringify([sel, d ? d.apps.map((a) => [a.key, a.pinned_to]) : [], d && d.default, d ? (d.idle || []).map((p) => p.key) : []]);
   };
+
+  /* ───── moving an app to another output: drag its row (grip) onto a device card ───── */
+
+  const GRIP = () => {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 8 14");
+    svg.setAttribute("aria-hidden", "true");
+    for (const [x, y] of [[2, 2], [6, 2], [2, 7], [6, 7], [2, 12], [6, 12]]) {
+      const c = document.createElementNS(ns, "circle");
+      c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", 1.3);
+      svg.append(c);
+    }
+    return svg;
+  };
+
+  /** Short device name for a chip: "Zestaw słuchawkowy (Arctis 5 Chat)" -> "Arctis 5 Chat". */
+  const shortDev = (id) => {
+    const d = devs.find((x) => x.id === id);
+    if (!d) return "?";
+    const m = d.name.match(/\(([^)]+)\)/);
+    return m ? m[1] : d.name;
+  };
+
+  function unpin(key) {
+    cmd("mix-unpin " + key).catch(() => {}).then(poll);
+  }
+
+  /** The chip after a pinned app's name: pinned here, or pinned elsewhere and waiting for the app to reopen its sound. */
+  function pinChip(dev, a) {
+    if (!a.pinned) return null;
+    const here = a.pinned_to === dev.id;
+    return h("button", { class: "chip click pin" + (here ? " on" : ""), text: here ? App.t("snd.pinned") : "\u2192 " + shortDev(a.pinned_to),
+      title: App.t(here ? "snd.pinnedTip" : "snd.pendingTip"), onClick: (e) => { e.stopPropagation(); unpin(a.key); } });
+  }
+
+  let drag = null;                   // { app, from, ghost, over }
+  function startDrag(e, dev, a, iconBox) {
+    e.preventDefault();
+    e.stopPropagation();
+    const ghost = h("div", { class: "sghost" }, iconBox.cloneNode(true), h("span", { text: a.name }));
+    document.body.append(ghost);
+    drag = { app: a, from: dev.id, ghost, over: null };
+    list.classList.add("dragging");
+    const move = (ev) => {
+      ghost.style.transform = `translate(${ev.clientX + 12}px, ${ev.clientY + 8}px)`;
+      const card = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.(".scard");
+      const id = card && card.dataset.id !== drag.from ? card.dataset.id : null;
+      if (id !== drag.over) {
+        list.querySelectorAll(".scard.drop").forEach((c) => c.classList.remove("drop"));
+        if (id) card.classList.add("drop");
+        drag.over = id;
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      ghost.remove();
+      list.classList.remove("dragging");
+      list.querySelectorAll(".scard.drop").forEach((c) => c.classList.remove("drop"));
+      const { app, over } = drag;
+      drag = null;
+      if (over) cmd("mix-move " + JSON.stringify({ app: app.key, to: over }))
+        .then((r) => { if (r && !r.ok) App.toast(String(r.error || ""), "err"); })
+        .catch((err) => App.toast(String(err), "err"))
+        .then(() => { shapeDetail = ""; poll(); });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    move(e);
+  }
 
   function buildDetail() {
     shapeDetail = sigDetail();
     const d = devs.find((x) => x.id === sel);
     for (const k of [...rows.keys()]) if (k.includes("|")) rows.delete(k);
     if (!d) { detail.replaceChildren(); return; }
-    const apps = d.apps.map((a) => volRow(d.id + "|" + a.key, { dev: d.id, app: a.key }, { segs: 40, name: a.name, icon: a.icon, named: true }).wrap);
+    const apps = d.apps.map((a) => {
+      // system sounds can't be moved: Windows has no per-app output for them
+      const handle = a.system ? h("span", { class: "sgrip off" }) : h("span", { class: "sgrip", title: App.t("snd.dragTip") }, GRIP());
+      const r = volRow(d.id + "|" + a.key, { dev: d.id, app: a.key }, { segs: 40, name: a.name, icon: a.icon, named: true, handle, chip: pinChip(d, a) });
+      if (!a.system) handle.addEventListener("pointerdown", (e) => startDrag(e, d, a, r.lead));
+      return r.wrap;
+    });
+    // apps pinned here that aren't playing: greyed, with the way back
+    const idle = (d.idle || []).map((p) => h("div", { class: "svrow named movable idle" },
+      h("span", { class: "sgrip off" }), h("span", { class: "smute" }, iconOf(p.icon, p.name)),
+      h("span", { class: "sname" }, h("span", { class: "nm", text: p.name }),
+        h("button", { class: "chip click pin", text: App.t("snd.pinned") + " \u00b7 " + App.t("snd.idle"), title: App.t("snd.unpinIdle"),
+          onClick: () => unpin(p.key) })),
+      h("span"), h("span")));
     detail.replaceChildren(
       h("div", { class: "sdhead" },
         h("h2", { text: d.name, title: d.name }),
@@ -246,7 +332,7 @@
           : h("button", { class: "btn sm", text: App.t("snd.makeDefault"), onClick: () => setDefault(d.id) }),
         h("span", { class: "sp" }),
         h("span", { class: "cap", text: App.t("snd.apps", { n: d.apps.length }) })),
-      apps.length ? h("div", { class: "sdapps" }, ...apps) : h("div", { class: "muted sempty", text: App.t("snd.noApps") }));
+      apps.length || idle.length ? h("div", { class: "sdapps" }, ...apps, ...idle) : h("div", { class: "muted sempty", text: App.t("snd.noApps") }));
     paintValues();
   }
 

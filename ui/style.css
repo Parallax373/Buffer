@@ -1008,3 +1008,23 @@ body:has(#pop .popover) #updpop .updpopover { right: 372px; }
 .shid { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 12px; }
 .shid span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sopts .tgl .trow { padding-left: 0; padding-right: 0; }
+
+/* moving apps: the grip says "drag me", device cards say where it can go */
+.svrow.named.movable { grid-template-columns: 14px 32px 220px minmax(0, 1fr) 40px; gap: 12px; }
+.sgrip { width: 14px; height: 22px; display: grid; place-items: center; cursor: grab; color: var(--muted); opacity: .45; transition: opacity var(--t) ease; touch-action: none; }
+.sgrip svg { width: 8px; height: 14px; fill: currentColor; }
+.svrow:hover .sgrip { opacity: 1; color: var(--text); }
+.sgrip.off { cursor: default; opacity: 0; }
+.sname { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sname .nm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.snd .chip.pin { font-size: 10.5px; padding: 1px 7px; flex: none; }
+.svrow.idle { opacity: .5; }
+.svrow.idle .sname .nm { color: var(--muted); }
+.sghost { position: fixed; left: 0; top: 0; z-index: 60; pointer-events: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px;
+  border-radius: 10px; background: var(--raised); border: 1px solid var(--acc); box-shadow: 0 10px 30px #0009; font-size: 12.5px; }
+.slist.dragging .scard { border-style: dashed; position: relative; }
+.slist.dragging .scard::after { content: attr(data-drop); position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit;
+  background: #0b0c0acc; color: var(--muted); font: 600 11px "Instrument Sans"; letter-spacing: .1em; text-transform: uppercase; opacity: 0;
+  transition: opacity var(--t) ease; }
+.slist.dragging .scard.drop { border-color: var(--acc); border-style: solid; }
+.slist.dragging .scard.drop::after { opacity: 1; color: var(--acc); }

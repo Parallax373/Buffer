@@ -16,6 +16,8 @@ pub struct App {
     pub icon: String,
     /// This process's own session (the recorder's cues and its loopback captures).
     own: bool,
+    /// Its processes (a browser has several): per-app output pinning is set per process.
+    pub pids: Vec<u32>,
     vols: Vec<ISimpleAudioVolume>,
     meters: Vec<IAudioMeterInformation>,
 }
@@ -180,6 +182,9 @@ fn apps_of(dev: &wasapi::Device) -> Vec<App> {
         if let Some(a) = apps.iter_mut().find(|a| a.key == key) {
             a.vols.push(vol);
             a.meters.extend(meter);
+            if !a.pids.contains(&pid) {
+                a.pids.push(pid);
+            }
             continue;
         }
         let shown = take(unsafe { ctl.GetDisplayName() }.unwrap_or(PWSTR::null()));
@@ -193,7 +198,7 @@ fn apps_of(dev: &wasapi::Device) -> Vec<App> {
             stem.map(|s| title_case(&s)).unwrap_or_else(|| format!("PID {pid}"))
         };
         let icon = if !icon_path.is_empty() { icon_path.trim_start_matches('@').to_string() } else { exe.unwrap_or_default() };
-        apps.push(App { key, name, icon, own: pid == std::process::id(), vols: vec![vol], meters: meter.into_iter().collect() });
+        apps.push(App { key, name, icon, own: pid == std::process::id(), pids: vec![pid], vols: vec![vol], meters: meter.into_iter().collect() });
     }
     // system sounds first (as in the Windows mixer), then by name
     apps.sort_by(|a, b| (a.key != "#system", a.name.to_lowercase()).cmp(&(b.key != "#system", b.name.to_lowercase())));
@@ -261,7 +266,14 @@ pub fn command(shared: &crate::session::Shared, cmd: &str, arg: &str) -> serde_j
     use serde_json::json;
     match cmd {
         "mix-get" => {
-            let devs: Vec<_> = snapshot()
+            let snap = snapshot();
+            crate::appdev::settle(&snap);
+            // apps pinned to an output with Windows' per-app setting, and the ones Buffer pinned that aren't playing
+            let running: Vec<&str> = snap.iter().flat_map(|d| d.apps.iter().map(|a| a.key.as_str())).collect();
+            let idle: Vec<crate::appdev::Pin> = crate::appdev::pins().into_iter().filter(|p| !p.unpin && !running.contains(&p.key.as_str())).collect();
+            let pinned = crate::appdev::app_outputs(&snap.iter().flat_map(|d| d.apps.iter().map(|a| a.pids.first().copied().unwrap_or(0))).collect::<Vec<_>>());
+            let mut pinned = pinned.into_iter();
+            let devs: Vec<_> = snap
                 .iter()
                 .map(|d| {
                     let peaks = d.app_peaks();
@@ -269,12 +281,39 @@ pub fn command(shared: &crate::session::Shared, cmd: &str, arg: &str) -> serde_j
                         .apps
                         .iter()
                         .zip(peaks)
-                        .map(|(a, pk)| json!({ "key": a.key, "name": a.name, "icon": a.icon, "volume": a.volume(), "muted": a.muted(), "peak": pk }))
+                        .map(|(a, pk)| {
+                            let pin = pinned.next().flatten();
+                            json!({ "key": a.key, "name": a.name, "icon": a.icon, "volume": a.volume(), "muted": a.muted(), "peak": pk,
+                                    "pinned": pin.is_some(), "pinned_to": pin, "system": a.key == "#system" })
+                        })
                         .collect();
-                    json!({ "id": d.id, "name": d.name, "default": d.default, "comms": d.comms, "volume": d.volume(), "muted": d.muted(), "peak": d.peak(), "apps": apps })
+                    let idle: Vec<_> = idle.iter().filter(|p| p.dev == d.id).map(|p| json!({ "key": p.key, "name": p.name, "icon": p.icon })).collect();
+                    json!({ "id": d.id, "name": d.name, "default": d.default, "comms": d.comms, "volume": d.volume(), "muted": d.muted(), "peak": d.peak(), "apps": apps, "idle": idle })
                 })
                 .collect();
             json!({ "ok": true, "devices": devs })
+        }
+        // `mix-move {"app": key, "to": endpoint id}`: the app plays on that output from now on (the default one = unpin)
+        "mix-move" => {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(arg) else { return json!({ "ok": false, "error": "bad json" }) };
+            let (key, to) = (v["app"].as_str().unwrap_or(""), v["to"].as_str().unwrap_or(""));
+            let snap = snapshot();
+            let Some(app) = snap.iter().flat_map(|d| d.apps.iter()).find(|a| a.key == key && !a.pids.is_empty() && a.key != "#system") else {
+                return json!({ "ok": false, "error": "the app is not playing" });
+            };
+            match crate::appdev::move_app(app, to) {
+                Ok(()) => json!({ "ok": true }),
+                Err(e) => json!({ "ok": false, "error": e }),
+            }
+        }
+        // `mix-unpin <app key>`: back to following the default output (a closed app: the next time it runs)
+        "mix-unpin" => {
+            let snap = snapshot();
+            let app = snap.iter().flat_map(|d| d.apps.iter()).find(|a| a.key == arg);
+            match crate::appdev::unpin(arg, app) {
+                Ok(()) => json!({ "ok": true }),
+                Err(e) => json!({ "ok": false, "error": e }),
+            }
         }
         "mix-set" => {
             let Ok(v) = serde_json::from_str::<serde_json::Value>(arg) else { return json!({ "ok": false, "error": "bad json" }) };
