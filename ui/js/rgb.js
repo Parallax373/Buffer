@@ -155,7 +155,8 @@
     return h("span", { class: "rleds" }, Array.from({ length: n }, (_, i) =>
       vars(h("i"), { "--o": (0.45 + 0.55 * (n > 1 ? i / (n - 1) : 1)).toFixed(2) })));
   }
-  const nLeds = (it) => Math.min(24, Math.max(2, it.all ? 12 : it.n));
+  /** The strips are a drawing of the colour, not a count of the real LEDs: every device gets the same number of segments. */
+  const nLeds = () => 24;
 
   /** how a driven device differs from the rest: the look signature, and the one most devices share */
   const sigOf = (m) => { const l = lookOf(m); return [l.hue, l.sat, l.br, l.on, l.fx, l.speed, l.c2, l.rev, l.native].join("|"); };
@@ -262,7 +263,8 @@
   function draw(force = false) {
     if (mode === "advanced" && st.devs.length) {
       const box = h("div", { class: "radv" });
-      page.replaceChildren(h("div", { class: "rgb" }, head(), App.RGBAuto.profileBar(reload), box));
+      if (force || !autoEl) autoEl = App.RGBAuto.bar(reload, st.devs);
+      page.replaceChildren(h("div", { class: "rgb" }, head(), App.RGBAuto.profileBar(reload), box, autoEl));
       App.RGBAdv.render(box);
       return;
     }
@@ -288,9 +290,9 @@
         draw();
       } }) : null;
       const card = h("button", { class: "rdev" + (x.key === it.key ? " on" : "") + (x.all ? " all" : "") + (x.child ? " child" : "") + (x.hid ? " hid" : ""), onClick: () => { st.sel = x.key; draw(); },
-        title: x.stored ? App.t("rgb.keyboardTip") : null },
+        title: x.stored ? App.t("rgb.keyboardTip") : x.vendor || null },
         h("span", { class: "rt" }, icon(x.kind), h("b", { text: x.label || x.name }), group ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
-          !x.all && !x.child ? h("small", { class: "mono", text: x.vendor }) : null, h("span", { class: "rtag", hidden: true }), chev,
+          h("span", { class: "rtag", hidden: true }), chev,
           x.hid ? h("span", { class: "chip rshow", role: "button", text: App.t("rgb.unhide"), onClick: (e) => { e.stopPropagation(); hide(x, false); } }) : sw),
         x.hid ? null : leds(nLeds(x)));   // a hidden device is one compact line
       cards.set(x.key, card);
@@ -321,77 +323,79 @@
     const br = h("input", { class: "rline", type: "range", min: 0, max: 100, value: l.br, "aria-label": App.t("rgb.brightness") });
     const spd = h("input", { class: "rline", type: "range", min: 20, max: 300, value: Math.round(l.speed * 100), "aria-label": App.t("rgb.speed") });
     const bv = h("span", { class: "mono rval", text: l.br + "%" });
-    const n = nLeds(it);
+    const sv = h("span", { class: "mono rval", text: l.speed.toFixed(1) + "×" });
+    const n = 48;   // the big preview: a fixed number of thin segments, whatever the device has
     const prev = h("div", { class: "rbig" }, Array.from({ length: n }, (_, i) =>
-      vars(h("i"), { "--o": (0.45 + 0.55 * (i / (n - 1))).toFixed(2), "--i": i })));
+      vars(h("i"), { "--o": (0.4 + 0.6 * (i / (n - 1))).toFixed(2), "--i": i })));
     const mk = mark(it, reference());
     const rel = h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), disabled: !itemDriven(it), onClick: () => giveBack(it) });
     const power = h("button", { class: "chip" + (itemOn(it) ? " on" : ""), text: App.t(itemOn(it) ? "rgb.on" : "rgb.off"), onClick: () => { apply(it, { on: !itemOn(it) }); draw(); } });
-    const fxBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.effect") })),
-      App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx === "native" ? "" : l.fx || "static", (v) => { apply(it, { fx: v, native: null }); draw(); }));
-    // the device's own effects: a second row, same look; clicking the active one goes back to a plain colour
-    const natBox = nat.length ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.native"), title: App.t("rgb.nativeTip") })),
-      App.ui.segc(nat.map((m) => [m.name, m.name + (m.flags & F.AUTOSAVE ? " ◆" : "")]), natMode ? natMode.name : "",
-        (v) => { apply(it, natMode && natMode.name === v ? { fx: "static", native: null } : { fx: "native", native: v }); draw(); })) : null;
-    const spdBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.speed") }),
-      h("span", { class: "mono rval", id: "rspd", text: l.speed.toFixed(1) + "×" })), spd);
-    const dirBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.dir") })),
-      App.ui.segc([[false, "→"], [true, "←"]], !!l.rev, (v) => { apply(it, { rev: v }); draw(); }));
-    const c2Box = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour2") })),
-      l.c2 ? colour2(it, l) : h("button", { class: "chip rplus", text: "+ " + App.t("rgb.colour2"), onClick: () => { apply(it, { c2: [(l.hue + 180) % 360, 90] }); draw(); } }));
+    const cap = (k, tip) => h("div", { class: "cap", text: App.t(k), title: tip ? App.t(tip) : null });
     // addressable zones whose LED count can be set (an ARGB header: the strip or fans on it may have any length)
     const zs = it.all || it.stored ? [] : (dev0.zones || []).map((z, zi) => ({ z, zi })).filter(({ z }) => z.leds_min !== z.leds_max);
-    const zBox = zs.length ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.zones"), title: App.t("rgb.zonesTip") })),
-      zs.map(({ z, zi }) => h("div", { class: "arow" }, h("span", { text: z.name }),
-        h("input", { class: "field rnum", type: "number", min: z.leds_min, max: z.leds_max, value: z.leds, "aria-label": z.name, onChange: async (e) => {
-          const v = Math.max(z.leds_min, Math.min(z.leds_max, Math.round(+e.target.value) || z.leds));
-          e.target.value = v;
-          try {
-            let list = null;
-            for (const m of it.members) list = await api.invoke("rgb_zone", { index: m.index, zone: zi, leds: v });
-            adoptDevices(list.filter((d) => !d.stored || true)); draw();
-          } catch (err) { toast(err); }
-        } })))) : null;
-
     const upd = () => {
       br.style.setProperty("--p", l.br + "%");
       spd.style.setProperty("--p", ((l.speed * 100 - 20) / 280 * 100) + "%");
       prev.className = "rbig fx-" + (l.fx === "native" ? "static" : l.fx || "static");
       prev.style.setProperty("--c", css(l)); prev.style.setProperty("--br", itemOn(it) ? l.br / 100 : 0.08);
       prev.style.setProperty("--sp", (1 / l.speed).toFixed(2));
-      bv.textContent = l.br + "%";
+      bv.textContent = l.br + "%"; sv.textContent = itemLook(it).speed.toFixed(1) + "×";
       rel.disabled = !itemDriven(it);
       paintAll();
     };
     br.oninput = () => { apply(it, { br: +br.value }); upd(); };
-    spd.oninput = () => { apply(it, { speed: +spd.value / 100 }); $speed(); upd(); };
-    const $speed = () => { const e = spdBox.querySelector("#rspd"); if (e) e.textContent = itemLook(it).speed.toFixed(1) + "×"; };
+    spd.oninput = () => { apply(it, { speed: +spd.value / 100 }); upd(); };
     const swatches = h("div", { class: "rsw" }, SWATCHES.map((c) => vars(h("button", { "aria-label": c, onClick: () => {
       const v = App.RGBWheel.fromHex(c);
       wheel.set(v.hue, v.sat); hex.value = App.RGBWheel.toHex(v.hue, v.sat);
       apply(it, v); upd();
     } }), { "--c": c })));
-    const detail = h("section", { class: "card2 pad rdetail" },
-      h("div", { class: "rhd" }, icon(it.kind), titleBox(it),
-        it.stored ? h("button", { class: "chip", text: App.t("rgb.configurator") + " ↗", title: App.t("rgb.configuratorTip"), onClick: () => api.invoke("open_issue_page", { url: "https://software.darkproject.eu/" }).catch(toast) }) : null,
-        mk === "mixed" ? h("button", { class: "chip", text: App.t("rgb.unify"), title: App.t("rgb.unifyTip"), onClick: () => { apply(it, { ...itemLook(it) }); draw(); } }) : null,
-        mk === "custom" ? h("button", { class: "chip", text: App.t("rgb.likeRest"), title: App.t("rgb.likeRestTip"), onClick: () => { apply(it, { ...lookOf(majorityMember()) }); draw(); } }) : null,
-        !it.all && !it.stored ? h("button", { class: "chip", text: it.hid ? App.t("rgb.unhide") : App.t("rgb.hide"), title: App.t("rgb.hideTip"), onClick: () => hide(it, !it.hid) }) : null,
-        rel, power),
-      prev,
-      wants.colour ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour") })),
-        h("div", { class: "rcol" }, wheel, h("div", { class: "rcolr" }, swatches, hex))) : null,
-      wants.colour2 ? c2Box : null,
-      wants.bright ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.brightness") }), bv), br) : null,
-      fxBox,
-      natBox,
-      wants.dir ? dirBox : null,
-      wants.speed ? spdBox : null,
-      zBox);
+
+    // header: icon, name (click to rename) + what differs, then every action in sight
+    const tag = h("span", { class: "rtag", hidden: !mk, text: mk ? App.t("rgb." + mk) : "", title: App.t(mk === "custom" ? "rgb.customTip" : "rgb.mixedTip") });
+    if (mk === "mixed") tag.classList.add("mix");
+    const hd = h("div", { class: "rhd" }, icon(it.kind), titleBox(it), tag, h("span", { class: "sp" }),
+      it.stored ? h("button", { class: "chip", text: App.t("rgb.configurator") + " ↗", title: App.t("rgb.configuratorTip"), onClick: () => api.invoke("open_issue_page", { url: "https://software.darkproject.eu/" }).catch(toast) }) : null,
+      mk === "mixed" ? h("button", { class: "chip", text: App.t("rgb.unify"), title: App.t("rgb.unifyTip"), onClick: () => { apply(it, { ...itemLook(it) }); draw(); } }) : null,
+      mk === "custom" ? h("button", { class: "chip", text: App.t("rgb.likeRest"), title: App.t("rgb.likeRestTip"), onClick: () => { apply(it, { ...lookOf(majorityMember()) }); draw(); } }) : null,
+      !it.all && !it.stored ? h("button", { class: "chip", text: App.t("rgb.hide"), title: App.t("rgb.hideTip"), onClick: () => hide(it, true) }) : null,
+      rel, power);
+
+    // card "Kolor": the wheel with swatches and hex, and the second colour under it when the effect uses one
+    const colourCard = wants.colour ? h("section", { class: "card2 pad rcard" }, cap("rgb.colour"),
+      h("div", { class: "rcol" }, wheel, h("div", { class: "rcolr" }, swatches, hex)),
+      wants.colour2 ? h("div", { class: "rcol2row" }, h("span", { class: "cap", text: App.t("rgb.colour2") }),
+        l.c2 ? colour2(it, l) : h("button", { class: "chip rplus", text: "+", title: App.t("rgb.colour2"), "aria-label": App.t("rgb.colour2"), onClick: () => { apply(it, { c2: [(l.hue + 180) % 360, 90] }); draw(); } })) : null) : null;
+    // card "Efekt": the plain effects, and the device's own ones as a wrapped row of chips (the active one again = plain colour)
+    const effectCard = h("section", { class: "card2 pad rcard" }, cap("rgb.effect"),
+      App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx === "native" ? "" : l.fx || "static", (v) => { apply(it, { fx: v, native: null }); draw(); }),
+      nat.length ? cap("rgb.native", "rgb.nativeTip") : null,
+      nat.length ? h("div", { class: "rnats" }, nat.map((m) => h("button", { class: "chip" + (natMode && natMode.name === m.name ? " on" : ""),
+        text: m.name + (m.flags & F.AUTOSAVE ? " ◆" : ""),
+        onClick: () => { apply(it, natMode && natMode.name === m.name ? { fx: "static", native: null } : { fx: "native", native: m.name }); draw(); } }))) : null);
+    // card "Ustawienia": brightness, speed, direction, LED count; only what the chosen effect understands
+    const dirSeg = App.ui.segc([[false, "→"], [true, "←"]], !!l.rev, (v) => { apply(it, { rev: v }); draw(); });
+    const setCard = h("section", { class: "card2 pad rset" }, cap("rgb.settings"),
+      h("div", { class: "rsetg" },
+        wants.bright ? h("div", { class: "rsi" }, h("div", { class: "rl" }, cap("rgb.brightness"), bv), br) : null,
+        wants.speed ? h("div", { class: "rsi" }, h("div", { class: "rl" }, cap("rgb.speed"), sv), spd) : null,
+        wants.dir ? h("div", { class: "rsi" }, cap("rgb.dir"), dirSeg) : null,
+        ...zs.map(({ z, zi }) => h("div", { class: "rsi" }, h("div", { class: "cap", text: App.t("rgb.zones") + " · " + z.name, title: App.t("rgb.zonesTip") }),
+          h("input", { class: "field rnum", type: "number", min: z.leds_min, max: z.leds_max, value: z.leds, "aria-label": z.name, onChange: async (e) => {
+            const v = Math.max(z.leds_min, Math.min(z.leds_max, Math.round(+e.target.value) || z.leds));
+            e.target.value = v;
+            try {
+              let list = null;
+              for (const m of it.members) list = await api.invoke("rgb_zone", { index: m.index, zone: zi, leds: v });
+              adoptDevices(list); draw();
+            } catch (err) { toast(err); }
+          } })))));
+    const detail = h("section", { class: "rdetail" }, hd, prev,
+      h("div", { class: "rgrid2" + (colourCard ? "" : " one") }, colourCard, effectCard), setCard);
     upd();
 
-    // the left column keeps its automation card between redraws (an open card must not close when a card is clicked)
-    if (force || !autoEl) autoEl = App.RGBAuto.card(reload);
+    // the automation bar sits under the panel and is kept between redraws (an open pop-up must not close when a card is clicked)
+    if (force || !autoEl) autoEl = App.RGBAuto.bar(reload, st.devs);
     // hidden devices live only here, under their own heading: one compact row each, with a way back
     const hiddenDevs = st.devs.filter((x) => x.hidden);
     // the hidden section is kept between redraws (rebuilt only when what it shows changes), so a click elsewhere does not touch it
@@ -403,7 +407,7 @@
           h("span", { class: "rt" }, icon(d.kind), h("b", { text: (d.label || d.name) + (!d.label && hiddenDevs.filter((x) => x.name === d.name).length > 1 ? " " + (d.nth + 1) : "") }),
             h("span", { class: "chip rshow", role: "button", text: App.t("rgb.unhide"), onClick: () => hide({ members: [d] }, false) })))) : null) };
     }
-    const left = h("div", { class: "rleft" }, list, hidEl.el, autoEl, App.RGBAuto.missingLink(st.devs));
+    const left = h("div", { class: "rleft" }, list, hidEl.el);
     // redrawing in place (a click on the list must not replay the cards' entrance or lose the scroll position)
     const body = force ? null : page.querySelector(".rgb > .rbody");
     if (body) {
@@ -411,7 +415,7 @@
       list.classList.add("still");
       body.replaceChildren(left, detail);
       left.scrollTop = sl; detail.scrollTop = sd;
-    } else page.replaceChildren(h("div", { class: "rgb" }, head(), App.RGBAuto.profileBar(reload), h("div", { class: "rbody" }, left, detail)));
+    } else page.replaceChildren(h("div", { class: "rgb" }, head(), App.RGBAuto.profileBar(reload), h("div", { class: "rbody" }, left, detail), autoEl));
   }
 
   App.RGB = {

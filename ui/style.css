@@ -1259,3 +1259,52 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .details .tedit { display: flex; }
 .details .tedit h2.ttl { margin: 0; }
 .rpen { display: none; }
+/* ───── RGB panel, layout A2: rows on the left, an inspector of cards on the right, the automation bar under both ───── */
+.rgb { gap: 12px; padding: 14px 18px 14px; }
+.rbody { grid-template-columns: 392px minmax(0, 1fr); gap: 16px; }
+.rdev { padding: 10px 14px; }
+.rprof { gap: 8px; margin: 0; }
+.rprof .chip.rp { display: inline-flex; align-items: center; gap: 0; }
+.rprof .chip.rp .rx { margin-left: 0; width: 0; opacity: 0; overflow: hidden; font-size: 14px; line-height: 1; transition: width var(--t) ease, margin var(--t) ease, opacity var(--t) ease; }
+.rprof .chip.rp:hover .rx, .rprof .chip.rp:focus-visible .rx { width: 14px; margin-left: 7px; opacity: .8; }
+.rprof .chip.rp .rx:hover { color: var(--rec); opacity: 1; }
+.rdotm { display: inline-block; width: 6px; height: 6px; margin-left: 7px; border-radius: 50%; background: var(--acc); }
+.rprof .chip.hot { border-color: var(--acc); background: var(--acc); color: var(--ink); font-weight: 600; }
+.rprof .chip.hot:hover { color: var(--ink); }
+.rprof .chip.add { border-style: dashed; }
+.rdetail { padding: 0; gap: 12px; background: none; border: 0; overflow-y: auto; }
+.rhd { flex-wrap: wrap; row-gap: 8px; }
+.rhd .sp { flex: 1; min-width: 8px; }
+.rhd .rtitle { flex: none; max-width: 56%; }
+.rhd .rtag { margin-left: 0; }
+.rbig { height: 44px; border-radius: 8px; }
+.rgrid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.rgrid2.one { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1100px) { .rgrid2 { grid-template-columns: minmax(0, 1fr); } }
+.rcard { display: flex; flex-direction: column; gap: 14px; min-width: 0; align-content: start; }
+.rcard > .rcol { gap: 22px; }
+.rsw { display: grid; grid-template-columns: repeat(4, 28px); gap: 8px; }
+.rcol2row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rnats { display: flex; flex-wrap: wrap; gap: 8px; }
+.rnats .chip { cursor: pointer; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; color: var(--muted); background: var(--raised); }
+.rnats .chip:hover { border-color: var(--muted); color: var(--text); }
+.rnats .chip.on { border-color: var(--acc); color: var(--acc); background: var(--acc-dim); }
+.rset { display: flex; flex-direction: column; gap: 14px; }
+.rsetg { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px 28px; align-items: start; }
+.rsi { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.rsi .rl { display: flex; justify-content: space-between; align-items: baseline; }
+.rsi .seg { align-self: flex-start; }
+.rfoot { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); position: relative; flex: none; }
+.rfoot .afg { display: inline-flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--text2); }
+.rfoot .afg .field { padding: 5px 9px; }
+.rfoot .afdiv { width: 1px; height: 22px; background: var(--line); }
+.rfoot .rmiss { margin: 0; align-self: center; }
+.agwrap { position: relative; }
+.agpop { position: absolute; bottom: calc(100% + 12px); left: 0; min-width: 320px; max-height: 300px; overflow-y: auto; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; z-index: 30; box-shadow: 0 10px 30px #000a; }.rgrid2 { align-items: start; }
+.rcol2row { flex-direction: column; align-items: flex-start; gap: 10px; }
+.rcol2 { gap: 10px 12px; }
+.rcol2 .rsw { grid-template-columns: repeat(8, 22px); gap: 6px; }
+.rcol2 .rsw button { width: 22px; height: 22px; border-radius: 6px; }
+.rbig { gap: 1px; }
+.rbig i { border-radius: 1px; }
+
