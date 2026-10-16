@@ -32,12 +32,13 @@
 
     /** Profile chips: click loads, the active one can be saved over (when changed) or deleted. `reload` re-reads the scene. */
     profileBar(reload) {
-      const names = stat.profiles || [], active = stat.profile, dirty = !!stat.profile_dirty;
+      const names = stat.profiles || [], active = stat.profile, dirty = !!stat.profile_dirty, sizes = stat.profile_sizes || {};
       const bar = h("div", { class: "rprof" }, h("span", { class: "cap", text: App.t("rgb.profiles") }));
       const act = (fn) => async () => { try { await fn(); await A.refresh(); await reload(); } catch (e) { toast(e); } };
       for (const n of names) {
-        bar.append(h("button", { class: "chip" + (n === active ? " on" : ""), text: n + (n === active && dirty ? " •" : ""),
-          title: n === active && dirty ? App.t("rgb.profileDirty") : null,
+        const size = sizes[n] || 0;
+        bar.append(h("button", { class: "chip" + (n === active ? " on" : "") + (size ? "" : " empty"), text: n + (n === active && dirty ? " •" : ""),
+          title: size ? (n === active && dirty ? App.t("rgb.profileDirty") + " · " : "") + App.t("rgb.profileSize", { n: size }) : App.t("rgb.profileEmpty"),
           onClick: act(() => inv("rgb_profile", { action: "load", name: n })) }));
       }
       if (active && dirty) bar.append(h("button", { class: "chip", text: App.t("rgb.profileSave"), onClick: act(() => inv("rgb_profile", { action: "save", name: active })) }));
@@ -45,7 +46,16 @@
       const add = h("button", { class: "chip", text: "+", title: App.t("rgb.profileNew") });
       add.onclick = () => {
         const inp = h("input", { class: "field rpname", placeholder: App.t("rgb.profileName"), maxlength: 40, spellcheck: false });
-        const done = act(() => inv("rgb_profile", { action: "save", name: inp.value.trim() }));
+        const done = async () => {
+          const name = inp.value.trim();
+          try {
+            await inv("rgb_profile", { action: "save", name });
+            const n = ((await A.refresh()).profile_sizes || {})[name] || 0;
+            // a profile that holds no device would change nothing when loaded: say so right away
+            App.toast(n ? App.t("rgb.profileSaved", { name, n }) : App.t("rgb.profileEmpty"), n ? "ok" : "err");
+            await reload();
+          } catch (e) { toast(e); }
+        };
         inp.onkeydown = (e) => { if (e.key === "Enter" && inp.value.trim()) done(); if (e.key === "Escape") reload(); };
         inp.onblur = () => { if (!inp.value.trim()) reload(); };
         add.replaceWith(inp);
@@ -86,6 +96,7 @@
         row(App.t("rgb.autoLock"), tog(p.lock, (v) => save({ lock: v }))),
         row(App.t("rgb.autoIdle"), idle),
         row(App.t("rgb.autoSched"), h("span", { class: "asched" }, from, h("span", { text: "–" }), to, tog(p.schedule, (v) => save({ schedule: v })))),
+        h("div", { class: "rsep" }),
         games);
       box.addEventListener("toggle", () => { if (box.open) fillGames(); });
       return box;

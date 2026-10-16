@@ -12,7 +12,7 @@
   /** OpenRGB mode flags */
   const F = { SPEED: 1, DIR: 2, BRIGHT: 16, PERLED: 32, COLORS: 64, AUTOSAVE: 512 };
 
-  let page = null, st = { devs: [], sel: ALL }, mode = "simple", autoEl = null;
+  let page = null, st = { devs: [], sel: ALL }, mode = "simple", autoEl = null, showHidden = false;
   const sendTimers = new Map();
   /** per device (name#nth): { hue, sat, br, on, fx, speed, c2, rev, native }, loaded from the scene the recorder keeps and saved on every change */
   const look = new Map();
@@ -56,17 +56,18 @@
   /** The list: "All devices", then devices grouped by name. An item is { key, name, members, n }. */
   function items() {
     const by = new Map();
-    for (const d of st.devs) {
-      if (!by.has(d.name)) by.set(d.name, { key: d.name, name: d.name, vendor: d.vendor, kind: d.kind, members: [], n: 0, stored: !!d.stored });
+    for (const d of st.devs.filter((x) => !x.hidden || showHidden)) {
+      if (!by.has(d.name)) by.set(d.name, { key: d.name, name: d.name, vendor: d.vendor, kind: d.kind, members: [], n: 0, stored: !!d.stored, hid: !!d.hidden });
       const g = by.get(d.name);
       g.members.push(d); g.n += Math.max(1, d.led_names.length);
     }
-    const out = [{ key: ALL, name: App.t("rgb.all"), members: st.devs, n: st.devs.length, all: true, kind: "all" }];
+    const shown = st.devs.filter((x) => !x.hidden);
+    const out = [{ key: ALL, name: App.t("rgb.all"), members: shown, n: shown.length, all: true, kind: "all" }];
     for (const g of by.values()) {
       out.push(g);
       // a group can be opened to control its devices one by one
       if (g.members.length > 1 && open.has(g.key)) {
-        for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, vendor: g.vendor, kind: g.kind, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored });
+        for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, vendor: g.vendor, kind: g.kind, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored, hid: !!m.hidden });
       }
     }
     return out;
@@ -104,12 +105,22 @@
   }
 
   /** Gives devices back: their own lighting returns. */
-  async function giveBack(it) {
+  async function giveBackQuiet(it) {
     for (const m of it.members) {
       if (!driven.has(lkey(m))) continue;
       driven.delete(lkey(m)); look.delete(lkey(m));
       await api.invoke("rgb_unlook", { name: m.name, nth: m.nth }).catch(toast);
     }
+  }
+  async function giveBack(it) { await giveBackQuiet(it); draw(); }
+
+  /** Hides a device (or shows it again): it leaves the list and Buffer stops driving it. */
+  async function hide(it, on) {
+    if (on) await giveBackQuiet(it);
+    for (const m of it.members) {
+      try { await api.invoke("rgb_hide", { key: lkey(m), on }); m.hidden = on; } catch (e) { toast(e); }
+    }
+    if (on) st.sel = ALL;
     draw();
   }
 
@@ -249,10 +260,11 @@
         if (open.has(x.key)) { open.delete(x.key); if (st.sel.startsWith(x.key + "#")) st.sel = x.key; } else open.add(x.key);
         draw();
       } }) : null;
-      const card = h("button", { class: "rdev" + (x.key === it.key ? " on" : "") + (x.all ? " all" : "") + (x.child ? " child" : ""), onClick: () => { st.sel = x.key; draw(); },
+      const card = h("button", { class: "rdev" + (x.key === it.key ? " on" : "") + (x.all ? " all" : "") + (x.child ? " child" : "") + (x.hid ? " hid" : ""), onClick: () => { st.sel = x.key; draw(); },
         title: x.stored ? App.t("rgb.keyboardTip") : null },
         h("span", { class: "rt" }, icon(x.kind), h("b", { text: x.name }), group ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
-          !x.all && !x.child ? h("small", { class: "mono", text: x.vendor }) : null, h("span", { class: "rtag", hidden: true }), chev, sw),
+          !x.all && !x.child ? h("small", { class: "mono", text: x.vendor }) : null, h("span", { class: "rtag", hidden: true }), chev,
+          x.hid ? h("span", { class: "chip rshow", role: "button", text: App.t("rgb.unhide"), onClick: (e) => { e.stopPropagation(); hide(x, false); } }) : sw),
         leds(nLeds(x)));
       cards.set(x.key, card);
       paintCard(card, x);
@@ -288,14 +300,12 @@
     const mk = mark(it, reference());
     const rel = h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), disabled: !itemDriven(it), onClick: () => giveBack(it) });
     const power = h("button", { class: "chip" + (itemOn(it) ? " on" : ""), text: App.t(itemOn(it) ? "rgb.on" : "rgb.off"), onClick: () => { apply(it, { on: !itemOn(it) }); draw(); } });
-    const natSel = nat.length ? h("select", { class: "field rnat", title: App.t("rgb.nativeTip"), "aria-label": App.t("rgb.native") },
-      h("option", { value: "", text: App.t("rgb.native") }),
-      nat.map((m) => h("option", { value: m.name, text: m.name + (m.flags & F.AUTOSAVE ? "  ◆" : ""), selected: !!natMode && natMode.name === m.name }))) : null;
-    if (natSel) natSel.onchange = () => { apply(it, natSel.value ? { fx: "native", native: natSel.value } : { fx: "static", native: null }); draw(); };
     const fxBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.effect") })),
-      h("div", { class: "rfx" },
-        App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx === "native" ? "" : l.fx || "static", (v) => { apply(it, { fx: v, native: null }); draw(); }),
-        natSel));
+      App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx === "native" ? "" : l.fx || "static", (v) => { apply(it, { fx: v, native: null }); draw(); }));
+    // the device's own effects: a second row, same look; clicking the active one goes back to a plain colour
+    const natBox = nat.length ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.native"), title: App.t("rgb.nativeTip") })),
+      App.ui.segc(nat.map((m) => [m.name, m.name + (m.flags & F.AUTOSAVE ? " ◆" : "")]), natMode ? natMode.name : "",
+        (v) => { apply(it, natMode && natMode.name === v ? { fx: "static", native: null } : { fx: "native", native: v }); draw(); })) : null;
     const spdBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.speed") }),
       h("span", { class: "mono rval", id: "rspd", text: l.speed.toFixed(1) + "×" })), spd);
     const dirBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.dir") })),
@@ -338,6 +348,7 @@
       h("div", { class: "rhd" }, icon(it.kind), h("h2", { text: it.name }),
         mk === "mixed" ? h("button", { class: "chip", text: App.t("rgb.unify"), title: App.t("rgb.unifyTip"), onClick: () => { apply(it, { ...itemLook(it) }); draw(); } }) : null,
         mk === "custom" ? h("button", { class: "chip", text: App.t("rgb.likeRest"), title: App.t("rgb.likeRestTip"), onClick: () => { apply(it, { ...lookOf(majorityMember()) }); draw(); } }) : null,
+        !it.all && !it.stored ? h("button", { class: "chip", text: it.hid ? App.t("rgb.unhide") : App.t("rgb.hide"), title: App.t("rgb.hideTip"), onClick: () => hide(it, !it.hid) }) : null,
         rel, power),
       prev,
       wants.colour ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour") })),
@@ -345,6 +356,7 @@
       wants.colour2 ? c2Box : null,
       wants.bright ? h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.brightness") }), bv), br) : null,
       fxBox,
+      natBox,
       wants.dir ? dirBox : null,
       wants.speed ? spdBox : null,
       zBox);
@@ -352,7 +364,10 @@
 
     // the left column keeps its automation card between redraws (an open card must not close when a card is clicked)
     if (force || !autoEl) autoEl = App.RGBAuto.card(reload);
-    const left = h("div", { class: "rleft" }, list, autoEl, App.RGBAuto.missingLink(st.devs));
+    const nHid = st.devs.filter((x) => x.hidden).length;
+    const left = h("div", { class: "rleft" }, list,
+      nHid ? h("button", { class: "linkbtn rmiss", text: App.t("rgb.hidden", { n: nHid }) + (showHidden ? " ▴" : " ▾"), onClick: () => { showHidden = !showHidden; draw(); } }) : null,
+      autoEl, App.RGBAuto.missingLink(st.devs));
     // redrawing in place (a click on the list must not replay the cards' entrance or lose the scroll position)
     const body = force ? null : page.querySelector(".rgb > .rbody");
     if (body) {

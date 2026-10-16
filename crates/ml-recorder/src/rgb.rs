@@ -45,6 +45,9 @@ struct File {
     game_profiles: BTreeMap<String, String>,
     #[serde(default)]
     power: ml_rgb::power::Power,
+    /// devices the user hid (keys "name#n"): not shown, not driven, not part of "All devices"
+    #[serde(default)]
+    hidden: BTreeSet<String>,
     /// zone lengths the user set (device key -> zone index -> LEDs), applied again at every connect
     #[serde(default)]
     zones: BTreeMap<String, BTreeMap<u32, u32>>,
@@ -209,6 +212,7 @@ impl Hub {
             "keyboard_found": ml_rgb::darkproject::detect().is_some(),
             "power": st.file.power, "away": st.away,
             "profiles": st.file.profiles.keys().collect::<Vec<_>>(), "profile": st.file.active_profile,
+            "profile_sizes": st.file.profiles.iter().map(|(n, s)| (n.clone(), s.driven_count())).collect::<BTreeMap<_, _>>(),
             "profile_dirty": st.file.active_profile.as_ref().and_then(|n| st.file.profiles.get(n)).is_some_and(|p| *p != st.file.scene),
             "game_profiles": st.file.game_profiles, "game_profile": st.game_profile,
             "conflicts": crate::away::conflicts(&crate::away::snapshot()),
@@ -223,6 +227,7 @@ impl Hub {
             .map(|(i, d)| {
                 let mut v = serde_json::to_value(d).unwrap_or_default();
                 v["index"] = json!(i);
+                v["hidden"] = json!(st.file.hidden.contains(&key(&st.devices, i)));
                 v
             })
             .collect();
@@ -304,6 +309,18 @@ impl Hub {
                         f.game_profiles.remove(&stem);
                     } else {
                         f.game_profiles.insert(stem, name);
+                    }
+                })
+            }
+            "rgb-hide" => {
+                // `rgb-hide on|off <name>#<n>`
+                let Some((on, k)) = arg.split_once(' ') else { return err("usage: rgb-hide on|off <name#n>") };
+                let (on, k) = (on == "on", k.trim().to_string());
+                self.edit(|f| {
+                    if on {
+                        f.hidden.insert(k);
+                    } else {
+                        f.hidden.remove(&k);
                     }
                 })
             }
@@ -929,11 +946,15 @@ impl Worker {
         if c.replan {
             let names: Vec<(&str, usize)> = c.devs.iter().map(|d| (d.name.as_str(), d.led_names.len())).collect();
             // lights out: every device black (the ones the scene does not drive too), the earlier modes come back afterwards
+            let hidden = self.hub.lock().file.hidden.clone();
             let plans: Vec<DevPlan> = if c.away.is_some() {
                 (0..names.len()).map(|index| DevPlan { index, fixed: Some([0; 3]), look: None, pos: Vec::new() }).collect()
             } else {
                 c.scene.plan(&names)
-            };
+            }
+            .into_iter()
+            .filter(|p| !hidden.contains(&key(&c.devs, p.index)))
+            .collect();
             c.plan = plans
                 .into_iter()
                 .filter(|p| names[p.index].1 > 0)

@@ -123,3 +123,9 @@ pub async fn rgb_profile(action: String, name: String) -> Result<(), String> {
 pub async fn rgb_game_profile(game: String, profile: String) -> Result<(), String> {
     send(format!("rgb-game-profile {game} {profile}")).await.map(|_| ())
 }
+
+/// Hides a device (`key` = "name#n"): it disappears from the page and Buffer stops driving it. `on` false shows it again.
+#[tauri::command]
+pub async fn rgb_hide(key: String, on: bool) -> Result<(), String> {
+    send(format!("rgb-hide {} {key}", if on { "on" } else { "off" })).await.map(|_| ())
+}

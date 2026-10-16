@@ -490,7 +490,8 @@ fn open_issue_page(url: String) -> Result<(), String> {
     if !url.starts_with("https://github.com/Wheatlay/Buffer/issues/new") {
         return Err("only the issue page can be opened".into());
     }
-    Command::new("explorer").arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string())
+    // rundll32 hands the address straight to the default browser (explorer.exe would open a folder window)
+    Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -899,6 +900,7 @@ fn main() {
             rgb::rgb_look,
             rgb::rgb_unlook,
             rgb::rgb_zone,
+            rgb::rgb_hide,
             rgb::rgb_power,
             rgb::rgb_profile,
             rgb::rgb_game_profile,

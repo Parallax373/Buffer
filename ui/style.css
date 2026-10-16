@@ -1230,3 +1230,9 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rauto .cap.sub { margin: 2px 0 4px; }
 .rauto .arow:first-of-type { padding-top: 2px; }
 
+.rrow > .seg { flex-wrap: wrap; max-width: 100%; }
+.rdev.hid { opacity: .55; border-style: dashed; }
+.rshow { cursor: pointer; margin-left: auto; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; color: var(--text2); background: var(--raised); }
+.rshow:hover { border-color: var(--acc); color: var(--acc); }
+.rprof .chip.empty { opacity: .55; border-style: dashed; }
+.rauto .rsep { margin: 12px 0 8px; }

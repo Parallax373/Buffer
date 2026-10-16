@@ -259,6 +259,14 @@ pub fn resolve(devs: &[(&str, usize)], name: &str, nth: u32) -> Option<usize> {
 }
 
 impl Scene {
+    /// How many devices this scene drives (Simple: the looks; Advanced: the placed devices linked to a real one).
+    pub fn driven_count(&self) -> usize {
+        match self.mode {
+            Mode::Simple => self.simple.len(),
+            Mode::Advanced => self.devices.iter().filter(|d| d.link.is_some()).count(),
+        }
+    }
+
     pub fn fps(&self) -> u32 {
         self.fps.unwrap_or(30).clamp(5, 60)
     }
