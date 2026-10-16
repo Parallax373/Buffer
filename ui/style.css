@@ -1175,8 +1175,8 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rbig.fx-rainbow i { animation: rHue calc(8s * var(--sp, 1)) linear infinite; animation-delay: calc(var(--i) * -.12s * var(--sp, 1)); }
 .rbig.fx-wave i { animation: rWave calc(2.8s * var(--sp, 1)) ease-in-out infinite; animation-delay: calc(var(--i) * -.1s); }
 :root[data-anim="off"] .rbig, :root[data-anim="off"] .rbig i { animation: none !important; }
-.rchev { margin-left: auto; padding: 0 6px; color: var(--muted); font-size: 16px; line-height: 1; transition: transform var(--t) ease, color var(--t) ease; }
-.rchev:hover { color: var(--text); }
+.rchev { margin-left: auto; min-width: 34px; margin-block: -6px; padding: 6px 0; text-align: center; border-radius: 8px; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; transition: transform var(--t) ease, color var(--t) ease, background var(--t) ease; }
+.rchev:hover { color: var(--text); background: var(--raised); }
 .rchev.open { transform: rotate(90deg); color: var(--acc); }
 .rchev + .toggle { margin-left: 0; }
 .rdev.child { margin-left: 18px; padding: 9px 12px; }
@@ -1187,3 +1187,5 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rtag:not([hidden]) ~ .rchev, .rtag:not([hidden]) ~ .toggle { margin-left: 6px; }
 .rtag:not([hidden]) ~ .rchev + .toggle { margin-left: 0; }
 .rdev.diff { border-left: 3px solid var(--acc); }
+
+.rlist.still .rdev { animation: none; }

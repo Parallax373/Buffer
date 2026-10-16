@@ -48,7 +48,12 @@
   const open = new Set();
   const current = () => items().find((i) => i.key === st.sel) || items()[0];
   /** what an item shows: its first driven member's look (or a fresh one); for "All" the first member's */
-  const itemLook = (it) => lookOf(it.members.find((m) => driven.has(lkey(m))) || it.members[0]);
+  const itemLook = (it) => lookOf(it.all ? majorityMember() : it.members.find((m) => driven.has(lkey(m))) || it.members[0]);
+  /** the device whose look most driven devices share (what "All devices" shows) */
+  function majorityMember() {
+    const ref = reference();
+    return st.devs.find((d) => driven.has(lkey(d)) && sigOf(d) === ref) || st.devs[0];
+  }
   const itemDriven = (it) => it.members.some((m) => driven.has(lkey(m)));
   const itemOn = (it) => !itemDriven(it) || itemLook(it).on;
 
@@ -213,6 +218,7 @@
     const n = nLeds(it);
     const prev = h("div", { class: "rbig" }, Array.from({ length: n }, (_, i) =>
       vars(h("i"), { "--o": (0.45 + 0.55 * (i / (n - 1))).toFixed(2), "--i": i })));
+    const mk = mark(it, reference());
     const power = h("button", { class: "chip" + (itemOn(it) ? " on" : ""), text: App.t(itemOn(it) ? "rgb.on" : "rgb.off"), onClick: () => { apply(it, { on: !itemOn(it) }); draw(); } });
     const fxBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.effect") })),
       App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx || "static", (v) => { apply(it, { fx: v }); draw(); }));
@@ -240,6 +246,8 @@
     } }), { "--c": c })));
     const detail = h("section", { class: "card2 pad rdetail" },
       h("div", { class: "rhd" }, h("h2", { text: it.name }),
+        mk === "mixed" ? h("button", { class: "chip", text: App.t("rgb.unify"), title: App.t("rgb.unifyTip"), onClick: () => { apply(it, { ...itemLook(it) }); draw(); } }) : null,
+        mk === "custom" ? h("button", { class: "chip", text: App.t("rgb.likeRest"), title: App.t("rgb.likeRestTip"), onClick: () => { apply(it, { ...lookOf(majorityMember()) }); draw(); } }) : null,
         itemDriven(it) ? h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), onClick: () => giveBack(it) }) : null, power),
       prev,
       h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour") }), hv), swatches, hue),
@@ -247,7 +255,14 @@
       fxBox,
       l.fx && l.fx !== "static" ? spdBox : null);
     upd();
-    page.replaceChildren(h("div", { class: "rgb" }, head(), h("div", { class: "rbody" }, list, detail)));
+    // redrawing in place (a click on the list must not replay the cards' entrance or lose the scroll position)
+    const body = page.querySelector(".rgb > .rbody");
+    if (body) {
+      const sl = body.querySelector(".rlist")?.scrollTop || 0, sd = body.querySelector(".rdetail")?.scrollTop || 0;
+      list.classList.add("still");
+      body.replaceChildren(list, detail);
+      list.scrollTop = sl; detail.scrollTop = sd;
+    } else page.replaceChildren(h("div", { class: "rgb" }, head(), h("div", { class: "rbody" }, list, detail)));
   }
 
   App.RGB = {

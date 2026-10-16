@@ -1,0 +1,46 @@
+# Buffer: notes for Claude
+
+Windows clip recorder/editor, live EQ, sound switcher and RGB control. Rust workspace + Tauri v2, plain HTML/CSS/JS UI in
+`ui/` (no bundler). Architecture and measured facts live in `STATE.md`; the look in `DESIGN.md`. Read both before UI work.
+
+## How to work here
+- **UI design:** use Buffer's own language (`DESIGN.md`): lime `#c6f432` = "now", faded lime = "trail", olive neutrals, scan
+  bars, animated logo. Applies to native windows too. Verify with a screenshot (app: CDP, see below) before handing over.
+- **Text:** keep visible UI text short. Essential info stays as a few words; explanations go in `title=` tooltips. Do not
+  strip all descriptions either. Every string through `App.t()` in all 9 locales, `node scripts/check-i18n.js` must pass.
+- **No needless toggles:** a behaviour that should always be on gets no Settings toggle; check that each toggle is read
+  somewhere (grep) and delete dead ones.
+- **Lists and cards must not refresh when clicked.** Selecting or toggling an item must not rebuild the whole list or replay
+  its entrance animation (it flashes and loses scroll). Update in place (classes, the detail pane); if a rebuild is
+  unavoidable, keep scroll position and suppress the entrance animation (`.rlist.still` in `rgb.js` is the pattern). This
+  regressed more than once: after any list/card change, click through it in the real window and watch for a flash.
+- **Small targets:** clickable glyphs (chevrons, close buttons) need a hit area of about 32 px, not the glyph's size.
+- **Never release without being asked** (they once clicked a release by accident). The `.cmd` helpers are in
+  `.git/info/exclude`.
+
+## Dev loop
+- `scripts/dev.ps1 [-Inspect]` (or `Run Buffer (dev).cmd`): UI live-reloads, Rust rebuilds in debug. `-Inspect` opens
+  WebView2's debug port 9222: drive and screenshot the real window over CDP (`Runtime.evaluate`, `Page.captureScreenshot`)
+  instead of Playwright. Native windows (tray flyout, popups) cannot be seen by CDP.
+- The running dev `buffer.exe` / `buffer-recorder.exe` lock `target\debug`. **Closing them (even mid-recording) is fine**: stop
+  both, build in the normal target dir, start again. The dev app relaunches a quit recorder within seconds.
+  `cargo build -p ml-recorder` must really replace the exe: check its timestamp, an old recorder silently lacks new commands.
+- Test with the user's LIVE state in mind (they edit EQ and lights while testing): back up and restore only what a test
+  changed. Hardware tests must put devices back (RGB: "Give back"; keyboard: restore its saved profile).
+- Releases: `scripts\release.ps1 -Local` (~3 min, builds here) or `scripts\release.ps1` (GitHub Actions, ~10 min). Both take
+  `-DryRun`; `bump-version.ps1` sets the version everywhere. Only the latest release is kept. Installed copies read
+  `latest.json` from `releases/latest`; the updater never goes down in version. Builds are unsigned (SignPath Foundation
+  rejected the application on 2026-10-16; may reapply once the project has more visibility).
+
+## RGB (OpenRGB) in short
+- OpenRGB (GPL-2.0) is never bundled or linked: installed on request by one elevated, all-or-nothing step into
+  `%ProgramFiles%\Buffer\OpenRGB` (admin-only write; an elevated task must never run a user-writable exe), plus an on-demand
+  scheduled task "Buffer OpenRGB" the recorder starts/stops without UAC. PawnIO is installed only if missing and never
+  removed. Elevated scripts go inline (`-EncodedCommand`), never as files. The recorder hosts OpenRGB and the render loop, so
+  lights outlive the window. Details: `STATE.md` "RGB page", `RGB-SCENE.md`, `docs-rgb-keyboard.md`.
+- The Dark Project keyboard (`342D:E40F`) is not an OpenRGB device: every lighting write rewrites its STORED profile. The
+  recorder saves the profile before the first write (`rgb.json: kb_backup`), writes at most every 2 s, and "Give back"
+  restores it byte for byte. Never send profile-switch, reset, key-binding or firmware commands to it.
+- Hardware seen on the dev PC: board + 4 RAM sticks (elevated only), GPU, headset, the keyboard. UI must not promise every device.
+- Equalizer APO setup is one UAC prompt with no wizard (`ml-eq/src/apo/setup.rs`); a test run once uninstalled the user's real
+  APO. Before any install/uninstall test, snapshot what is installed first.
