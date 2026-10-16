@@ -209,7 +209,7 @@
       App.Lib.load();
     }
     if (saved || Rec.lastSaved === undefined) Rec.lastSaved = saved;
-    if (S.view === "set" && Settings.tab === "rec") Settings.paintRecorder();
+    if (S.view === "set" && Settings.live()) Settings.paintRecorder();
   };
   /* A recorder that was up and then vanished (crash, killed by another tool) is relaunched, and the user is told.
      A stop the user asked for (Rec.expectDown) is left alone. */
@@ -229,7 +229,7 @@
   Rec.start = () => {
     const loop = async () => {
       if (!document.hidden) await Rec.refresh();
-      pollTimer = setTimeout(loop, S.view === "set" && Settings.tab === "rec" ? 700 : 1200);
+      pollTimer = setTimeout(loop, S.view === "set" && Settings.live() ? 700 : 1200);
     };
     clearTimeout(pollTimer);
     loop();
@@ -489,12 +489,14 @@
             dragHandle(e.path, "lime", "⇪")))) : [h("div", { class: "muted", text: App.t("exp.none") })]))));
   }
 
-  /* ───── settings: Nagrywanie · Biblioteka · Aplikacja ───── */
+  /* ───── settings: Nagrywanie · Dźwięk · Skróty | Biblioteka · Eksport · Ogólne · Zaawansowane ───── */
 
-  const Settings = (App.Settings = { tab: "rec", adv: false });
+  const Settings = (App.Settings = { tab: "rec" });
   const U = App.ui;
   Settings.paintRecorder = () => App.RecUI.paint();   // called by the recorder poll while the tab is open
-  const TABS = ["rec", "lib", "app"];
+  const TABS = ["rec", "aud", "keys", "|", "lib", "exp", "gen", "adv"];   // "|" = the line between recording and the rest
+  /** Tabs whose content follows the recorder (status bar, meters, diagnostics): the poll runs faster there. */
+  Settings.live = () => ["rec", "aud", "keys", "adv"].includes(Settings.tab);
   const THEMES = [["ink", "#0b0c0a"], ["oled", "#000000"]];
 
   /** Settings pane; only a tab switch plays the slide-in, edits inside a tab re-render quietly. */
@@ -507,32 +509,30 @@
     const mount = () => {
       root.replaceChildren(h("div", { class: "set" },
         h("div", { class: "tabs" }, h("h1", { text: App.t("set.title") }),
-          TABS.map((k) => h("button", { class: Settings.tab === k ? "on" : "", text: App.t("set.tab." + k),
-            onClick: () => { Settings.tab = k; Settings.render(true); } })),
+          TABS.map((k) => (k === "|" ? h("div", { class: "tdiv" }) : h("button", { class: Settings.tab === k ? "on" : "", text: App.t("set.tab." + k),
+            onClick: () => { Settings.tab = k; Settings.render(true); } }))),
           h("div", { class: "grow" }),
           h("button", { class: "wizbtn", text: App.t("set.wizard"), onClick: () => App.RecUI.wizard() })),
         h("div", { class: "setscroll" }, pane)));
     };
     const restore = () => { if (keep && scroller()) scroller().scrollTop = keep; };
     const mine = ++renderSeq;
-    if (Settings.tab === "rec") {
-      // the recording tab looks its own elements up in the document while it builds (meters, status bar): attach first
+    if (["rec", "aud", "keys"].includes(Settings.tab)) {
+      // the recorder's tabs look their own elements up in the document while they build (meters, status bar): attach first
       mount();
-      await App.RecUI.renderTab(pane);
+      await App.RecUI.renderTab(pane, Settings.tab);
     } else {
-      // library and app tabs wait for their data (tools, cache size, clips) and are swapped in finished, in one go:
+      // the other tabs wait for their data (tools, cache size, clips) and are swapped in finished, in one go:
       // attaching an empty pane first showed as the whole panel blinking on every edit
-      await (Settings.tab === "lib" ? renderLibraryTab(pane) : renderAppTab(pane));
+      const build = { lib: renderLibraryTab, exp: renderExportTab, gen: renderGeneralTab, adv: renderAdvancedTab }[Settings.tab];
+      await build(pane);
       if (mine !== renderSeq) return;                                     // a newer render took over meanwhile
       mount();
+      if (Settings.tab === "adv") App.RecUI.paint();                      // the diagnostics line is filled by the recorder poll
     }
     restore();
   };
 
-  const advHead = (label, open, toggle) => h("button", { class: "advhead", onClick: toggle },
-    h("span", { text: label }), h("span", { text: open ? "▴" : "▾" }));
-
-  /* Biblioteka: one folder list (the radio marks where new recordings go), library toggles, export. */
   /** Replaces one export preset; the default target follows its slot if its old value disappeared. */
   function setPreset(i, v) {
     const s = App.P.settings, old = App.presets();
@@ -546,6 +546,7 @@
     Settings.render();
   }
 
+  /* Biblioteka: one folder list (the radio marks where new recordings go), library toggles, the look of the grid. */
   async function renderLibraryTab(pane) {
     await App.RecUI.ensureLoaded();
     const rc = App.RecUI.cfg();
@@ -576,33 +577,42 @@
             App.P.libDirs = App.P.libDirs.filter((x) => x !== d); await reload();
           } }));
     };
+    // optional: take the icons of installed games for the games that have none yet (Steam, Epic, usual folders)
+    const findIcons = async (ev) => {
+      const btn = ev.currentTarget;
+      const todo = App.Lib.games().map(([g]) => g).filter((g) => !App.Lib.hasIcon(g));
+      if (!todo.length) { App.toast(App.t("lib.iconsNone")); return; }
+      btn.disabled = true;
+      try {
+        const r = await api.invoke("import_game_icons", { names: todo });
+        await App.Lib.loadIcons();
+        App.toast(App.t("lib.iconsDone", { n: r.found.length, m: todo.length }), r.found.length ? "ok" : "");
+      } catch (e) {
+        App.toast(String(e), "err");
+      } finally {
+        btn.disabled = false;
+      }
+    };
     pane.append(h("div", { class: "setcol" },
       h("div", null, U.cap(App.t("lib.folders")),
         h("div", { class: "card2 pad folders" }, ...dirs.map(folderRow),
           h("button", { class: "linkbtn", text: App.t("lib.add"), onClick: async () => {
             const n = await api.pickFolder();
             if (n && !App.P.libDirs.includes(n)) { App.P.libDirs.push(n); await reload(); }
-          } }),
-          // optional: take the icons of installed games for the games that have none yet (Steam, Epic, usual folders)
-          h("button", { class: "linkbtn", text: App.t("lib.icons"), title: App.t("lib.iconsTip"), onClick: async (ev) => {
-            const btn = ev.currentTarget;
-            const todo = App.Lib.games().map(([g]) => g).filter((g) => !App.Lib.hasIcon(g));
-            if (!todo.length) { App.toast(App.t("lib.iconsNone")); return; }
-            btn.disabled = true;
-            try {
-              const r = await api.invoke("import_game_icons", { names: todo });
-              await App.Lib.loadIcons();
-              App.toast(App.t("lib.iconsDone", { n: r.found.length, m: todo.length }), r.found.length ? "ok" : "");
-            } catch (e) {
-              App.toast(String(e), "err");
-            } finally {
-              btn.disabled = false;
-            }
           } }))),
       h("div", { class: "card2 tgl" },
         U.trow(App.t("lib.perGame"), App.t("lib.perGameD"), rc.per_game_folders, async (on) => { await App.RecUI.save({ per_game_folders: on }); Settings.render(); }),
-        U.trow(App.t("lib.scan"), App.t("lib.scanD"), s.sub, async (on) => { s.sub = on; await reload(); }),
-        U.trow(App.t("lib.auto"), App.t("lib.autoD"), s.auto, (on) => { s.auto = on; App.persist(); Settings.render(); })),
+        U.trow(App.t("lib.scan"), App.t("lib.scanD"), s.sub, async (on) => { s.sub = on; await reload(); })),
+      h("div", null, U.cap(App.t("cap.look")),
+        h("div", { class: "card2" },
+          U.srow(App.t("app.thumb"), U.segc(["S", "M", "L"].map((k) => [k, k]), s.thumb, (k) => { s.thumb = k; App.persist(); Settings.render(); })),
+          U.srow(App.t("lib.iconsLabel"), h("button", { class: "btn", text: App.t("lib.iconsFind"), title: App.t("lib.iconsTip"), onClick: findIcons }))))));
+  }
+
+  /* Eksport: size, folder, loudness, decoding and clean-up. */
+  async function renderExportTab(pane) {
+    const s = App.P.settings;
+    pane.append(h("div", { class: "setcol" },
       h("div", null, U.cap(App.t("exp.cap")),
         h("div", { class: "card2" },
           U.srow(App.t("exp.defTarget"), h("div", { class: "pathrow" },
@@ -610,7 +620,7 @@
               ? h("div", { class: "pathrow" }, ...App.presets().map((mb, i) => h("input", { class: "field monoin", type: "number", min: 1, max: 2000, value: mb,
                 style: { width: "74px" }, title: "MB", onChange: (e) => setPreset(i, +e.target.value) })), h("span", { class: "muted", text: "MB" }))
               : U.segc(App.presets().map((mb) => [mb, App.presetName(mb) ? `${App.presetName(mb)} · ${mb} MB` : `${mb} MB`]), s.defTarget, (mb) => { s.defTarget = mb; App.persist(); Settings.render(); }),
-            h("button", { class: "linkbtn", text: Settings.presetsOpen ? "\u2713" : App.t("set.presetsEdit"),
+            h("button", { class: "linkbtn", text: Settings.presetsOpen ? "✓" : App.t("set.presetsEdit"),
               onClick: () => { Settings.presetsOpen = !Settings.presetsOpen; Settings.render(); } }))),
           U.srow(App.t("exp.outDir"), h("div", { class: "pathrow" },
             h("span", { class: "mono path", text: App.exportDirFor() }),
@@ -619,64 +629,60 @@
               if (d) { s.outDir = d; App.persist(); Settings.render(); }
             } }),
             s.outDir ? h("button", { class: "linkbtn", text: App.t("common.default"), onClick: () => { s.outDir = ""; App.persist(); Settings.render(); } }) : null)),
-          U.trow(App.t("exp.norm"), "−16 LUFS", s.normDef, (on) => { s.normDef = on; App.persist(); Settings.render(); }),
+          U.trow(App.t("exp.norm"), App.t("exp.normD"), s.normDef, (on) => { s.normDef = on; App.persist(); Settings.render(); }),
+          U.trow(App.t("hw.dec"), App.t("hw.decD"), s.hw, (on) => { s.hw = on; App.persist(); Settings.render(); }),
           U.srow(App.t("set.autoClean"), U.segc([[0, App.t("clean.never")], ...[7, 30, 90].map((n) => [n, App.t("clean.days", { n })])],
             s.autoCleanDays || 0, (d) => { s.autoCleanDays = d; App.persist(); Settings.render(); }))))));
   }
 
-  /* Aplikacja: appearance + system. */
-  async function renderAppTab(pane) {
+  /* Ogólne: language, animations, starting with Windows, theme, notifications, version. */
+  async function renderGeneralTab(pane) {
     const s = App.P.settings;
-    let [tools, size] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0)]);
-    const encoder = ({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync", libx264: App.t("enc.cpu") })[tools?.encoder] || App.t("enc.unknown");
+    await App.RecUI.ensureLoaded();
     const cur = App.i18n.current();
     const langRow = U.srow(App.t("lang.label"), h("div", { class: "pathrow" },
       h("select", { class: "field", onChange: (e) => App.i18n.setLang(e.target.value) },
         App.i18n.ORDER.filter((c) => App.locales[c]).map((c) => h("option", { value: c, text: App.locales[c].name, selected: c === cur }))),
       App.locales[cur].ai ? h("span", { class: "muted", style: { fontSize: "12px", whiteSpace: "nowrap" }, title: App.t("lang.aiTip"), text: App.t("lang.ai") }) : null));
-    // Advanced: opened, closed and edited in place. A full Settings.render() here re-asked the system for the tools
-    // and the cache size and rebuilt the whole pane, which showed as a flash of the entire panel.
-    const advBox = h("div");
-    const drawAdv = () => {
-      const wasOpen = !!advBox.querySelector(".card2");   // a rebuild of an open card must not replay its entrance
-      advBox.replaceChildren(...[
-        advHead(App.t("adv.cap"), Settings.adv, () => { Settings.adv = !Settings.adv; drawAdv(); }),
-        Settings.adv ? h("div", { class: "card2 rise pad stackrows", style: wasOpen ? { animation: "none" } : null },
-          h("div", { class: "between" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version}` : "ffmpeg" }),
-            h("span", { class: "mono " + (tools?.ffmpeg_found ? "lime" : "err"), style: { fontSize: "12px" },
-              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? App.t("ffmpeg.bundled") : App.t("ffmpeg.system")) : App.t("ffmpeg.missing") })),
-          h("div", { class: "between" }, h("span", { text: App.t("enc.label") }),
-            h("span", { class: "mono " + (tools?.encoder && tools.encoder !== "libx264" ? "lime" : "warn"), style: { fontSize: "12px" },
-              text: "● " + encoder + (tools?.gpu ? " · " + tools.gpu : "") })),
-          h("div", { class: "between" }, h("span", { text: App.t("cache.label", { size: App.fmtMB(size) }) }),
-            h("button", { class: "btn", text: App.t("cache.clear"), onClick: async () => {
-              await api.invoke("clear_cache").catch(() => {});
-              App.toast(App.t("cache.cleared"), "ok");
-              size = await api.invoke("cache_size").catch(() => 0);
-              drawAdv();
-            } })),
-          U.trow(App.t("hw.dec"), App.t("hw.decD"), s.hw, (on) => { s.hw = on; App.persist(); drawAdv(); }),
-          U.trow(App.t("bgthumb"), App.t("bgthumbD"), s.thumbs, (on) => { s.thumbs = on; App.persist(); drawAdv(); }),
-          U.trow(App.t("audiocache"), App.t("audiocacheD"), s.cache, (on) => { s.cache = on; App.persist(); drawAdv(); })) : null,
-      ].filter(Boolean));
-    };
-    drawAdv();
+    const animRow = U.trow(App.t("app.anim"), App.t("app.animD"), s.anim, (on) => { s.anim = on; App.persist(); App.applyTheme(); Settings.render(); });
+    const blocks = App.RecUI.generalBlocks([langRow, animRow]);
     pane.append(h("div", { class: "setcol" },
-      h("div", { class: "card2" }, langRow),
+      blocks.main,
       h("div", null, U.cap(App.t("theme.cap")), h("div", { class: "themes2" }, THEMES.map(([k, bg]) =>
         h("button", { class: "th2" + ((s.theme === "oled" ? "oled" : "ink") === k ? " on" : ""),
           onClick: () => { s.theme = k; App.persist(); App.applyTheme(); App.RecUI.syncLang().catch(() => {}); Settings.render(); } },
           h("div", { class: "pv2", style: { background: bg } }, h("i", { style: { width: "60%", background: "#1a1d16" } }), h("i", { style: { width: "30%", background: "#c6f432" } })),
           h("div", { class: "nm", text: App.t("theme." + k) }))))),
-      h("div", { class: "card2" },
-        U.srow(App.t("ver.label"), h("div", { class: "pathrow" },
-          h("span", { class: "mono", id: "appVersion", text: "…" }),
-          h("button", { class: "linkbtn", id: "updBtn", text: App.Update.hasUpdate() ? App.t("ver.install") : App.t("ver.check"),
-            onClick: () => (App.Update.hasUpdate() ? App.Update.install() : App.Update.check(true)) }))),
-        U.trow(App.t("ver.auto"), App.t("ver.autoD"), s.autoUpdate !== false, (on) => { s.autoUpdate = on; App.persist(); Settings.render(); }),
-        U.srow(App.t("app.thumb"), U.segc(["S", "M", "L"].map((k) => [k, k]), s.thumb, (k) => { s.thumb = k; App.persist(); Settings.render(); })),
-        U.trow(App.t("app.anim"), App.t("app.animD"), s.anim, (on) => { s.anim = on; App.persist(); App.applyTheme(); Settings.render(); })),
-      advBox));
+      h("div", null, U.cap(App.t("cap.notify")), blocks.notify),
+      h("div", null, U.cap(App.t("cap.version")),
+        h("div", { class: "card2" },
+          U.srow(App.t("ver.label"), h("div", { class: "pathrow" },
+            h("span", { class: "mono", id: "appVersion", text: "…" }),
+            h("button", { class: "linkbtn", id: "updBtn", text: App.Update.hasUpdate() ? App.t("ver.install") : App.t("ver.check"),
+              onClick: () => (App.Update.hasUpdate() ? App.Update.install() : App.Update.check(true)) }))),
+          U.trow(App.t("ver.auto"), App.t("ver.autoD"), s.autoUpdate !== false, (on) => { s.autoUpdate = on; App.persist(); Settings.render(); })))));
+  }
+
+  /* Zaawansowane: what is normally left alone: tools, the recorder's own status, the cache. */
+  async function renderAdvancedTab(pane) {
+    const [tools, size0] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0)]);
+    const sizeLine = h("span", { text: App.t("cache.used", { size: App.fmtMB(size0) }) });
+    pane.append(h("div", { class: "setcol" },
+      h("div", null, U.cap(App.t("adv.diag")),
+        h("div", { class: "card2 pad stackrows" },
+          h("div", { class: "between" }, h("span", { text: tools?.ffmpeg_found ? `ffmpeg ${tools.ffmpeg_version}` : "ffmpeg" }),
+            h("span", { class: "mono " + (tools?.ffmpeg_found ? "lime" : "err"), style: { fontSize: "12px" },
+              text: tools?.ffmpeg_found ? (tools.ffmpeg_bundled ? App.t("ffmpeg.bundled") : App.t("ffmpeg.system")) : App.t("ffmpeg.missing") })),
+          h("div", { class: "between" }, h("span", { text: App.t("adv.recorder") }),
+            h("span", { class: "mono muted", id: "recDiag", style: { fontSize: "12px" } })))),
+      h("div", null, U.cap(App.t("cap.cache")),
+        h("div", { class: "card2 pad stackrows" },
+          h("div", { class: "between" }, sizeLine,
+            h("button", { class: "btn", text: App.t("cache.clear"), onClick: async () => {
+              await api.invoke("clear_cache").catch(() => {});
+              App.toast(App.t("cache.cleared"), "ok");
+              sizeLine.textContent = App.t("cache.used", { size: App.fmtMB(await api.invoke("cache_size").catch(() => 0)) });
+            } }))))));
   }
 
   // fill the version label once the settings page is on screen

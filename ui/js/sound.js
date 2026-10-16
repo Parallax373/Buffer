@@ -383,20 +383,19 @@
       h("span", { class: "toggle" + (cfg.audio_tray !== false ? " on" : ""), onClick: async () => {
         await App.RecUI.save({ audio_tray: cfg.audio_tray === false }); drawOpts();
       } })));
-    // the shortcut field and, once something is set, the same clear button as in Settings
-    const keyRow = (label, tip, field) => {
-      const f = App.RecUI.hotkeyField(cfg[field] || "", async (c) => { await App.RecUI.save({ [field]: c }); drawOpts(); });
-      const clear = cfg[field] ? h("button", { class: "linkbtn", text: "✕", title: App.t("hk.clear"),
-        onClick: async () => { await App.RecUI.save({ [field]: "" }); drawOpts(); } }) : null;
-      const row = U.srow(App.t(label), h("div", { class: "pathrow" }, f, clear));
+    // the shortcuts are edited in Settings → Shortcuts only (one place); here they are shown, with the way there
+    const keyRow = (label, tip, field, first) => {
+      const row = U.srow(App.t(label), h("div", { class: "pathrow" },
+        h("span", { class: "mono keyshow" + (cfg[field] ? "" : " dim"), text: cfg[field] ? String(cfg[field]).replaceAll(",", "   ·   ").replaceAll("+", " + ") : "—" }),
+        first ? h("button", { class: "linkbtn", text: App.t("set.tab.keys") + " →", onClick: () => { App.Settings.tab = "keys"; App.go("set"); } }) : null));
       row.title = App.t(tip);
       return row;
     };
     const toggle = (label, desc, field, def) => U.trow(App.t(label), App.t(desc), cfg[field] ?? def,
       async (v) => { await App.RecUI.save({ [field]: v }); drawOpts(); });
     opts.replaceChildren(
-      keyRow("key.output", "key.outputTip", "output_hotkey"),
-      keyRow("key.mic", "key.micTip", "mic_hotkey"),
+      keyRow("key.output", "key.outputTip", "output_hotkey", true),
+      keyRow("key.mic", "key.micTip", "mic_hotkey", false),
       h("div", { class: "tgl" },
         toggle("snd.notify", "snd.notifyD", "output_popup", true),
         toggle("snd.keepVol", "snd.keepVolD", "keep_volume", false)));

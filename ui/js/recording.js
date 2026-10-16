@@ -39,7 +39,6 @@ App.RecUI = (function () {
   let tools = null;
   let meterTimer = 0;
   let openKey = null;               // which audio row is expanded
-  let advOpen = false;
 
   const nameOf = (list, id) => (list.find((d) => d.id === id) || {}).name || "";
   const fmtBuf = (s) => `${Math.floor(s / 60)}:${String(Math.round(s) % 60).padStart(2, "0")}`;
@@ -348,20 +347,20 @@ App.RecUI = (function () {
     return !!(e && e !== "libx264");
   };
 
-  /** The five video rows; `set(patch)` applies a change. Used by Settings and by the wizard's "Dostosuj". */
-  function videoRows(c, set) {
+  /** What goes into a clip: how much before the shortcut and how much after it. */
+  function clipRows(c, set) {
+    const roll = U.srow(App.t("key.roll"), U.segc(POST_ROLL(), c.post_roll_seconds, (v) => set({ post_roll_seconds: +v })));
+    roll.title = App.t("key.rollTip");
+    return [U.srow(App.t("v.len"), U.segc(LEN(), c.buffer_seconds, (v) => set({ buffer_seconds: +v }))), roll];
+  }
+
+  /** Resolution, frame rate, quality and (when there is more than one) the screen. */
+  function pictureRows(c, set) {
     const customQ = !QUAL_FACTOR[c.quality];
     const rows = [
       U.srow(App.t("v.res"), U.segc(RES(), c.width, (v) => set({ width: +v }))),
       U.srow(App.t("v.fps"), U.segc(FPS, c.fps, (v) => set({ fps: +v }))),
       U.srow(App.t("v.quality"), U.segc([...QUAL(), ...(customQ ? [["", App.t("v.custom", { n: c.video_kbps / 1000 })]] : [])], c.quality || "", (v) => { if (v) set({ quality: v }); })),
-      U.srow(App.t("v.len"), U.segc(LEN(), c.buffer_seconds, (v) => set({ buffer_seconds: +v }))),
-      (() => {
-        // belongs with the video settings: how long the clip keeps recording after the shortcut
-        const r = U.srow(App.t("key.roll"), U.segc(POST_ROLL(), c.post_roll_seconds, (v) => set({ post_roll_seconds: +v })));
-        r.title = App.t("key.rollTip");
-        return r;
-      })(),
     ];
     if (monitors.length) {
       rows.push(U.srow(App.t("v.screen"), h("div", { class: "screenrow" },
@@ -371,6 +370,16 @@ App.RecUI = (function () {
     }
     return rows;
   }
+
+  /** All the video rows in one list; `set(patch)` applies a change. Used by the wizard's "Dostosuj". */
+  function videoRows(c, set) {
+    const pic = pictureRows(c, set);
+    const screen = monitors.length ? pic.pop() : null;
+    return [...pic, ...clipRows(c, set), screen].filter(Boolean);
+  }
+
+  /** The encoder the recorder would pick right now, for the status next to the encoder choice. */
+  const encoderName = () => ({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync", libx264: App.t("enc.cpu") })[tools && tools.encoder] || App.t("enc.unknown");
 
   const bars20 = (v, max) => {
     const n = Math.round(Math.min(1, v / max) * 20);
@@ -418,11 +427,12 @@ App.RecUI = (function () {
     return { el, update };
   }
 
-  /* ───────────── Settings → Nagrywanie ───────────── */
+  /* ───────────── Settings → Nagrywanie · Dźwięk · Skróty ───────────── */
 
-  async function renderTab(pane) {
+  /** `which`: "rec" (clip, picture, games), "aud" (tracks, sync) or "keys" (shortcuts). All three share the status bar. */
+  async function renderTab(pane, which = "rec") {
     await load();
-    const sum = summaryCard();
+    const sum = which === "rec" ? summaryCard() : null;
 
     // sticky status bar
     const dot = h("span", { class: "sdot" });
@@ -448,141 +458,152 @@ App.RecUI = (function () {
       } });
     const bar = h("div", { class: "statusbar", id: "recState" }, dot, h("div", null, title, line), h("span", { class: "sp" }), longBtn, saveBtn, toggleBtn);
     bar._refs = { dot, title, line, saveBtn, toggleBtn, longBtn };
+    const group = (cap, ...kids) => h("div", null, U.cap(App.t(cap)), ...kids);
 
-    // WIDEO
-    const videoBox = h("div", { class: "card2" });
-    const drawVideo = () => {
-      videoBox.replaceChildren(...videoRows(cfg, (patch) => { save(patch); drawVideo(); sum.update(cfg); }));
-    };
-    drawVideo();
+    if (which === "rec") {
+      // KLIP: what goes into a clip (before and after the shortcut)
+      const clipBox = h("div", { class: "card2" });
+      const drawClip = () => put(clipBox, ...clipRows(cfg, (patch) => { save(patch); drawClip(); sum.update(cfg); }));
+      drawClip();
 
-    // DŹWIĘK
-    const audioBox = h("div", { class: "card2 audio", id: "recSources" });
-    const bleed = bleedWarn();
-    const persistSources = () => save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic, chat_app: cfg.chat_app });
-    const drawAudio = () => {
-      audioBox.replaceChildren(...SRC.map(([key, name, label, kind, color, tip]) => {
-        const open = openKey === key;
-        const dev = deviceLabel(cfg, key, kind);
-        const head = h("div", { class: "arow", onClick: () => { openKey = open ? null : key; drawAudio(); } },
-          h("span", { class: "sq", style: { background: color } }),
-          h("b", { text: App.t(label), title: App.t(tip) }),
-          h("span", { class: "dev" }, dev.text, dev.note ? h("em", { text: dev.note }) : null),
-          meterEl(color, false),
-          h("span", { class: "arr", text: open ? "▴" : "▾" }));
-        let body = null;
-        if (open) {
-          const c = cfg[key];
-          body = h("div", { class: "abody" },
-            deviceSelect(key, kind, c.primary, (v) => { cfg[key] = { ...cfg[key], primary: v }; persistSources(); drawAudio(); }, false),
-            c.secondary
-              ? h("div", { class: "pathrow", title: App.t("aud.backupTip") },
-                deviceSelect(key, kind, c.secondary, (v) => { cfg[key] = { ...cfg[key], secondary: v }; persistSources(); drawAudio(); }, true),
-                h("button", { class: "btn ghost", text: "✕", title: App.t("aud.backupRemove"), onClick: () => { cfg[key] = { ...cfg[key], secondary: null }; persistSources(); drawAudio(); } }))
-              : h("button", { class: "linkbtn", text: App.t("aud.backup"), title: App.t("aud.backupTip"),
-                onClick: () => { cfg[key] = { ...cfg[key], secondary: { id: "", name: "" } }; drawAudio(); } }),
-            key === "chat" && (sharedOutput() || cfg.chat_app)
-              ? h("div", { class: "srow", title: App.t("aud.chatAppTip") },
-                h("span", { class: "lb", text: App.t("aud.chatApp") }),
-                h("select", { class: "field", onChange: (e) => { cfg.chat_app = e.target.value; persistSources(); drawAudio(); } },
-                  CHAT_APPS().map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.chat_app || "") === v }))))
-              : null);
-        }
-        return h("div", { class: "aitem", "data-src": name }, head, body);
-      }));
-      pollMeters(() => cfg, "#recSources", 350, 350, bleed.set);
-    };
-    drawAudio();
+      // OBRAZ: picture, the screen, and the encoder next to what was detected
+      const picBox = h("div", { class: "card2" });
+      const drawPic = () => put(picBox,
+        ...pictureRows(cfg, (patch) => { save(patch); drawPic(); sum.update(cfg); }),
+        U.trow(App.t("beh.follow"), App.t("beh.followD"), cfg.follow_game_monitor, (v) => { save({ follow_game_monitor: v }); drawPic(); }),
+        U.srow(App.t("adv.encoder"), h("div", { class: "pathrow" },
+          h("select", { class: "field", title: App.t("adv.encoderTip"), onChange: (e) => { save({ encoder: e.target.value }); sum.update(cfg); drawPic(); } },
+            ENCODERS().map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.encoder || "auto") === v }))),
+          h("span", { class: "mono " + (hw() ? "lime" : "warn"), style: { fontSize: "12px" },
+            text: "● " + (cfg.encoder && cfg.encoder !== "auto" ? ENCODERS().find(([v]) => v === cfg.encoder)?.[1] : encoderName()) + (tools && tools.gpu && hw() ? " · " + tools.gpu : "") }))));
+      drawPic();
 
-    // SKRÓTY
-    const keysBox = h("div", { class: "card2" });
-    /** One shortcut row: the capture field plus a clear button once something is set ("no shortcut" is allowed). */
-    const keyRow = (label, key, value) => {
-      const field = hotkeyField(value, (c, kb) => { save({ [key]: c }, kb ? App.t("key.restart") : ""); drawKeys(); });
-      const clear = value ? h("button", { class: "linkbtn", text: "\u2715", title: App.t("hk.clear"),
-        onClick: () => { save({ [key]: "" }); drawKeys(); } }) : null;
-      return U.srow(label, h("div", { class: "pathrow" }, field, clear));
-    };
-    const drawKeys = () => {
-      keysBox.replaceChildren(
-        keyRow(App.t("key.save"), "hotkey", cfg.hotkey),
-        keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey),
-        keyRow(App.t("key.output"), "output_hotkey", cfg.output_hotkey || ""));
-      keysBox.lastChild.title = App.t("key.outputTip");
-    };
-    drawKeys();
+      // GRY: what the recorder counts as a game
+      const gamesBox = h("div", { class: "card2 tgl" });
+      const drawGames = () => put(gamesBox,
+        U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), cfg.game_only, (v) => { save({ game_only: v }); drawGames(); }),
+        U.srow(App.t("adv.games"), h("input", { class: "field", placeholder: App.t("adv.gamesPh"),
+          title: App.t("adv.gamesTip"),
+          value: (cfg.extra_games || []).join(", "),
+          onChange: (e) => save({ extra_games: e.target.value.split(",").map((x) => x.trim().toLowerCase().replace(/\.exe$/, "")).filter(Boolean) }) })));
+      drawGames();
 
-    // ZACHOWANIE
-    const behBox = h("div", { class: "card2 tgl" });
-    const drawBeh = () => {
-      put(behBox,
-        U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), cfg.game_only, (v) => { save({ game_only: v }); drawBeh(); }),
-        U.trow(App.t("beh.follow"), App.t("beh.followD"), cfg.follow_game_monitor, (v) => { save({ follow_game_monitor: v }); drawBeh(); }),
-        U.trow(App.t("beh.popup"), App.t("beh.popupD"), cfg.popup, (v) => { save({ popup: v }); drawBeh(); }),
-        U.trow(App.t("beh.autostart"), App.t("beh.autostartD"), autostart, (v) => {
-          const was = autostart;
-          autostart = v;                       // shown at once; the registry write follows
-          drawBeh();
-          App.timeout(api.invoke("recorder_autostart", { enable: v }), 6000)
-            .then((now) => { autostart = now; })
-            .catch(() => { autostart = was; })
-            .finally(drawBeh);
+      pane.append(bar, h("div", { class: "setgrid" },
+        h("div", { class: "setmain" }, group("cap.clip", clipBox), group("cap.picture", picBox), group("cap.games", gamesBox)),
+        sum.el));
+    } else if (which === "aud") {
+      // ŚCIEŻKI
+      const audioBox = h("div", { class: "card2 audio", id: "recSources" });
+      const bleed = bleedWarn();
+      const persistSources = () => save({ game: cfg.game, chat: cfg.chat, mic: cfg.mic, chat_app: cfg.chat_app });
+      const drawAudio = () => {
+        audioBox.replaceChildren(...SRC.map(([key, name, label, kind, color, tip]) => {
+          const open = openKey === key;
+          const dev = deviceLabel(cfg, key, kind);
+          const head = h("div", { class: "arow", onClick: () => { openKey = open ? null : key; drawAudio(); } },
+            h("span", { class: "sq", style: { background: color } }),
+            h("b", { text: App.t(label), title: App.t(tip) }),
+            h("span", { class: "dev" }, dev.text, dev.note ? h("em", { text: dev.note }) : null),
+            meterEl(color, false),
+            h("span", { class: "arr", text: open ? "▴" : "▾" }));
+          let body = null;
+          if (open) {
+            const c = cfg[key];
+            body = h("div", { class: "abody" },
+              deviceSelect(key, kind, c.primary, (v) => { cfg[key] = { ...cfg[key], primary: v }; persistSources(); drawAudio(); }, false),
+              c.secondary
+                ? h("div", { class: "pathrow", title: App.t("aud.backupTip") },
+                  deviceSelect(key, kind, c.secondary, (v) => { cfg[key] = { ...cfg[key], secondary: v }; persistSources(); drawAudio(); }, true),
+                  h("button", { class: "btn ghost", text: "✕", title: App.t("aud.backupRemove"), onClick: () => { cfg[key] = { ...cfg[key], secondary: null }; persistSources(); drawAudio(); } }))
+                : h("button", { class: "linkbtn", text: App.t("aud.backup"), title: App.t("aud.backupTip"),
+                  onClick: () => { cfg[key] = { ...cfg[key], secondary: { id: "", name: "" } }; drawAudio(); } }),
+              key === "chat" && (sharedOutput() || cfg.chat_app)
+                ? h("div", { class: "srow", title: App.t("aud.chatAppTip") },
+                  h("span", { class: "lb", text: App.t("aud.chatApp") }),
+                  h("select", { class: "field", onChange: (e) => { cfg.chat_app = e.target.value; persistSources(); drawAudio(); } },
+                    CHAT_APPS().map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.chat_app || "") === v }))))
+                : null);
+          }
+          return h("div", { class: "aitem", "data-src": name }, head, body);
         }));
-    };
-    drawBeh();
+        pollMeters(() => cfg, "#recSources", 350, 350, bleed.set);
+      };
+      drawAudio();
 
-    // DŹWIĘKI: its own card; the game cue and the volume only exist while sounds are on
-    const soundBox = h("div", { class: "card2 tgl" });
-    const drawSounds = () => {
-      put(soundBox,                            // put: the two rows below are null while sounds are off
-        U.trow(App.t("beh.sounds"), App.t("beh.soundsD"), cfg.sounds, (v) => { save({ sounds: v }); drawSounds(); }),
-        cfg.sounds ? U.trow(App.t("beh.gameSound"), App.t("beh.gameSoundD"), cfg.game_sound, (v) => { save({ game_sound: v }); drawSounds(); }) : null,
-        cfg.sounds ? U.srow(App.t("beh.volume"), U.segc(
-          [["low", App.t("vol.low")], ["normal", App.t("vol.normal")], ["high", App.t("vol.high")]],
-          cfg.sound_level || "normal",
-          async (v) => {
-            await save({ sound_level: v });
-            drawSounds();
-            // hear the new level at once (a recorder that is not running just has nothing to play)
-            api.invoke("recorder_cmd", { cmd: "test-sound" }).catch(() => {});
-          })) : null);
-    };
-    drawSounds();
+      // SYNCHRONIZACJA
+      const syncBox = h("div", { class: "card2" },
+        U.srow(App.t("adv.offset"), h("div", { class: "pathrow" },
+          h("input", { class: "field monoin", type: "number", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms, title: App.t("adv.offsetTip"),
+            onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) }),
+          h("span", { class: "muted", text: "ms" }))));
 
-    // ZAAWANSOWANE
-    const advBox = h("div");
-    const drawAdv = () => {
-      put(advBox,
-        h("button", { class: "advhead", onClick: () => { advOpen = !advOpen; drawAdv(); } }, h("span", { text: App.t("adv.cap") }), h("span", { text: advOpen ? "▴" : "▾" })),
-        advOpen ? h("div", { class: "card2 rise" },
-          U.srow(App.t("adv.offset"), h("input", { class: "field monoin", type: "number", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms,
-            title: App.t("adv.offsetTip"),
-            onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) })),
-          U.srow(App.t("adv.encoder"), h("select", { class: "field", title: App.t("adv.encoderTip"), onChange: (e) => { save({ encoder: e.target.value }); sum.update(cfg); } },
-            ENCODERS().map(([v, t]) => h("option", { value: v, text: t, selected: (cfg.encoder || "auto") === v })))),
-          U.srow(App.t("adv.games"), h("input", { class: "field", placeholder: App.t("adv.gamesPh"),
-            title: App.t("adv.gamesTip"),
-            value: (cfg.extra_games || []).join(", "),
-            onChange: (e) => save({ extra_games: e.target.value.split(",").map((x) => x.trim().toLowerCase().replace(/\.exe$/, "")).filter(Boolean) }) })),
-          U.srow(App.t("adv.diag"), h("span", { class: "mono muted", id: "recDiag", style: { fontSize: "12px" } }))) : null);
-      paint();
-    };
-    drawAdv();
-
-    pane.append(bar, h("div", { class: "setgrid" },
-      h("div", { class: "setmain" },
-        h("div", null, U.cap(App.t("cap.video")), videoBox),
-        h("div", null, U.cap(App.t("cap.audio")), audioBox, bleed.el),
-        h("div", null, U.cap(App.t("cap.keys")), keysBox),
-        h("div", null, U.cap(App.t("cap.behavior")), behBox),
-        h("div", null, U.cap(App.t("cap.sounds")), soundBox),
-        advBox),
-      sum.el));
+      pane.append(bar, h("div", { class: "setcol" }, group("cap.audio", audioBox, bleed.el), group("cap.sync", syncBox)));
+    } else {
+      // SKRÓTY: every global shortcut of the recorder in one place
+      /** One shortcut row: the capture field plus a clear button once something is set ("no shortcut" is allowed). */
+      const keyRow = (label, key, value, redraw, tip) => {
+        const field = hotkeyField(value, (c, kb) => { save({ [key]: c }, kb ? App.t("key.restart") : ""); redraw(); });
+        const clear = value ? h("button", { class: "linkbtn", text: "✕", title: App.t("hk.clear"),
+          onClick: () => { save({ [key]: "" }); redraw(); } }) : null;
+        const row = U.srow(label, h("div", { class: "pathrow" }, field, clear));
+        if (tip) row.title = App.t(tip);
+        return row;
+      };
+      const recBox = h("div", { class: "card2" });
+      const devBox = h("div", { class: "card2" });
+      const drawKeys = () => {
+        put(recBox,
+          keyRow(App.t("key.save"), "hotkey", cfg.hotkey, drawKeys, "key.saveTip"),
+          keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey, drawKeys, "long.tip"));
+        put(devBox,
+          keyRow(App.t("key.output"), "output_hotkey", cfg.output_hotkey || "", drawKeys, "key.outputTip"),
+          keyRow(App.t("key.mic"), "mic_hotkey", cfg.mic_hotkey || "", drawKeys, "key.micTip"));
+      };
+      drawKeys();
+      pane.append(bar, h("div", { class: "setcol" }, group("cap.recKeys", recBox), group("cap.devKeys", devBox)));
+    }
     paint();
+  }
+
+  /** Ogólne: the two blocks that live in the recorder's config: starting with Windows (appended to `pre`, the rows the
+   *  caller builds) and the notifications (popup, cues, their volume). */
+  function generalBlocks(pre) {
+    const main = h("div", { class: "card2 tgl" });
+    const drawMain = () => put(main, ...pre, U.trow(App.t("beh.autostart"), App.t("beh.autostartD"), autostart, (v) => {
+      const was = autostart;
+      autostart = v;                       // shown at once; the registry write follows
+      drawMain();
+      App.timeout(api.invoke("recorder_autostart", { enable: v }), 6000)
+        .then((now) => { autostart = now; })
+        .catch(() => { autostart = was; })
+        .finally(drawMain);
+    }));
+    drawMain();
+    // the game cue and the volume only exist while the cues are on
+    const notify = h("div", { class: "card2 tgl" });
+    const drawNotify = () => put(notify,
+      U.trow(App.t("beh.popup"), App.t("beh.popupD"), cfg.popup, (v) => { save({ popup: v }); drawNotify(); }),
+      U.trow(App.t("beh.sounds"), App.t("beh.soundsD"), cfg.sounds, (v) => { save({ sounds: v }); drawNotify(); }),
+      cfg.sounds ? U.trow(App.t("beh.gameSound"), App.t("beh.gameSoundD"), cfg.game_sound, (v) => { save({ game_sound: v }); drawNotify(); }) : null,
+      cfg.sounds ? U.srow(App.t("beh.volume"), U.segc(
+        [["low", App.t("vol.low")], ["normal", App.t("vol.normal")], ["high", App.t("vol.high")]],
+        cfg.sound_level || "normal",
+        async (v) => {
+          await save({ sound_level: v });
+          drawNotify();
+          // hear the new level at once (a recorder that is not running just has nothing to play)
+          api.invoke("recorder_cmd", { cmd: "test-sound" }).catch(() => {});
+        })) : null);
+    drawNotify();
+    return { main, notify };
   }
 
   /** Updates the live parts (status bar, device names, diagnostics) without rebuilding the tab. */
   function paint() {
+    // the diagnostics line lives on the Advanced tab, which has no status bar
+    const r0 = S.recorder;
+    const diag = App.$("#recDiag");
+    if (diag) diag.textContent = r0 ? App.t("adv.diagFmt", { n: r0.restarts, enc: r0.encoder || "?", cap: r0.capture || "?", rate: r0.kbps ? (r0.kbps / 1000).toFixed(1) + " Mb/s" : "?" }) : "—";
     const bar = App.$("#recState");
     if (!bar || !bar._refs) return;
     const { dot, title, line, saveBtn, toggleBtn, longBtn } = bar._refs;
@@ -608,6 +629,7 @@ App.RecUI = (function () {
     longBtn.disabled = !r || (!r.recording && !r.idle && !lg);
     longBtn.textContent = lg ? App.t("long.stop") : App.t("long.start");
     toggleBtn.textContent = r ? App.t("st.stop") : App.t("st.start");
+    toggleBtn.title = r ? App.t("st.stopTip") : "";
     if (sumLoad && sumLoad.text.isConnected) {
       // measured while the recorder runs (bars, exact values in the tooltip); before that, the estimate from the encoder
       if (r && r.cpu_pct != null) {
@@ -639,8 +661,6 @@ App.RecUI = (function () {
         if (d && d.default) { devices = { ...devices, ...d }; paint(); }
       }).catch(() => {});
     }
-    const diag = App.$("#recDiag");
-    if (diag) diag.textContent = r ? App.t("adv.diagFmt", { n: r.restarts, enc: r.encoder || "?", cap: r.capture || "?", rate: r.kbps ? (r.kbps / 1000).toFixed(1) + " Mb/s" : "?" }) : "—";
     for (const row of document.querySelectorAll("#recSources .aitem")) {
       const src = r && r.sources.find((s) => s.name === row.dataset.src);
       const dev = row.querySelector(".dev");
@@ -1012,7 +1032,7 @@ App.RecUI = (function () {
   }
 
   return {
-    renderTab, paint, wizard, syncLang, hotkeyField,
+    renderTab, generalBlocks, paint, wizard, syncLang, hotkeyField,
     ensureLoaded: load,
     cfg: () => cfg,
     save,

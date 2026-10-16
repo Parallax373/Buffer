@@ -159,7 +159,7 @@ const App = {};
   const DEFAULTS = {
     settings: {
       theme: "ink", anim: true, lite: false, thumb: "M",
-      sub: true, auto: true, thumbs: true, cache: true, hw: true,
+      sub: true, hw: true,
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false, presets: [10, 50, 500], autoCleanDays: 7,
     },
     libDirs: ["E:\\Nagrania"],

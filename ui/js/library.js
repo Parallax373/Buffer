@@ -74,7 +74,6 @@
   };
   /** Cards on screen get their duration first; the rest of a big folder is probed one file at a time behind them. */
   Lib.probeMissing = () => {
-    if (!App.P.settings.thumbs) return;
     for (const c of S.clips) probe(c, probeQ);
   };
 
@@ -394,7 +393,7 @@
         cards.set(clip.path, el);
         els.spacer.append(el);
         requestThumb(clip, el);
-        if (App.P.settings.thumbs) probe(clip, probeNowQ);
+        probe(clip, probeNowQ);
       }
       el.style.left = `${it.x}px`;
       el.style.top = `${it.y}px`;
@@ -490,7 +489,6 @@
   }
 
   function requestThumb(clip, el) {
-    if (!App.P.settings.thumbs) return;
     const img = (url) => {
       const th = el.firstChild;
       if (th.querySelector("img")) return;
