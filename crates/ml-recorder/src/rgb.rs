@@ -422,7 +422,7 @@ struct Conn {
     c: Client,
     devs: Vec<Device>,
     /// mode index each device had before we took it over
-    orig: Vec<i32>,
+    orig: BTreeMap<String, i32>,
     taken: BTreeSet<usize>,
     /// devices that run one of their own modes now (they get no streamed frames)
     native_on: BTreeSet<usize>,
@@ -441,6 +441,16 @@ struct Conn {
     t: f64,
     last_tick: Instant,
     last_beat: Instant,
+}
+
+/// Device indices after the list changed: each index names the same device (by key) as before, devices that left are dropped.
+fn remap_indices(old: &[String], new: &[String], set: &BTreeSet<usize>) -> BTreeSet<usize> {
+    set.iter().filter_map(|i| old.get(*i).and_then(|k| new.iter().position(|n| n == k))).collect()
+}
+
+/// The mode a device had before we took it over.
+fn orig_mode(c: &Conn, i: usize) -> i32 {
+    c.orig.get(&key(&c.devs, i)).copied().unwrap_or(c.devs[i].active_mode)
 }
 
 /// "name#n" where n counts same-named devices before this one.
@@ -604,8 +614,9 @@ impl Worker {
             devs = c.devices()?;
         }
         let saved = self.hub.lock().file.restore.clone();
+        // by device key, not by index: the device list can change while we run (a device appears or goes away)
         let orig = (0..devs.len())
-            .map(|i| saved.get(&key(&devs, i)).and_then(|n| devs[i].modes.iter().position(|m| &m.name == n)).map(|p| p as i32).unwrap_or(devs[i].active_mode))
+            .map(|i| (key(&devs, i), saved.get(&key(&devs, i)).and_then(|n| devs[i].modes.iter().position(|m| &m.name == n)).map(|p| p as i32).unwrap_or(devs[i].active_mode)))
             .collect();
         Ok(Conn {
             c,
@@ -632,7 +643,7 @@ impl Worker {
     /// Puts one device back to its earlier mode.
     fn restore(&self, c: &mut Conn, i: usize) {
         let mut d = c.devs[i].clone();
-        d.active_mode = c.orig[i];
+        d.active_mode = orig_mode(c, i);
         let _ = c.c.restore_mode(i as u32, &d);
         let mut st = self.hub.lock();
         st.file.restore.remove(&key(&c.devs, i));
@@ -800,7 +811,7 @@ impl Worker {
             let k = key(&c.devs, i);
             let mut st = self.hub.lock();
             if !st.file.restore.contains_key(&k) {
-                if let Some(o) = c.devs[i].modes.get(c.orig[i] as usize) {
+                if let Some(o) = c.devs[i].modes.get(orig_mode(c, i) as usize) {
                     st.file.restore.insert(k, o.name.clone());
                     let _ = st.file.save();
                 }
@@ -819,7 +830,7 @@ impl Worker {
             let k = key(&c.devs, i);
             let mut st = self.hub.lock();
             if !st.file.restore.contains_key(&k) {
-                if let Some(m) = c.devs[i].modes.get(c.orig[i] as usize) {
+                if let Some(m) = c.devs[i].modes.get(orig_mode(c, i) as usize) {
                     st.file.restore.insert(k, m.name.clone());
                     let _ = st.file.save();
                 }
@@ -894,8 +905,15 @@ impl Worker {
             }
         }
         if refresh {
+            let old: Vec<String> = (0..c.devs.len()).map(|i| key(&c.devs, i)).collect();
             c.devs = c.c.devices()?;
-            c.orig.resize(c.devs.len(), 0);
+            // devices that moved in the list keep what we remember about them; new ones start from their current mode
+            let new: Vec<String> = (0..c.devs.len()).map(|i| key(&c.devs, i)).collect();
+            c.taken = remap_indices(&old, &new, &c.taken);
+            c.native_on = remap_indices(&old, &new, &c.native_on);
+            for (i, k) in new.iter().enumerate() {
+                c.orig.entry(k.clone()).or_insert(c.devs[i].active_mode);
+            }
             c.replan = true;
             let mut st = self.hub.lock();
             st.devices = c.devs.clone();
@@ -995,6 +1013,16 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indices_follow_their_device_when_the_list_changes() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // a device appeared in the middle (a false detection, or a stick found late): the GPU moved from 2 to 3
+        let set: BTreeSet<usize> = [1, 2].into_iter().collect();
+        assert_eq!(remap_indices(&k(&["ram#0", "ram#1", "gpu#0"]), &k(&["ram#0", "new#0", "ram#1", "gpu#0"]), &set), [2, 3].into_iter().collect());
+        // a device left: it is dropped, the others keep their identity
+        assert_eq!(remap_indices(&k(&["a#0", "b#0", "c#0"]), &k(&["a#0", "c#0"]), &[1, 2].into_iter().collect()), [1].into_iter().collect());
+    }
 
     #[test]
     fn keyboard_backup_round_trips() {
