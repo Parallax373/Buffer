@@ -20,4 +20,9 @@ Set-First "src-tauri\tauri.conf.json" '"version":\s*"[^"]+"' "`"version`": `"$Ve
 Set-First "Cargo.toml" '(?m)^version = "[^"]+"' "version = `"$Version`""
 Set-First "package.json" '"version":\s*"[^"]+"' "`"version`": `"$Version`""
 
+# package-lock.json repeats the app version twice (top level and packages[""]); it drifted to 3.1.0 once
+$lock = [IO.File]::ReadAllText("$root\package-lock.json")
+$lockRe = New-Object Text.RegularExpressions.Regex('("name":\s*"buffer",\s*"version":\s*)"[^"]+"')
+[IO.File]::WriteAllText("$root\package-lock.json", $lockRe.Replace($lock, "`$1`"$Version`""), $utf8)
+
 Write-Host "Version is now $Version. Next: commit, then .\scripts\publish.ps1 -Notes '...'"
