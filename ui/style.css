@@ -933,3 +933,70 @@ body:has(#pop .popover) #updpop .updpopover { right: 372px; }
 .eqpill[hidden] { display: none; }.eqcard .addgame { align-self: flex-start; }
 .eqcard .cap .capnote { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--subtle); }
 .capbtn .capnote { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--subtle); margin: 0 auto 0 8px; }
+
+/* ───── SoundSwitcher (sound.js), layout "A": device cards on the left, the picked device's apps on the right.
+   Volume is a smooth full-lime line with a playhead; the scan under it shows only what plays (DESIGN.md). ───── */
+.snd { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; padding: 14px 18px 18px; }
+.snd .eqhead h1 { font: 600 20px "Instrument Sans"; letter-spacing: -.01em; margin: 0; }
+.sbody { flex: 1; min-height: 0; display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 16px; }
+.sleft { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; padding: 2px; margin: -2px; }
+.slist { display: flex; flex-direction: column; gap: 10px; }
+.scard { padding: 12px 14px 10px; cursor: pointer; transition: border-color var(--t) ease; animation: cardIn .3s var(--ease) both; }
+.scard:hover { border-color: color-mix(in srgb, var(--muted) 45%, var(--line)); }
+.scard.sel { border-color: color-mix(in srgb, var(--acc) 45%, var(--line)); }
+.shead { display: flex; align-items: center; gap: 6px; min-height: 24px; margin-bottom: 2px; }
+.shead b { flex: 1; min-width: 0; font: 600 11px "Instrument Sans"; letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scard.sel .shead b, .scard.def .shead b { color: var(--text); }
+.snd .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; color: var(--muted);
+  background: transparent; white-space: nowrap; line-height: 1.4; }
+.snd .chip.on { border-color: var(--acc); color: var(--acc); background: var(--acc-dim); }
+.snd .chip.click { cursor: pointer; }
+.snd .chip.click:hover { border-color: var(--muted); color: var(--text); }
+.snd .chip.click.on:hover { border-color: var(--acc); color: var(--acc); }
+.sfoot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.sfoot .sapps { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sopts { margin-top: auto; padding: 4px 14px; }
+.sdetail { display: flex; flex-direction: column; min-height: 0; padding: 16px 22px; overflow-y: auto; }
+.sdhead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; min-height: 30px; }
+.sdhead h2 { margin: 0; font: 600 16px "Instrument Sans"; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdhead .sp { flex: 1; }
+.sdapps .srow { border-top: 1px solid var(--raised); min-height: 52px; }
+.sempty { padding: 18px 0; }
+
+.srow { display: grid; grid-template-columns: 32px minmax(0, 1fr) 40px; gap: 12px; align-items: center; min-height: 40px; }
+.srow.named { grid-template-columns: 32px 180px minmax(0, 1fr) 40px; gap: 14px; }
+.sname { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.smute { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; padding: 0; }
+.smute:hover { background: var(--raised); }
+.spk { display: grid; place-items: center; }
+.spk svg { width: 22px; height: 22px; fill: var(--acc); }
+.spk svg .tail { opacity: .25; }
+.spk svg .x { stroke: var(--rec); stroke-width: 2.4; stroke-linecap: round; fill: none; }
+.srow.muted .spk svg { fill: var(--subtle); }
+.sappico { width: 22px; height: 22px; display: grid; place-items: center; font: 600 11px "Instrument Sans"; color: var(--muted); position: relative; }
+.sappico img { width: 22px; height: 22px; }
+.srow.muted .sappico img, .srow.muted .sappico b { opacity: .4; }
+.srow.muted .sappico::after { content: ""; position: absolute; right: -4px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--rec); box-shadow: 0 0 0 2px var(--panel); }
+.srow.muted .sname { color: var(--subtle); }
+
+/* the line: track, lime fill, the scan of what plays, the playhead */
+.sline { position: relative; height: 26px; cursor: pointer; touch-action: none; outline: none; }
+.sline .t, .sline .f { position: absolute; left: 0; top: 9px; height: 4px; border-radius: 2px; }
+.sline .t { right: 0; background: var(--line); }
+.sline .f { background: var(--acc); }
+.sline .m { position: absolute; left: 0; right: 0; top: 17px; height: 3px; display: flex; gap: 2px; }
+.sline .m i { flex: 1; border-radius: 1px; background: var(--acc); opacity: .08; transition: opacity .1s linear; }
+.sline b { position: absolute; top: 3px; height: 16px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--text);
+  box-shadow: 0 0 0 2px var(--panel); transition: width .12s var(--ease), margin .12s var(--ease); }
+.sline:hover b, .sline.drag b, .sline:focus-visible b { width: 4px; margin-left: -2px; }
+.sline:focus-visible .t { box-shadow: 0 0 0 2px var(--acc-dim); }
+.srow.muted .sline .f { background: var(--subtle); }
+.srow.muted .sline b { background: var(--subtle); }
+.snum { text-align: right; font-size: 13px; color: var(--text); }
+.scard .snum { font-size: 15px; }
+.srow.muted .snum { color: var(--subtle); }
+.strayopt { display: flex; align-items: center; }
+#nav .item .lb.two { white-space: pre-line; line-height: 1.15; }
+.sopts .srow .lb { white-space: nowrap; }

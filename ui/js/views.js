@@ -4,7 +4,7 @@
 
 (function () {
   const { h, S, api } = App;
-  const VIEWS = { lib: "#v-lib", ed: "#v-ed", eq: "#v-eq", set: "#v-set" };
+  const VIEWS = { lib: "#v-lib", ed: "#v-ed", eq: "#v-eq", snd: "#v-snd", set: "#v-set" };
 
   /* ───── navigation ───── */
 
@@ -13,6 +13,7 @@
     if (view === "ed" && !App.Ed.current()) view = "lib";
     if (S.view === "ed" && view !== "ed") App.Ed.leave();
     if (S.view === "eq" && view !== "eq") App.EQ.leave();
+    if (S.view === "snd" && view !== "snd") App.Sound.leave();
     const changed = S.view !== view;
     const prev = S.view;
     document.querySelectorAll("#views .view.leaving").forEach((e) => e.classList.remove("leaving"));
@@ -22,6 +23,7 @@
     if (view === "lib") App.Lib.render(false);
     if (view === "set") Settings.render(true);
     if (view === "eq" && changed) App.EQ.render();
+    if (view === "snd" && changed) App.Sound.render();
     renderRail();
   };
 
@@ -58,6 +60,7 @@
     const defs = [
       ["lib", "▦", "nav.library", S.view === "lib" || S.view === "ed"],
       ["eq", "≋", "nav.eq", S.view === "eq"],
+      ["snd", "♪", "nav.sound", S.view === "snd"],
       ["set", "⚙", "nav.settings", S.view === "set"],
     ];
     if (!railItems || !railItems.every((el) => el.isConnected)) {
@@ -69,9 +72,10 @@
     defs.forEach(([, , key, on], i) => {
       const el = railItems[i], label = App.t(key);
       el.classList.toggle("on", on);
-      el.setAttribute("aria-label", label);
+      el.setAttribute("aria-label", label.replace("\n", ""));
       const lb = el.querySelector(".lb");
       if (lb.textContent !== label) lb.textContent = label;
+      lb.classList.toggle("two", label.includes("\n"));         // "Sound\nSwitcher": two lines instead of an ellipsis
     });
   }
 

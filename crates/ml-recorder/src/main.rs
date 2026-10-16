@@ -7,6 +7,8 @@ mod eq;
 mod icons;
 mod identify;
 mod lang;
+mod mixer;
+mod flyout;
 mod input;
 mod longrec;
 mod control;

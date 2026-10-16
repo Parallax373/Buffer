@@ -206,7 +206,12 @@ pub fn command(shared: &Shared, cmd: &str, arg: &str) -> Value {
             "outputs": crate::endpoints::outputs().into_iter().map(|e| json!({ "id": e.id, "name": e.name })).collect::<Vec<_>>(),
             "default": crate::endpoints::default_output(),
         }),
-        "eq-output" => match if arg == "next" { crate::endpoints::cycle_output().map(|_| ()) } else { crate::endpoints::set_default_output(arg) } {
+        "eq-output" => match if arg == "next" {
+            let chosen = shared.cfg.lock().unwrap().output_cycle.clone();
+            crate::endpoints::cycle_output(&chosen).map(|_| ())
+        } else {
+            crate::endpoints::set_default_output(arg)
+        } {
             Ok(()) => {
                 follow_output(shared);
                 json!({ "ok": true, "default": crate::endpoints::default_output() })

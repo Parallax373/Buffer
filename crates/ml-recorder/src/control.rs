@@ -66,6 +66,27 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
     })
 }
 
+/// Whether a settings change touches the capture itself. Fields the recorder reads live on every use are left out
+/// (`apply_hotkeys` and input.rs re-read the shortcuts, the tray reads `audio_tray`, popups read their options).
+fn needs_restart(old: &Config, new: &Config) -> bool {
+    let live = |c: &Config| {
+        let mut c = c.clone();
+        c.hotkey.clear();
+        c.record_hotkey.clear();
+        c.output_hotkey.clear();
+        c.output_cycle.clear();
+        c.audio_tray = true;
+        c.lang.clear();
+        c.theme.clear();
+        c.popup = true;
+        c.sounds = true;
+        c.game_sound = true;
+        c.sound_level.clear();
+        serde_json::to_value(c).unwrap_or_default()
+    };
+    live(old) != live(new)
+}
+
 fn handle(shared: &Arc<Shared>, stream: TcpStream) {
     let Ok(read_half) = stream.try_clone() else { return };
     let mut out = stream;
@@ -73,6 +94,7 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
         let (cmd, arg) = line.trim().split_once(' ').unwrap_or((line.trim(), ""));
         let reply = match line.trim() {
             _ if cmd.starts_with("eq-") => crate::eq::command(shared, cmd, arg),
+            _ if cmd.starts_with("mix-") => crate::mixer::command(shared, cmd, arg),
             "status" => status_json(shared),
             "save" => match save(shared) {
                 Ok(p) => {
@@ -101,9 +123,13 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
                 shared.sinks[0].set_cfg(cfg.game.clone());
                 shared.sinks[1].set_cfg(cfg.chat.clone());
                 shared.sinks[2].set_cfg(cfg.mic.clone());
+                let restart = needs_restart(&shared.cfg.lock().unwrap(), &cfg);
                 *shared.cfg.lock().unwrap() = cfg;
                 crate::tray::apply_app_sources(shared);
-                shared.restart.store(true, Ordering::Relaxed);
+                // shortcuts, sound/tray options, language and theme are read live: no reason to cut the buffer
+                if restart {
+                    shared.restart.store(true, Ordering::Relaxed);
+                }
                 json!({ "ok": true })
             }
             // Shows every popup the recorder can raise, one every 7 s, for a visual check of wording and colours.
@@ -178,4 +204,21 @@ pub fn send(cmd: &str) -> Result<String, String> {
     let mut line = String::new();
     BufReader::new(s).read_line(&mut line).map_err(|e| e.to_string())?;
     Ok(line.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::Config;
+
+    #[test]
+    fn only_capture_settings_restart_the_session() {
+        let old = Config::default();
+        let mut c = old.clone();
+        c.output_cycle = vec!["{0.0.0.00000000}.{abc}".into()];
+        c.audio_tray = false;
+        c.output_hotkey = "Ctrl+PgDn".into();
+        assert!(!super::needs_restart(&old, &c), "mixer and shortcut options are read live");
+        c.fps = 60;
+        assert!(super::needs_restart(&old, &c));
+    }
 }

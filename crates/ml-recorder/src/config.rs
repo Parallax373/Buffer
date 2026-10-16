@@ -66,6 +66,10 @@ pub struct Config {
     pub record_hotkey: String,
     /// Makes the next playback device the Windows default (like EarTrumpet); empty = none.
     pub output_hotkey: String,
+    /// Endpoint ids the output shortcut cycles through; empty = all of them (minus a separate chat device).
+    pub output_cycle: Vec<String>,
+    /// A second tray icon for sound: volume flyout on click, volume on the mouse wheel, the audio menu.
+    pub audio_tray: bool,
     pub game: SourceCfg,
     pub chat: SourceCfg,
     pub mic: SourceCfg,
@@ -107,6 +111,8 @@ impl Default for Config {
             theme: "ink".into(),
             record_hotkey: "Alt+R".into(),
             output_hotkey: String::new(),
+            output_cycle: Vec::new(),
+            audio_tray: true,
             game: SourceCfg::default(),
             chat: SourceCfg::default(),
             mic: SourceCfg::default(),

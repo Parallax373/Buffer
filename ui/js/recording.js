@@ -15,7 +15,7 @@ App.RecUI = (function () {
   const BASE = {
     output_dir: "", per_game_folders: true, post_roll_seconds: 15, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, quality: "std", monitor: 0,
-    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", output_hotkey: "", popup: true, sounds: true, game_sound: true, sound_level: "normal", extra_games: [], ignore_apps: [],
+    encoder: "auto", audio_offset_ms: 0, hotkey: "Alt+Q", record_hotkey: "Alt+R", output_hotkey: "", output_cycle: [], audio_tray: true, popup: true, sounds: true, game_sound: true, sound_level: "normal", extra_games: [], ignore_apps: [],
     game: { primary: null, secondary: null }, chat: { primary: null, secondary: null }, mic: { primary: null, secondary: null },
   };
   const RES = () => [[1280, "720p"], [1920, "1080p"], [2560, "1440p"], [0, App.t("res.native")]];
@@ -92,6 +92,19 @@ App.RecUI = (function () {
   /** Field that records the next keyboard shortcut, mouse button or gamepad chord. A new input replaces
       the entry of its own kind; Delete clears it (a required binding falls back to `fallback`).
       `onSet(binding, keyboardChanged)`: keyboard combos need a recorder restart, mouse and pad apply at once. */
+  /** The recorder's name for a physical key (KeyboardEvent.code, so the layout and Shift don't change it);
+      null for keys a global shortcut can't use. Mirrors `parse_hotkey` in the recorder's win.rs. */
+  const NAMED_KEYS = { PageUp: "PgUp", PageDown: "PgDn", Home: "Home", End: "End", Insert: "Ins", Delete: "Del",
+    ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Space: "Space", Pause: "Pause",
+    ScrollLock: "ScrollLock", NumpadAdd: "NumAdd", NumpadSubtract: "NumSub", NumpadMultiply: "NumMul", NumpadDivide: "NumDiv" };
+  const keyName = (code) => {
+    let m;
+    if ((m = /^Key([A-Z])$/.exec(code)) || (m = /^Digit(\d)$/.exec(code))) return m[1];
+    if ((m = /^Numpad(\d)$/.exec(code))) return "Num" + m[1];
+    if (/^F([1-9]|1\d|2[0-4])$/.test(code)) return code;
+    return NAMED_KEYS[code] || null;
+  };
+
   const hotkeyField = (value, onSet, fallback) => {
     let cur = String(value || "");
     const set = (kind, token) => {
@@ -124,16 +137,16 @@ App.RecUI = (function () {
       onKeydown: (e) => {
         e.preventDefault();
         if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
-        if (e.key === "Delete" || e.key === "Backspace") {
+        const mods = modsOf(e);
+        if (!mods.length && (e.key === "Delete" || e.key === "Backspace")) {
           cur = "";
           input.value = bindText(cur);
           onSet(cur, true);
           return;
         }
-        const mods = modsOf(e);
         if (!mods.length) { App.toast(App.t("hk.needMod"), "err"); return; }
-        const k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-        if (!/^([A-Z0-9]|F([1-9]|1\d|2[0-4]))$/.test(k)) { App.toast(App.t("hk.allowed"), "err"); return; }
+        const k = keyName(e.code);
+        if (!k) { App.toast(App.t("hk.allowed"), "err"); return; }
         set("key", [...mods, k].join("+"));
       },
       onMousedown: (e) => {
@@ -990,12 +1003,13 @@ App.RecUI = (function () {
   async function syncLang() {
     await load();
     const lang = App.i18n.current();
-    const theme = App.P.settings.theme === "oled" ? "oled" : "ink";   // the popup card follows the app theme
+    // the popup card and the mixer flyout follow the app theme
+    const theme = ["oled", "slate"].includes(App.P.settings.theme) ? App.P.settings.theme : "ink";
     if (cfg.lang !== lang || cfg.theme !== theme) await save({ lang, theme });
   }
 
   return {
-    renderTab, paint, wizard, syncLang,
+    renderTab, paint, wizard, syncLang, hotkeyField,
     ensureLoaded: load,
     cfg: () => cfg,
     save,

@@ -13,7 +13,7 @@ use std::{
 };
 use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
-    Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
+    Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
 
 /// The audio part of the tray menu, EarTrumpet style: pick the output, EQ on/off, preset of the output in use,
@@ -423,7 +423,14 @@ fn close_editor() {
     let _ = c.spawn();
 }
 
-fn open_editor() {
+/// Opens the app on one of its pages (`--view=<name>`; a running window switches to it).
+pub(crate) fn open_app_view(view: &str) {
+    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        let _ = Command::new(dir.join("buffer.exe")).arg(format!("--view={view}")).spawn();
+    }
+}
+
+pub(crate) fn open_editor() {
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
         let _ = Command::new(dir.join("buffer.exe")).spawn();
     }
@@ -567,13 +574,118 @@ fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String, String
 
 /// The output-switch shortcut: next playback device, named in a popup (the EQ follows it by itself).
 fn switch_output(shared: &session::Shared) {
-    match crate::endpoints::cycle_output() {
+    let chosen = shared.cfg.lock().unwrap().output_cycle.clone();
+    match crate::endpoints::cycle_output(&chosen) {
         Ok(name) => {
             crate::eq::follow_output(shared);
             shared.popup_with_sound(Event::Game, crate::win::Sound::Game, crate::lang::t("pop.output"), name)
         }
         Err(e) => session::log(&format!("output switch: {e}")),
     }
+    audio_changed();
+}
+
+/// The audio icon's picture, in the logo's style: the speaker as seven lime scan-lines, the waves above the level
+/// faded like the logo's tails. Muted: a grey speaker with the same red badge the recorder icon uses for errors.
+fn sound_icon_rgba(waves: u8, muted: bool) -> Vec<u8> {
+    const N: usize = 32;
+    let mut px = vec![0u8; N * N * 4];
+    let mut put = |x: i32, y: i32, c: [u8; 3], a: f32| {
+        if (0..N as i32).contains(&x) && (0..N as i32).contains(&y) && a > 0.0 {
+            let i = (y as usize * N + x as usize) * 4;
+            // over what is there (straight alpha)
+            let (da, na) = (px[i + 3] as f32 / 255.0, a.min(1.0));
+            let oa = na + da * (1.0 - na);
+            for k in 0..3 {
+                px[i + k] = ((c[k] as f32 * na + px[i + k] as f32 * da * (1.0 - na)) / oa.max(1e-6)).round() as u8;
+            }
+            px[i + 3] = (oa * 255.0).round() as u8;
+        }
+    };
+    let lime = [0xc6, 0xf4, 0x32];
+    let grey = [0x8b, 0x91, 0x9c];
+    for (x0, y0, x1, y1, part) in crate::flyout::speaker_bars() {
+        let (c, a) = match part {
+            0 => (if muted { grey } else { lime }, 1.0),
+            _ if muted => continue,
+            n if n <= waves => (lime, 1.0),
+            _ => (lime, 0.3),
+        };
+        // area coverage, for the half-unit wave edges
+        for y in y0.floor() as i32..y1.ceil() as i32 {
+            for x in x0.floor() as i32..x1.ceil() as i32 {
+                let ox = ((x + 1) as f64).min(x1) - (x as f64).max(x0);
+                let oy = ((y + 1) as f64).min(y1) - (y as f64).max(y0);
+                put(x, y, c, (ox.clamp(0.0, 1.0) * oy.clamp(0.0, 1.0)) as f32 * a);
+            }
+        }
+    }
+    if muted {
+        let (cx, cy) = (23.0f32, 23.0f32);
+        for y in 0..N as i32 {
+            for x in 0..N as i32 {
+                let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
+                put(x, y, [17, 17, 17], (8.7 - d).clamp(0.0, 1.0));
+                put(x, y, [0xff, 0x5d, 0x5d], (6.7 - d).clamp(0.0, 1.0));
+                let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+                let on = (dx - dy).abs().min((dx + dy).abs()) / std::f32::consts::SQRT_2;
+                if dx.abs() <= 3.6 && dy.abs() <= 3.6 {
+                    put(x, y, [255, 255, 255], (1.6 - on).clamp(0.0, 1.0));
+                }
+            }
+        }
+    }
+    px
+}
+
+thread_local! {
+    /// The audio tray icon, and what its picture and tooltip show now (set again only when that changes).
+    static SOUND: std::cell::RefCell<Option<(TrayIcon, (u8, bool), String)>> = const { std::cell::RefCell::new(None) };
+    static WHEEL_REST: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+}
+
+/// Reads the default output's volume into the audio icon (picture and tooltip).
+pub fn audio_changed() {
+    let Some(d) = crate::mixer::default_dev() else { return };
+    let (v, m) = (d.volume(), d.muted());
+    let pic = (crate::flyout::waves_for(v), m);
+    let n = (v * 100.0).round() as i32;
+    let tip = if m { crate::lang::f("tip.sound_muted", &[("dev", &d.name)]) } else { crate::lang::f("tip.sound", &[("dev", &d.name), ("n", &n)]) };
+    SOUND.with(|s| {
+        if let Ok(mut g) = s.try_borrow_mut() {
+            if let Some((icon, shown, shown_tip)) = g.as_mut() {
+                if *shown != pic {
+                    if let Ok(i) = Icon::from_rgba(sound_icon_rgba(pic.0, pic.1), 32, 32) {
+                        let _ = icon.set_icon(Some(i));
+                    }
+                    *shown = pic;
+                }
+                if *shown_tip != tip {
+                    let _ = icon.set_tooltip(Some(&tip));
+                    *shown_tip = tip;
+                }
+            }
+        }
+    });
+}
+
+/// The mouse wheel over the audio icon: 5 % per notch on the default output.
+pub fn on_wheel(delta: i32) {
+    let rest = WHEEL_REST.with(|w| w.get()) + delta;
+    WHEEL_REST.with(|w| w.set(rest % 120));
+    let notches = rest / 120;
+    if notches == 0 {
+        return;
+    }
+    if let Some(d) = crate::mixer::default_dev() {
+        d.set_volume(crate::mixer::step(d.volume(), notches as f32));
+    }
+    audio_changed();
+}
+
+fn rect_of(r: &tray_icon::Rect) -> windows_sys::Win32::Foundation::RECT {
+    let (x, y) = (r.position.x.round() as i32, r.position.y.round() as i32);
+    windows_sys::Win32::Foundation::RECT { left: x, top: y, right: x + r.size.width as i32, bottom: y + r.size.height as i32 }
 }
 
 thread_local! {
@@ -594,36 +706,78 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
     // restart anyway, which brings them in)
     let sep1 = PredefinedMenuItem::separator();
     let sep2 = PredefinedMenuItem::separator();
-    let mut items: Vec<&dyn tray_icon::menu::IsMenuItem> = vec![&audio.output];
+    let mut audio_items: Vec<&dyn tray_icon::menu::IsMenuItem> = vec![&audio.output];
     if ml_eq::apo::config_dir().is_some() {
-        items.push(&audio.eq_on);
-        items.push(&audio.preset);
+        audio_items.push(&audio.eq_on);
+        audio_items.push(&audio.preset);
     }
-    items.extend([&audio.listen as &dyn tray_icon::menu::IsMenuItem, &sep1, &save_i, &rec_i, &open_i, &sep2, &quit_i]);
-    let _ = menu.append_items(&items);
+    audio_items.push(&audio.listen);
+    let rec_items: [&dyn tray_icon::menu::IsMenuItem; 5] = [&save_i, &rec_i, &open_i, &sep2, &quit_i];
+    // The audio items live in the audio icon's menu; with that icon switched off they join the recorder's menu
+    // (a menu item may sit in several menus at once).
+    let sound_menu = Menu::new();
+    let _ = sound_menu.append_items(&audio_items);
+    let _ = menu.append_items(&audio_items);
+    let _ = menu.append(&sep1);
+    let _ = menu.append_items(&rec_items);
+    let menu_plain = Menu::new();
+    let _ = menu_plain.append_items(&rec_items);
+    let mut audio_tray = shared.cfg.lock().unwrap().audio_tray;
 
     let tray = TrayIconBuilder::new()
-        .with_menu(Box::new(menu))
+        .with_menu(Box::new(if audio_tray { menu_plain.clone() } else { menu.clone() }))
         .with_menu_on_left_click(false)
         .with_tooltip("Buffer")
         .with_icon(icon(State::Starting))
         .build()
         .map_err(|e| session::log(&format!("tray unavailable: {e}")))
         .ok();
+    // Created second, always (hidden when switched off): Windows remembers a pinned icon by exe and creation order.
+    crate::flyout::init(shared.clone());
+    let sound = TrayIconBuilder::new()
+        .with_menu(Box::new(sound_menu.clone()))
+        .with_menu_on_left_click(false)
+        .with_tooltip("Buffer")
+        .with_icon(Icon::from_rgba(sound_icon_rgba(3, false), 32, 32).expect("valid icon"))
+        .build()
+        .map_err(|e| session::log(&format!("audio tray icon unavailable: {e}")))
+        .ok();
+    let sound_id = sound.as_ref().map(|t| t.id().clone());
+    if let Some(t) = &sound {
+        let _ = t.set_visible(audio_tray);
+    }
+    SOUND.with(|s| *s.borrow_mut() = sound.map(|t| (t, (3, false), String::new())));
+    audio_changed();
     AUDIO.with(|a| *a.borrow_mut() = Some((audio, shared.clone())));
     // tray-icon sends the click, then shows the menu, both inside its window procedure on this thread
     let (tray_tx, tray_rx) = std::sync::mpsc::channel::<TrayIconEvent>();
     TrayIconEvent::set_event_handler(Some(move |ev: TrayIconEvent| {
-        if let TrayIconEvent::Click { button: MouseButton::Right, button_state: MouseButtonState::Up, .. } = ev {
-            AUDIO.with(|a| {
-                if let Ok(mut g) = a.try_borrow_mut() {
-                    if let Some((m, s)) = g.as_mut() {
-                        m.refresh(s);
+        let mine = sound_id.as_ref() == Some(ev.id());
+        match &ev {
+            TrayIconEvent::Click { button: MouseButton::Right, button_state: MouseButtonState::Up, .. } => {
+                AUDIO.with(|a| {
+                    if let Ok(mut g) = a.try_borrow_mut() {
+                        if let Some((m, s)) = g.as_mut() {
+                            m.refresh(s);
+                        }
                     }
-                }
-            });
+                });
+            }
+            // the audio icon is handled right here: the flyout must open at once, not on the next tick
+            TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } if mine => {
+                crate::flyout::toggle(rect_of(rect));
+            }
+            TrayIconEvent::Enter { rect, .. } if mine => {
+                crate::flyout::hover_icon(Some(rect_of(rect)));
+                audio_changed();
+            }
+            TrayIconEvent::Move { rect, .. } if mine => crate::flyout::hover_icon(Some(rect_of(rect))),
+            TrayIconEvent::Leave { .. } if mine => crate::flyout::hover_icon(None),
+            _ => {}
         }
-        let _ = tray_tx.send(ev);
+        if !mine {
+            let _ = tray_tx.send(ev);
+        }
     }));
 
     // keyboard shortcuts are (re)registered whenever the settings change; an empty one means "none"
@@ -657,6 +811,13 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
             while let Ok(p) = popups.try_recv() {
                 overlay.push(p);
             }
+            // debug builds: `mix-flyout` opens the flyout from outside, for screenshots
+            if crate::flyout::OPEN_REQUEST.swap(false, Ordering::Relaxed) {
+                let rect = SOUND.with(|s| s.borrow().as_ref().and_then(|(t, ..)| t.rect()));
+                if let Some(r) = rect {
+                    crate::flyout::toggle(rect_of(&r));
+                }
+            }
         }
         win::Pump::Timer(id) if overlay.is_anim_timer(id) => overlay.frame(),
         win::Pump::Timer(_) => {
@@ -678,6 +839,25 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
             crate::eq::expire_solo(&tick_shared);
             if tick % 4 == 0 {
                 crate::eq::follow_output(&tick_shared);
+                // the audio icon's picture follows a mute or volume change made elsewhere
+                if audio_tray {
+                    audio_changed();
+                }
+            }
+            let want = tick_shared.cfg.lock().unwrap().audio_tray;
+            if want != audio_tray {
+                audio_tray = want;
+                SOUND.with(|s| {
+                    if let Some((t, ..)) = s.borrow().as_ref() {
+                        let _ = t.set_visible(want);
+                    }
+                });
+                if let Some(tray) = &tray {
+                    tray.set_menu(Some(Box::new(if want { menu_plain.clone() } else { menu.clone() })));
+                }
+                if !want {
+                    crate::flyout::hover_icon(None);
+                }
             }
             while let Ok(ev) = MenuEvent::receiver().try_recv() {
                 let ours = AUDIO.with(|a| a.try_borrow_mut().ok().and_then(|mut g| g.as_mut().map(|(m, s)| m.handle(s, &ev.id))));
@@ -694,6 +874,11 @@ pub fn run(shared: Arc<session::Shared>, _hotkey: String, popups: Receiver<Popup
                     if let Some(tray) = &tray {
                         let _ = tray.set_visible(false);
                     }
+                    SOUND.with(|s| {
+                        if let Some((t, ..)) = s.borrow().as_ref() {
+                            let _ = t.set_visible(false);
+                        }
+                    });
                     close_editor();
                 }
             }
@@ -834,6 +1019,35 @@ mod tests {
             assert_eq!(icon_rgba(s).len(), 32 * 32 * 4);
             let _ = icon(s);
         }
+    }
+
+    /// Dev helper: `SOUND_ICON_DUMP=<file.png> cargo test dump_sound_icons` writes the audio icon's pictures
+    /// (0-3 waves, muted) side by side, 4x enlarged, on a dark and a light taskbar strip.
+    #[test]
+    fn dump_sound_icons() {
+        let Ok(path) = std::env::var("SOUND_ICON_DUMP") else { return };
+        let pics = [(0, false), (1, false), (2, false), (3, false), (3, true)];
+        let (z, n) = (4usize, 32usize);
+        let (w, h) = (pics.len() * n * z, 2 * n * z);
+        let mut out = vec![0u8; w * h * 4];
+        for (i, (wv, m)) in pics.iter().enumerate() {
+            let px = sound_icon_rgba(*wv, *m);
+            for strip in 0..2 {
+                let bg: [f32; 3] = if strip == 0 { [32.0, 32.0, 32.0] } else { [238.0, 238.0, 238.0] };
+                for y in 0..n * z {
+                    for x in 0..n * z {
+                        let s = &px[((y / z) * n + x / z) * 4..][..4];
+                        let a = s[3] as f32 / 255.0;
+                        let o = (((strip * n * z + y) * w) + i * n * z + x) * 4;
+                        for k in 0..3 {
+                            out[o + k] = (s[k] as f32 * a + bg[k] * (1.0 - a)).round() as u8;
+                        }
+                        out[o + 3] = 255;
+                    }
+                }
+            }
+        }
+        std::fs::write(path, crate::win::png_rgba(w as u32, h as u32, &out)).unwrap();
     }
 
     /// Dev helper: `ICON_DUMP=<file> cargo test dump_icons` writes every state side by side as raw RGBA.

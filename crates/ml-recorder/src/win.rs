@@ -109,13 +109,38 @@ fn parse_hotkey(spec: &str) -> Option<(u32, u32)> {
                     vk = Some(c as u32);
                 }
             }
-            k if k.starts_with('f') => {
+            k if k.starts_with('f') && k[1..].parse::<u32>().is_ok() => {
                 let n: u32 = k[1..].parse().ok()?;
                 if (1..=24).contains(&n) {
                     vk = Some(0x70 + n - 1); // VK_F1 = 0x70
                 }
             }
-            _ => return None,
+            k if k.starts_with("num") && k[3..].parse::<u32>().is_ok_and(|n| n <= 9) => {
+                vk = Some(0x60 + k[3..].parse::<u32>().ok()?); // VK_NUMPAD0 = 0x60
+            }
+            // the names the settings' shortcut field writes (EarTrumpet-style combos such as Ctrl+PgDn)
+            k => {
+                vk = Some(match k {
+                    "pgup" | "pageup" => 0x21,
+                    "pgdn" | "pagedown" => 0x22,
+                    "end" => 0x23,
+                    "home" => 0x24,
+                    "left" => 0x25,
+                    "up" => 0x26,
+                    "right" => 0x27,
+                    "down" => 0x28,
+                    "ins" | "insert" => 0x2d,
+                    "del" | "delete" => 0x2e,
+                    "space" => 0x20,
+                    "pause" => 0x13,
+                    "scrolllock" => 0x91,
+                    "numadd" => 0x6b,
+                    "numsub" => 0x6d,
+                    "nummul" => 0x6a,
+                    "numdiv" => 0x6f,
+                    _ => return None,
+                })
+            }
         }
     }
     vk.map(|v| (mods, v))
@@ -165,7 +190,8 @@ pub fn pump_messages(mut f: impl FnMut(Pump)) {
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             match msg.message {
                 WM_HOTKEY => f(Pump::Hotkey(msg.wParam as usize)),
-                WM_TIMER => f(Pump::Timer(msg.wParam as usize)),
+                // a window's own timer (the flyout, tray-icon's hover tracking) goes to its window procedure
+                WM_TIMER if msg.hwnd.is_null() => f(Pump::Timer(msg.wParam as usize)),
                 WM_APP => f(Pump::Wake),
                 _ => {}
             }
@@ -255,16 +281,54 @@ pub fn foreground_exe_stem() -> Option<String> {
     foreground().map(|f| f.stem)
 }
 
+/// Expands `%SystemRoot%` and friends.
+pub fn expand_env(s: &str) -> String {
+    use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
+    if !s.contains('%') {
+        return s.to_string();
+    }
+    let src = wide(s);
+    let mut buf = vec![0u16; 1024];
+    let n = unsafe { ExpandEnvironmentStringsW(src.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    if n == 0 || n > buf.len() {
+        return s.to_string();
+    }
+    String::from_utf16_lossy(&buf[..n - 1])
+}
+
+/// An icon source as Windows writes it, "path" or "path,index" (a negative index is a resource id, as in
+/// "@%SystemRoot%\System32\AudioSrv.Dll,-203"), split into an expanded path and the index.
+pub fn icon_source(src: &str) -> (String, i32) {
+    let src = src.trim().trim_start_matches('@');
+    match src.rsplit_once(',') {
+        Some((p, i)) if i.trim().parse::<i32>().is_ok() => (expand_env(p), i.trim().parse().unwrap_or(0)),
+        _ => (expand_env(src), 0),
+    }
+}
+
 /// The executable's large icon as a PNG (32 px), or None when it has none.
 pub fn exe_icon_png(exe: &str) -> Option<Vec<u8>> {
+    icon_png_at(exe, 0)
+}
+
+/// The icon of an icon source ("path" or "path,index") as a PNG.
+pub fn icon_png(src: &str) -> Option<Vec<u8>> {
+    let (path, idx) = icon_source(src);
+    icon_png_at(&path, idx)
+}
+
+fn icon_png_at(file: &str, index: i32) -> Option<Vec<u8>> {
     use windows_sys::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS,
     };
     use windows_sys::Win32::UI::Shell::ExtractIconExW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, ICONINFO};
+    if file.is_empty() {
+        return None;
+    }
     unsafe {
         let mut large = std::ptr::null_mut();
-        if ExtractIconExW(wide(exe).as_ptr(), 0, &mut large, std::ptr::null_mut(), 1) < 1 || large.is_null() {
+        if ExtractIconExW(wide(file).as_ptr(), index, &mut large, std::ptr::null_mut(), 1) < 1 || large.is_null() {
             return None;
         }
         let mut ii: ICONINFO = std::mem::zeroed();
@@ -329,7 +393,7 @@ pub fn exe_icon_png(exe: &str) -> Option<Vec<u8>> {
 }
 
 /// Minimal PNG writer (uncompressed deflate blocks): enough for a 32 px icon, no extra dependency.
-fn png_rgba(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+pub(crate) fn png_rgba(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
     fn crc(data: &[u8]) -> u32 {
         let mut c = !0u32;
         for &b in data {
@@ -627,6 +691,31 @@ pub fn find_root_pid(stem: &str) -> Option<u32> {
         .find(|(_, parent)| !same.iter().any(|(pid, _)| pid == parent))
         .or(same.first())
         .map(|(pid, _)| *pid)
+}
+
+#[cfg(test)]
+mod hotkey_tests {
+    #[test]
+    fn named_keys_parse() {
+        use super::parse_hotkey;
+        let ctrl = windows_sys::Win32::UI::Input::KeyboardAndMouse::MOD_CONTROL | windows_sys::Win32::UI::Input::KeyboardAndMouse::MOD_NOREPEAT;
+        assert_eq!(parse_hotkey("Ctrl+PgDn"), Some((ctrl, 0x22)));
+        assert_eq!(parse_hotkey("Ctrl+PgUp"), Some((ctrl, 0x21)));
+        assert_eq!(parse_hotkey("Ctrl+Num5"), Some((ctrl, 0x65)));
+        assert_eq!(parse_hotkey("Ctrl+F13"), Some((ctrl, 0x7c)));
+        assert_eq!(parse_hotkey("Ctrl+Q").map(|p| p.1), Some('Q' as u32));
+        assert_eq!(parse_hotkey("Ctrl+Nope"), None);
+        assert_eq!(parse_hotkey("Ctrl+F"), Some((ctrl, 'F' as u32)), "a lone F is the letter");
+    }
+
+    #[test]
+    fn icon_sources_split_path_and_index() {
+        assert_eq!(super::icon_source(r"C:\a\b.exe"), (r"C:\a\b.exe".to_string(), 0));
+        let (p, i) = super::icon_source(r"@%SystemRoot%\System32\AudioSrv.Dll,-203");
+        assert_eq!(i, -203);
+        assert!(p.to_lowercase().ends_with(r"\system32\audiosrv.dll") && !p.contains('%'), "{p}");
+        assert!(super::icon_png(r"@%SystemRoot%\System32\AudioSrv.Dll,-203").is_some(), "the system sounds icon");
+    }
 }
 
 #[cfg(test)]

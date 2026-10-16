@@ -102,6 +102,48 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
 - Spectrum: the app opens its own WASAPI loopback/capture only while the EQ page is open (own radix-2 FFT, 160
   log bins as raw bytes over a `tauri::ipc::Channel`, ~30 fps).
 
+## Design language
+`DESIGN.md` (repo root) describes the look every UI follows, native windows included: lime "now" / faded "trail",
+scan bars, the animated logo, the tokens. Read it before adding a screen.
+
+## Audio tray icon and mixer (EarTrumpet style)
+- The recorder shows a second tray icon for sound (`audio_tray`, on by default; the SoundSwitcher page). Both icons
+  are always created in the same order (recorder first) and the audio one is only hidden when switched off, so
+  Windows keeps the user's pinning. Its right-click menu holds the audio items (output, EQ, preset, hear my mic);
+  with the icon off those items go back into the recorder's menu (muda allows one item in several menus).
+- Left click opens `flyout.rs`: a layered Win32 window in the app's style (DESIGN.md: cards, scan bars, animated logo;
+  slides and fades in). Each playback device (default first, lime dot) has a master scan bar and its apps
+  (`mixer.rs`: IAudioSessionManager2 sessions grouped by exe path, system sounds first; `windows` 0.62.2, the
+  version wasapi already uses). Click the device name = make it the default; click the speaker/icon = mute;
+  drag or wheel = volume. It reads Core Audio only while open (~30 fps, list every 1 s) and closes on focus loss / Esc.
+- Wheel over the tray icon: Windows sends no wheel messages to notification icons, so while the pointer is on the
+  icon (tray-icon Enter/Leave) a Raw Input sink (`RIDEV_INPUTSINK`, no hook) is registered; 5 % per notch on the
+  default output. EarTrumpet, if still running, reacts to the same wheel. While the icon is on, its picture and
+  tooltip re-read the default output's volume every 2 s (one endpoint, no session enumeration).
+- `win::pump_messages` reports only thread timers (`hwnd == null`): window timers (the flyout, tray-icon's hover
+  tracking) belong to their windows and used to be taken for the 500 ms tick.
+- Output shortcut: `output_cycle` (endpoint ids, the "Shortcut" chip on each SoundSwitcher card) limits the cycle; empty = all
+  outputs minus a separate chat device. A chosen device that is unplugged is skipped, never replaced.
+- Device order (flyout and page): default output, the chat (communications) device, devices with apps, the rest;
+  by name inside each group.
+- App page SoundSwitcher (`ui/js/sound.js`, rail label "Sound\nSwitcher"): the same mixer through `mix-get|mix-set|mix-default|mix-icon`
+  (recorder control, polled every 120 ms only while the page is open), the cycle chips, the switch-output shortcut,
+  and the tray-icon toggle. Hiding Windows' own volume icon is not possible on Windows 11: the HideSCAVolume
+  policy is ignored (tried 2026-10-16 with an Explorer restart), so that option was removed again.
+- Loopback recorders (Buffer itself, SignalRGB, OBS) have a session on the output whose meter is the whole device
+  mix; nothing in the session identifiers tells them apart (measured), so `Dev::app_peak` hides a meter that
+  equals the device's exactly while the device volume is below 100 %.
+- Shortcuts accept named keys (PgUp/PgDn, Home/End, Ins/Del, arrows, Space, Num0-9, ...); the settings field
+  records `KeyboardEvent.code`, `win::parse_hotkey` reads the same names.
+- `reload` restarts the capture only when a capture setting changed (`control::needs_restart`); shortcuts, mixer
+  and popup options, language and theme apply live.
+- Debug builds: `mix-flyout` (control) opens the flyout for screenshots.
+- Flyout layout: centred animated logo + name on top, device cards, a full-width "Open SoundSwitcher" button at
+  the bottom. It runs `buffer.exe --view=snd`; the app reads `--view=` at start (`startup_view`) and a second
+  launch forwards it to the running window (single-instance → `open-view` event).
+- SoundSwitcher page layout: device cards on the left (the picked one has a lime-tinted border), the picked
+  device's apps on the right; the tray-icon switch sits top right where the EQ page has its on/off switch.
+
 ## Not verified by hand / known gaps
 - The installer itself was built but not run end-to-end on a clean machine (no sandbox available here).
 - Lip-sync of recorded clips (audio vs video) — durations match to ~5 ms and there is an `audio_offset_ms` knob.

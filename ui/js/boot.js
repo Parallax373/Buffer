@@ -44,7 +44,11 @@
   App.Rec.start();
   App.Update.start();
   await App.Lib.load();
-  App.go("lib");
+  // launched for a page (the tray flyout's "open" button runs `buffer.exe --view=snd`)
+  const VIEWS_OK = ["lib", "eq", "snd", "set"];
+  const first = await App.api.invoke("startup_view").catch(() => null);
+  App.go(VIEWS_OK.includes(first) ? first : "lib");
+  App.api.listen("open-view", (e) => { if (VIEWS_OK.includes(e.payload)) App.go(e.payload); });
   // the window starts hidden; show it now that the first screen is there (the host shows it after 4 s anyway)
   requestAnimationFrame(() => App.api.invoke("show_main_window").catch(() => {}));
   App.Exports.autoClean();            // only does anything when "Delete old exports" is set

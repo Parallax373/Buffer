@@ -656,6 +656,17 @@ fn is_dev_build() -> bool {
 }
 
 /// The window starts hidden (no blank frame while the page loads); the UI calls this once it has drawn.
+/// The page asked for on the command line (`--view=snd`), if any.
+fn view_arg(args: &[String]) -> Option<String> {
+    args.iter().find_map(|a| a.strip_prefix("--view=")).map(str::to_string)
+}
+
+/// The page this launch was asked to open (the first launch; later ones arrive as an `open-view` event).
+#[tauri::command]
+fn startup_view() -> Option<String> {
+    view_arg(&std::env::args().collect::<Vec<_>>())
+}
+
 #[tauri::command]
 fn show_main_window(app: AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -758,11 +769,15 @@ fn main() {
     }
     tauri::Builder::default()
         // Only one window ever: a second launch (tray click, shortcut) just brings the first one forward.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
+            }
+            // `--view=snd` (the tray flyout's "open" button): switch the running window to that page
+            if let Some(v) = view_arg(&args) {
+                let _ = app.emit("open-view", v);
             }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -771,6 +786,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             is_dev_build,
             show_main_window,
+            startup_view,
             list_clips,
             probe_clip,
             prepare_audio,

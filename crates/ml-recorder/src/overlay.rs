@@ -97,6 +97,14 @@ static OLED: AtomicBool = AtomicBool::new(false);
 /// Called after every config load/reload with the app's theme name.
 pub fn set_theme(name: &str) {
     OLED.store(name == "oled", Ordering::Relaxed);
+    THEME.store(match name { "oled" => 1, "slate" => 2, _ => 0 }, Ordering::Relaxed);
+}
+
+/// The app theme for the mixer flyout, which uses the app's own surfaces: 0 ink, 1 oled, 2 slate.
+static THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn theme() -> u8 {
+    THEME.load(Ordering::Relaxed)
 }
 
 fn bg() -> (u8, u8, u8) {

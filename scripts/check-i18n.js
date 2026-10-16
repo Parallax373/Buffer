@@ -2,17 +2,18 @@
 const fs = require("fs");
 const path = require("path");
 global.App = { locales: {} };
+let bad = 0;
 const dir = "ui/js/locales";
 for (const f of fs.readdirSync(dir)) {
   const raw = fs.readFileSync(path.join(dir, f));
   if (raw[0] === 0xef && raw[1] === 0xbb) console.log("BOM in", f);
-  if (/Ä|Ĺ|â€/.test(raw.toString("utf8"))) console.log("mojibake in", f);
+  // UTF-8 read as cp1252: "Ä…" for ą, "Ã©" for é, "â€" for quotes. A plain German "Ä" (Änderungen) is fine.
+  if (/â€|[ÃÄĹ][\u0080-\u00bf\u2018-\u203a]/.test(raw.toString("utf8"))) { bad++; console.log("mojibake in", f); }
   new Function("App", raw.toString("utf8"))(App);
 }
 const en = App.locales.en.t;
 const ph = (v) => (typeof v === "object" ? Object.values(v).join(" ") : v).match(/\{\w+\}/g)?.sort().join(",") || "";
 const phSet = (v) => [...new Set((typeof v === "object" ? Object.values(v).join(" ") : v).match(/\{\w+\}/g) || [])].sort().join(",");
-let bad = 0;
 const ruleNeeds = { pl: ["one", "few", "many", "other"], uk: ["one", "few", "many", "other"] };
 for (const [code, L] of Object.entries(App.locales)) {
   const t = L.t;
@@ -36,12 +37,13 @@ const used = new Set();
 const dyn = [];
 for (const f of fs.readdirSync("ui/js").filter((x) => x.endsWith(".js"))) {
   const s = fs.readFileSync("ui/js/" + f, "utf8");
-  for (const m of s.matchAll(/App\.t\(\s*"([^"]+)"/g)) used.add(m[1]);
+  // App.t("sort." + k) is a prefix, not a key
+  for (const m of s.matchAll(/App\.t\(\s*"([^"]+)"(?!\s*\+)/g)) used.add(m[1]);
   for (const m of s.matchAll(/App\.t\(\s*"([^"]+)"\s*\+/g)) dyn.push(m[1]);
   // keys referenced as strings in tables
   for (const m of s.matchAll(/"((?:src|pre)\.[A-Za-z]+)"/g)) used.add(m[1]);
 }
-const prefixes = ["sort.", "set.tab.", "wz.step.", "theme."];
+const prefixes = ["sort.", "set.tab.", "wz.step.", "theme.", ...dyn];
 for (const k of used) if (!(k in en)) { bad++; console.log("USED BUT MISSING in en:", k); }
 for (const p of prefixes) for (const k of Object.keys(en)) if (k.startsWith(p)) used.add(k);
 for (const k of Object.keys(en)) if (!used.has(k)) console.log("unused key (ok if indirect):", k);
