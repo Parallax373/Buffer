@@ -941,7 +941,8 @@ body:has(#pop .popover) #updpop .updpopover { right: 372px; }
 .sbody { flex: 1; min-height: 0; display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 16px; }
 .sleft { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; padding: 2px; margin: -2px; }
 .slist { display: flex; flex-direction: column; gap: 10px; }
-.scard { padding: 12px 14px 10px; cursor: pointer; transition: border-color var(--t) ease; animation: cardIn .3s var(--ease) both; }
+.scard { padding: 12px 14px 10px; cursor: pointer; transition: border-color var(--t) ease; }
+.slist.intro .scard { animation: cardIn .3s var(--ease) both; }
 .scard:hover { border-color: color-mix(in srgb, var(--muted) 45%, var(--line)); }
 .scard.sel { border-color: color-mix(in srgb, var(--acc) 45%, var(--line)); }
 .shead { display: flex; align-items: center; gap: 6px; min-height: 24px; margin-bottom: 2px; }

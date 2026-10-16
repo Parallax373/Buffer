@@ -153,9 +153,19 @@
   async function toggleCycle(id) {
     await App.RecUI.ensureLoaded();
     const cur = cycle();
-    await App.RecUI.save({ output_cycle: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] });
-    shapeList = "";
-    poll();
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    paintCards(next);                       // shown at once; the save follows
+    await App.RecUI.save({ output_cycle: next });
+    paintCards();
+  }
+
+  /** Selection and cycle chips are painted in place: rebuilding the cards made them blink. */
+  const cardEls = new Map();         // device id -> { card, cyc }
+  function paintCards(cyc = cycle()) {
+    for (const [id, el] of cardEls) {
+      el.card.classList.toggle("sel", id === sel);
+      el.cyc.classList.toggle("on", cyc.includes(id));
+    }
   }
 
   /** "Firefox, SignalRGB +2": what plays on a device, for its card. */
@@ -173,10 +183,11 @@
     // a hidden device (never the default) is folded away under the visible ones
     const shown = devs.filter((d) => d.default || !hid.includes(d.id));
     const folded = devs.filter((d) => !d.default && hid.includes(d.id));
+    cardEls.clear();
     const cards = shown.map((d) => {
       const master = volRow(d.id, { dev: d.id }, { segs: 24, name: d.name });
-      const card = h("div", { class: "card2 scard" + (d.id === sel ? " sel" : "") + (d.default ? " def" : ""), tabindex: 0,
-        onClick: () => { if (sel !== d.id) { sel = d.id; shapeDetail = ""; buildList(); buildDetail(); } },
+      const card = h("div", { class: "card2 scard" + (d.default ? " def" : ""), tabindex: 0,
+        onClick: () => { if (sel !== d.id) { sel = d.id; paintCards(); buildDetail(); } },
         onKeydown: (e) => { if (e.key === "Enter" && e.target === e.currentTarget) e.currentTarget.click(); } },
         h("div", { class: "shead" },
           h("b", { text: d.name, title: d.name }),
@@ -187,8 +198,9 @@
           h("span", { class: "sapps", text: appsText(d) }),
           d.default ? null : h("button", { class: "chip click", text: App.t("snd.hide"), title: App.t("snd.hideTip"),
             onClick: (e) => { e.stopPropagation(); setHidden(d.id, true); } }),
-          h("button", { class: "chip click" + (cyc.includes(d.id) ? " on" : ""), text: App.t("snd.cycle"), title: App.t("key.cycleTip"),
+          h("button", { class: "chip click", text: App.t("snd.cycle"), title: App.t("key.cycleTip"),
             onClick: (e) => { e.stopPropagation(); toggleCycle(d.id); } })));
+      cardEls.set(d.id, { card, cyc: card.querySelector(".sfoot .chip:last-child") });
       return card;
     });
     const fold = folded.length ? h("div", { class: "sfold" + (showHidden ? " open" : "") },
@@ -198,6 +210,7 @@
         h("span", { text: d.name, title: d.name }),
         h("button", { class: "chip click", text: App.t("snd.show"), onClick: () => setHidden(d.id, false) }))) : null) : null;
     list.replaceChildren(...cards, ...(fold ? [fold] : []));
+    paintCards(cyc);
     paintValues();
   }
 
@@ -214,7 +227,14 @@
   }
 
   /** The apps of the selected device on the right. */
+  /** What the right panel is built from: the device, its apps, whether it is the default. */
+  const sigDetail = () => {
+    const d = devs.find((x) => x.id === sel);
+    return JSON.stringify([sel, d ? d.apps.map((a) => a.key) : [], d && d.default]);
+  };
+
   function buildDetail() {
+    shapeDetail = sigDetail();
     const d = devs.find((x) => x.id === sel);
     for (const k of [...rows.keys()]) if (k.includes("|")) rows.delete(k);
     if (!d) { detail.replaceChildren(); return; }
@@ -252,12 +272,12 @@
       devs = r.devices;
       const hid = hiddenIds();
       if (!devs.some((d) => d.id === sel && (d.default || !hid.includes(d.id)))) sel = (devs.find((d) => d.default) || devs[0] || {}).id || "";
-      const sl = JSON.stringify([sel, cycle(), hid, showHidden, devs.map((d) => [d.id, d.name, d.default, d.comms, appsText(d)])]);
-      const sd = JSON.stringify([sel, (devs.find((d) => d.id === sel) || { apps: [] }).apps.map((a) => a.key), devs.find((d) => d.id === sel)?.default]);
+      const sl = JSON.stringify([hid, showHidden, devs.map((d) => [d.id, d.name, d.default, d.comms, appsText(d)])]);
+      const sd = sigDetail();
       const newList = sl !== shapeList, newDetail = sd !== shapeDetail;
       if (newList) { shapeList = sl; buildList(); }
       if (newDetail) { shapeDetail = sd; buildDetail(); }
-      if (!newList && !newDetail) paintValues();
+      if (!newList && !newDetail) { paintValues(); paintCards(); }
     } finally { busy = false; }
   }
 
@@ -277,9 +297,12 @@
       h("span", { class: "toggle" + (cfg.audio_tray !== false ? " on" : ""), onClick: async () => {
         await App.RecUI.save({ audio_tray: cfg.audio_tray === false }); drawOpts();
       } })));
+    // the shortcut field and, once something is set, the same clear button as in Settings
     const keyRow = (label, tip, field) => {
       const f = App.RecUI.hotkeyField(cfg[field] || "", async (c) => { await App.RecUI.save({ [field]: c }); drawOpts(); });
-      const row = U.srow(App.t(label), h("div", { class: "pathrow" }, f));
+      const clear = cfg[field] ? h("button", { class: "linkbtn", text: "✕", title: App.t("hk.clear"),
+        onClick: async () => { await App.RecUI.save({ [field]: "" }); drawOpts(); } }) : null;
+      const row = U.srow(App.t(label), h("div", { class: "pathrow" }, f, clear));
       row.title = App.t(tip);
       return row;
     };
@@ -302,7 +325,8 @@
       page = App.$("#v-snd");
       stop();
       shapeList = shapeDetail = "";
-      list = h("div", { class: "slist" });
+      list = h("div", { class: "slist intro" });
+      setTimeout(() => list.classList.remove("intro"), 600);
       opts = h("div", { class: "card2 sopts" });
       detail = h("section", { class: "card2 sdetail" });
       trayBox = h("div", { class: "strayopt" });
