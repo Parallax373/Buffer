@@ -202,16 +202,14 @@
     const i = list.findIndex((c) => c.path === E.clip.path);
     const step = (d) => { if (list.length) Ed.open(list[(i + d + list.length) % list.length].path); };
     Ed.step = step;
-    const rename = (ev) => App.editTitle(ev.currentTarget.closest(".edhead").querySelector(".ttl"), E.clip.path, () => renderHead());
     ui.head.replaceChildren(
       h("div", { class: "hbox" },
         h("button", { class: "nv", onClick: () => step(-1), title: App.t("ed.prev"), text: "‹" }),
         h("button", { class: "nv", onClick: () => step(1), title: App.t("ed.next"), text: "›" })),
       h("span", { class: "gamechip", title: App.t("det.game") }, App.Lib.gameIcon(App.gameOf(E.clip)), App.gameOf(E.clip)),
-      h("b", { class: "ttl" + (App.customTitle(E.clip) ? "" : " ph"), style: { fontSize: "16px" }, title: App.t("det.rename"),
-        text: App.customTitle(E.clip) || App.whenOf(E.clip),
-        onClick: (ev) => App.editTitle(ev.currentTarget, E.clip.path, () => renderHead()) }),
-      h("button", { class: "ren hit", title: App.t("ed.renameBtn"), text: "✎", onClick: rename }),
+      h("span", { class: "tedit", title: App.t("det.rename"), onClick: (ev) => { const t = ev.currentTarget.querySelector(".ttl"); if (t) App.editTitle(t, E.clip.path, () => renderHead()); } },
+        h("b", { class: "ttl" + (App.customTitle(E.clip) ? "" : " ph"), style: { fontSize: "16px" }, text: App.customTitle(E.clip) || App.whenOf(E.clip) }),
+        App.pencil()),
       h("span", { class: "mono muted", style: { fontSize: "12px" }, text: App.baseName(E.clip.path) }),
       h("span", { class: "sp" }),
       h("button", { class: "revbtn", text: App.t("det.reveal"), onClick: () => api.invoke("reveal", { path: E.clip.path }) }),

@@ -125,6 +125,13 @@ const App = {};
   };
   App.whenOf = (clip) => new Date(clip.modified * 1000).toLocaleString(App.tag(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
+  /** A small pencil drawn next to a name that can be clicked to edit it. Only a hint: the name itself is the control. */
+  App.pencil = () => {
+    const el = h("span", { class: "pen", "aria-hidden": "true" });
+    el.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>';
+    return el;
+  };
+
   /** Turns `el` into a text field to rename the clip; Enter/blur saves, Esc cancels, empty resets. */
   App.editTitle = (el, path, done) => {
     const clip = App.S.byPath.get(path);

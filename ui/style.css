@@ -500,8 +500,6 @@ body { color: var(--text); }
 .edhead .backbtn:hover { border-color: var(--acc); }
 .edhead .ttl { cursor: text; border-bottom: 1px dashed transparent; }
 .edhead .ttl:hover { border-color: var(--muted); }
-.edhead .ren { color: var(--muted); font-size: 13px; padding: 0 4px; }
-.edhead .ren:hover { color: var(--acc); }
 .titlein { width: 280px; padding: 4px 8px; font: 600 14px "Instrument Sans", sans-serif; }
 .details h2.ttl { cursor: text; border-bottom: 1px dashed transparent; display: inline-block; }
 .details h2.ttl:hover { border-color: var(--muted); }
@@ -1252,4 +1250,12 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rpen { padding: 4px 7px; border-radius: 7px; color: var(--muted); font-size: 13px; line-height: 1; transition: color var(--t) ease, background var(--t) ease; }
 .rpen:hover { color: var(--text); background: var(--raised); }
 .rname { width: min(320px, 100%); font: 600 15px "Instrument Sans"; padding: 5px 10px; }
-.rhid .rdev { animation: none; }
+.rhid .rdev { animation: none; }/* a name that is edited by clicking it, with a pencil next to it as the hint (the pencil is not a button) */
+.tedit { display: inline-flex; align-items: center; gap: 7px; cursor: text; min-width: 0; border-radius: 8px; }
+.tedit .pen { display: inline-flex; flex: none; color: var(--subtle); transition: color var(--t) ease; }
+.tedit:hover .pen { color: var(--acc); }
+.tedit:hover .ttl, .tedit:hover h2 { text-decoration: underline dashed var(--muted); text-underline-offset: 4px; }
+.edhead .tedit .ttl, .details .tedit h2.ttl, .rtitle h2 { border-bottom: 0; }
+.details .tedit { display: flex; }
+.details .tedit h2.ttl { margin: 0; }
+.rpen { display: none; }

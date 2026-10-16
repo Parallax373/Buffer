@@ -614,10 +614,12 @@
       pv,
       h("div", null,
         h("div", { class: "gamechip", title: App.t("det.game") }, Lib.gameIcon(App.gameOf(c)), App.gameOf(c)),
-        h("h2", { class: "ttl" + (App.customTitle(c) ? "" : " ph"), title: App.t("det.rename"),
-          text: App.customTitle(c) || App.whenOf(c), onClick: (ev) => {
-          App.editTitle(ev.currentTarget, c.path, () => { refreshCards(); Lib.renderSide(); Lib.renderDetails(); });
-        } }),
+        h("div", { class: "tedit", title: App.t("det.rename"), onClick: (ev) => {
+          const t = ev.currentTarget.querySelector(".ttl");
+          if (t) App.editTitle(t, c.path, () => { refreshCards(); Lib.renderSide(); Lib.renderDetails(); });
+        } },
+          h("h2", { class: "ttl" + (App.customTitle(c) ? "" : " ph"), text: App.customTitle(c) || App.whenOf(c) }),
+          App.pencil()),
         h("div", { class: "file", text: App.baseName(c.path) })),
       h("dl", null,
         h("dt", { text: App.t("det.date") }), h("dd", { text: App.date(c.modified) }),

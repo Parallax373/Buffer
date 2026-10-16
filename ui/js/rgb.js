@@ -131,18 +131,12 @@
     }
     draw();
   }
-  /** A pencil button drawn in the page's line style (the text glyph renders as a coloured emoji on some systems). */
-  function pen(onClick) {
-    const b = h("button", { class: "rpen", "aria-label": App.t("rgb.rename"), title: App.t("rgb.rename"), onClick });
-    b.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>';
-    return b;
-  }
   /** The title of the detail panel; a pencil turns it into a field. */
   function titleBox(it) {
-    const box = h("span", { class: "rtitle" });
+    const box = h("span", { class: "rtitle" + (it.all ? "" : " tedit"), title: it.all ? null : App.t("rgb.rename") });
     const show = () => {
-      box.replaceChildren(h("h2", { text: it.label || it.name }),
-        it.all ? null : pen(edit));
+      box.replaceChildren(h("h2", { text: it.label || it.name }), it.all ? null : App.pencil());
+      box.onclick = it.all ? null : edit;
     };
     const edit = () => {
       const inp = h("input", { class: "field rname", value: it.label || it.name, maxlength: 40, spellcheck: false, "aria-label": App.t("rgb.rename") });
@@ -150,6 +144,7 @@
       const commit = (save) => { if (done) return; done = true; if (save) rename(it, inp.value.trim() === it.name ? "" : inp.value.trim()); else show(); };
       inp.onkeydown = (e) => { if (e.key === "Enter") commit(true); if (e.key === "Escape") commit(false); };
       inp.onblur = () => commit(true);
+      box.onclick = null;
       box.replaceChildren(inp); inp.focus(); inp.select();
     };
     show();
