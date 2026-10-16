@@ -1194,7 +1194,11 @@ impl Flyout {
                     let (t0, t1) = (yc - 10.0 * s, yc + 6.0 * s);
                     cv.rrect(xv - tw / 2.0 - 2.0 * s, t0 - 2.0 * s, xv + tw / 2.0 + 2.0 * s, t1 + 2.0 * s, 3.0 * s, th.panel);
                     cv.rrect(xv - tw / 2.0, t0, xv + tw / 2.0, t1, 1.5 * s, if muted { SUBTLE } else { TEXT });
-                    if let Kind::Master(_) = r.kind {
+                    if let Kind::Master(d) = r.kind {
+                        // a hairline under the device's own slider: what follows are its apps
+                        if self.devs.get(d).is_some_and(|dv| !dv.apps.is_empty()) {
+                            cv.fill((PAD + 14.0) * s, top + r.h * s - 1.0, (W - PAD - 14.0) * s, top + r.h * s, th.line);
+                        }
                         draw_speaker(&mut cv, (PAD + 12.0) * s, yc - 12.0 * s, 24.0 * s, waves_for(v), muted);
                     }
                     // the grip: two columns of three dots, faint until the row is hovered
@@ -1311,6 +1315,10 @@ impl Flyout {
                         let c = if l.muted { SUBTLE } else { TEXT };
                         let n = format!("{}", (l.v * 100.0).round() as i32);
                         text(font, c, (SL_X1 + 8.0) * s, l.top, NUM_RIGHT * s, l.top + l.h, &n, DT_RIGHT);
+                        // the first slider of a card is the device itself, i.e. every app on it at once
+                        if let Kind::Master(_) = l.kind {
+                            text(small, MUTED, SL_X0 * s, l.top, SL_X1 * s, l.top + 12.0 * s, &crate::lang::t("mix.all"), DT_LEFT | DT_END_ELLIPSIS);
+                        }
                         if let Kind::App(..) = l.kind {
                             let (hicon, name, hint) = &icons[app_i];
                             app_i += 1;
