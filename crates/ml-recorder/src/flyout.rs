@@ -1185,7 +1185,7 @@ impl Flyout {
                         if self.devs.get(d).is_some_and(|dv| !dv.apps.is_empty()) {
                             // a rail down the card's left edge into the apps it controls
                             let end = self.cards.get(d).map_or(by1, |c| y_of(c.1) - CARD_BOTTOM * s - 4.0 * s);
-                            cv.rrect((PAD + 2.5) * s, by1 - 6.0 * s, (PAD + 4.0) * s, end.max(by1), 0.75 * s, mix(th.panel, ACC, 0.45));
+                            cv.rrect((PAD + 1.5) * s, by1 - 6.0 * s, (PAD + 3.0) * s, end.max(by1), 0.75 * s, mix(th.panel, ACC, 0.45));
                         }
                         cv.rrect(bx0 + 1.0, by0 + 8.0 * s, bx0 + 3.0 * s, by1 - 8.0 * s, 1.0 * s, ACC);
                     }
@@ -1216,7 +1216,7 @@ impl Flyout {
                         if self.movable(d, a) {
                             let hot = self.hover == Some(i) || self.press.is_some_and(|p| (p.0, p.1) == (d, a));
                             let (c, al) = if hot { (TEXT, 0.9) } else { (MUTED, 0.45) };
-                            for gx in [PAD + 5.0, PAD + 9.0] {
+                            for gx in [PAD + 6.5, PAD + 10.5] {
                                 for gy in [-4.0, 0.0, 4.0] {
                                     let (cx, cy) = (gx * s, yc + gy * s);
                                     let r_ = 1.1 * s;
