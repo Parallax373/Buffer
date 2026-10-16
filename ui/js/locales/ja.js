@@ -9,6 +9,7 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
 
   "nav.library": "ライブラリ",
   "nav.settings": "設定",
+  "cat.top5": "上位5件",
   "eq.gamesLast": "直近5件",
   "eq.gameAddBtn": "ゲームを追加…",
   "eq.gameAddTip": "ゲームの .exe を選択（例: cs2.exe）。Buffer 起動中に遊んだゲームは自動で表示されます",

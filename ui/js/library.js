@@ -249,6 +249,8 @@
         title: games.length > GAMES_SHOWN ? (S.gamesOpen ? App.t("cat.less") : App.t("cat.more", { n: games.length - GAMES_SHOWN })) : "",
         onClick: () => { S.gamesOpen = !S.gamesOpen; Lib.renderSide(); } },
         h("span", { text: App.t("cat.games") }),
+        // the list is cut to the five biggest games: say so, until it is opened
+        games.length > GAMES_SHOWN && !S.gamesOpen ? h("span", { class: "capnote", text: App.t("cat.top5") }) : null,
         games.length > GAMES_SHOWN ? h("span", { class: "gar", text: S.gamesOpen ? "▾" : "▸" }) : null),
       ...shown.map(([g, n]) => item("g:" + g, g, n, { game: g })),
     ].filter(Boolean);

@@ -9,6 +9,7 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
 
   "nav.library": "Biblioteka",
   "nav.settings": "Ustawienia",
+  "cat.top5": "top 5",
   "eq.gamesLast": "ostatnie 5",
   "eq.gameAddBtn": "Dodaj grę…",
   "eq.gameAddTip": "Wybierz plik .exe gry (np. cs2.exe). Gry, w które grałeś przy działającym Bufferze, pojawiają się same.",

@@ -9,6 +9,7 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
 
   "nav.library": "Library",
   "nav.settings": "Settings",
+  "cat.top5": "top 5",
   "eq.gamesLast": "last 5",
   "eq.gameAddBtn": "Add a game…",
   "eq.gameAddTip": "Pick the game's .exe file (for example cs2.exe). Games you have played with Buffer running appear by themselves.",

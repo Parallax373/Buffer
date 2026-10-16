@@ -932,3 +932,4 @@ body:has(#pop .popover) #updpop .updpopover { right: 372px; }
 .eqpill.eqon .dot { background: var(--acc); }
 .eqpill[hidden] { display: none; }.eqcard .addgame { align-self: flex-start; }
 .eqcard .cap .capnote { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--subtle); }
+.capbtn .capnote { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--subtle); margin: 0 auto 0 8px; }

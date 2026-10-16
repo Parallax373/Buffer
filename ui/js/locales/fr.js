@@ -9,6 +9,7 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
 
   "nav.library": "Bibliothèque",
   "nav.settings": "Réglages",
+  "cat.top5": "top 5",
   "eq.gamesLast": "5 derniers",
   "eq.gameAddBtn": "Ajouter un jeu…",
   "eq.gameAddTip": "Choisissez le fichier .exe du jeu (par ex. cs2.exe). Les jeux lancés avec Buffer actif apparaissent d'eux-mêmes.",

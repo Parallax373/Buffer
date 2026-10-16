@@ -9,6 +9,7 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
 
   "nav.library": "Bibliothek",
   "nav.settings": "Einstellungen",
+  "cat.top5": "Top 5",
   "eq.gamesLast": "letzte 5",
   "eq.gameAddBtn": "Spiel hinzufügen…",
   "eq.gameAddTip": "Wähle die .exe-Datei des Spiels (z. B. cs2.exe). Spiele, die du mit laufendem Buffer gespielt hast, erscheinen von selbst.",

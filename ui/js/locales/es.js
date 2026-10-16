@@ -9,6 +9,7 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
 
   "nav.library": "Biblioteca",
   "nav.settings": "Ajustes",
+  "cat.top5": "top 5",
   "eq.gamesLast": "últimos 5",
   "eq.gameAddBtn": "Añadir un juego…",
   "eq.gameAddTip": "Elige el archivo .exe del juego (p. ej. cs2.exe). Los juegos que jugaste con Buffer abierto aparecen solos.",

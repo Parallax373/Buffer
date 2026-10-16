@@ -9,6 +9,7 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
 
   "nav.library": "Kütüphane",
   "nav.settings": "Ayarlar",
+  "cat.top5": "ilk 5",
   "eq.gamesLast": "son 5",
   "eq.gameAddBtn": "Oyun ekle…",
   "eq.gameAddTip": "Oyunun .exe dosyasını seçin (örn. cs2.exe). Buffer açıkken oynadığınız oyunlar kendiliğinden görünür.",

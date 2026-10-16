@@ -9,6 +9,7 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
 
   "nav.library": "媒体库",
   "nav.settings": "设置",
+  "cat.top5": "前5名",
   "eq.gamesLast": "最近5个",
   "eq.gameAddBtn": "添加游戏…",
   "eq.gameAddTip": "选择游戏的 .exe 文件（例如 cs2.exe）。在 Buffer 运行时玩过的游戏会自动出现",

@@ -9,6 +9,7 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
 
   "nav.library": "Бібліотека",
   "nav.settings": "Параметри",
+  "cat.top5": "топ 5",
   "eq.gamesLast": "останні 5",
   "eq.gameAddBtn": "Додати гру…",
   "eq.gameAddTip": "Виберіть .exe гри (наприклад cs2.exe). Ігри, у які ви грали при запущеному Buffer, з'являються самі.",
