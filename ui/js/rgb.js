@@ -63,14 +63,16 @@
     }
     const shown = st.devs.filter((x) => !x.hidden);
     const out = [{ key: ALL, name: App.t("rgb.all"), members: shown, n: shown.length, all: true, kind: "all" }];
+    const hiddenOut = [];   // hidden devices (when shown) go to the end, as compact rows
     for (const g of by.values()) {
+      if (g.hid) { hiddenOut.push(g); continue; }
       out.push(g);
       // a group can be opened to control its devices one by one
       if (g.members.length > 1 && open.has(g.key)) {
         for (const m of g.members) out.push({ key: lkey(m), name: `${g.name} ${m.nth + 1}`, vendor: g.vendor, kind: g.kind, members: [m], n: Math.max(1, m.led_names.length), child: true, stored: g.stored, hid: !!m.hidden });
       }
     }
-    return out;
+    return [...out, ...hiddenOut];
   }
   /** names of the groups that are opened */
   const open = new Set();
@@ -265,7 +267,7 @@
         h("span", { class: "rt" }, icon(x.kind), h("b", { text: x.name }), group ? h("small", { class: "mono rn", text: "×" + x.members.length }) : null,
           !x.all && !x.child ? h("small", { class: "mono", text: x.vendor }) : null, h("span", { class: "rtag", hidden: true }), chev,
           x.hid ? h("span", { class: "chip rshow", role: "button", text: App.t("rgb.unhide"), onClick: (e) => { e.stopPropagation(); hide(x, false); } }) : sw),
-        leds(nLeds(x)));
+        x.hid ? null : leds(nLeds(x)));   // a hidden device is one compact line
       cards.set(x.key, card);
       paintCard(card, x);
       return idx === 0 ? [card, h("div", { class: "rsep" })] : [card];

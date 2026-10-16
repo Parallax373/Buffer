@@ -1236,3 +1236,7 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rshow:hover { border-color: var(--acc); color: var(--acc); }
 .rprof .chip.empty { opacity: .55; border-style: dashed; }
 .rauto .rsep { margin: 12px 0 8px; }
+.rdev.hid { padding: 6px 12px; gap: 0; opacity: .6; }
+.rdev.hid .rt b { font-weight: 500; font-size: 12.5px; color: var(--text2); }
+.rdev.hid .ric { width: 16px; height: 16px; }
+.rdev.hid .rt small:not(.rn) { display: none; }
