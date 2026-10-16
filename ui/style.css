@@ -1198,3 +1198,9 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rdev.idle:not(.on) .ric { color: var(--subtle); }
 .rdev.child .ric { width: 16px; height: 16px; }
 .rhd .ric { width: 22px; height: 22px; }
+.rcol { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.rcolr { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; min-width: 0; }
+.rwheel { position: relative; width: 132px; height: 132px; border-radius: 50%; cursor: crosshair; touch-action: none; flex: none; outline-offset: 3px; }
+.rwheel canvas { display: block; border-radius: 50%; }
+.rwheel .rdot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1.5px #000a, 0 1px 4px #0008; pointer-events: none; }
+.rhex { width: 96px; text-transform: lowercase; }

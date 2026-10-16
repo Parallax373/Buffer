@@ -24,7 +24,8 @@
 
   /** el with CSS custom properties (Object.assign(style) cannot set those) */
   const vars = (el, o) => { for (const [k, v] of Object.entries(o)) el.style.setProperty(k, v); return el; };
-  const css = (l) => `hsl(${l.hue} ${l.sat}% 55%)`;
+  /** the look's colour for CSS: full value, so no saturation is white (hsl lightness = 1 - sat / 2) */
+  const css = (l) => `hsl(${l.hue} 100% ${100 - l.sat / 2}%)`;
 
   /** Line icons per device type (OpenRGB device types), drawn in the page's own style: thin strokes, currentColor. */
   const ICONS = {
@@ -233,14 +234,20 @@
     const paintAll = () => { const ref = reference(); all.forEach((x) => paintCard(cards.get(x.key), x, ref)); };
 
     const l = itemLook(it);
-    const hue = h("input", { class: "rhue", type: "range", min: 0, max: 359, value: l.hue, "aria-label": App.t("rgb.colour") });
+    const wheel = App.RGBWheel(l.hue, l.sat, (hh, ss) => { apply(it, { hue: hh, sat: ss }); hex.value = App.RGBWheel.toHex(hh, ss); upd(); });
+    const hex = h("input", { class: "field rhex mono", value: App.RGBWheel.toHex(l.hue, l.sat), maxlength: 7, spellcheck: false, "aria-label": "hex", onChange: (e) => {
+      const c = App.RGBWheel.fromHex(e.target.value);
+      if (!c) { e.target.value = App.RGBWheel.toHex(itemLook(it).hue, itemLook(it).sat); return; }
+      wheel.set(c.hue, c.sat); apply(it, c); upd();
+    } });
     const br = h("input", { class: "rline", type: "range", min: 0, max: 100, value: l.br, "aria-label": App.t("rgb.brightness") });
     const spd = h("input", { class: "rline", type: "range", min: 20, max: 300, value: Math.round(l.speed * 100), "aria-label": App.t("rgb.speed") });
-    const hv = h("span", { class: "mono rval", text: l.hue + "°" }), bv = h("span", { class: "mono rval", text: l.br + "%" });
+    const bv = h("span", { class: "mono rval", text: l.br + "%" });
     const n = nLeds(it);
     const prev = h("div", { class: "rbig" }, Array.from({ length: n }, (_, i) =>
       vars(h("i"), { "--o": (0.45 + 0.55 * (i / (n - 1))).toFixed(2), "--i": i })));
     const mk = mark(it, reference());
+    const rel = h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), disabled: !itemDriven(it), onClick: () => giveBack(it) });
     const power = h("button", { class: "chip" + (itemOn(it) ? " on" : ""), text: App.t(itemOn(it) ? "rgb.on" : "rgb.off"), onClick: () => { apply(it, { on: !itemOn(it) }); draw(); } });
     const fxBox = h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.effect") })),
       App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx || "static", (v) => { apply(it, { fx: v }); draw(); }));
@@ -252,27 +259,26 @@
       prev.className = "rbig fx-" + (l.fx || "static");
       prev.style.setProperty("--c", css(l)); prev.style.setProperty("--br", itemOn(it) ? l.br / 100 : 0.08);
       prev.style.setProperty("--sp", (1 / l.speed).toFixed(2));
-      hv.textContent = l.hue + "°"; bv.textContent = l.br + "%";
+      bv.textContent = l.br + "%";
+      rel.disabled = !itemDriven(it);
       paintAll();
     };
-    hue.oninput = () => { apply(it, { hue: +hue.value, sat: 90 }); upd(); };
     br.oninput = () => { apply(it, { br: +br.value }); upd(); };
     spd.oninput = () => { apply(it, { speed: +spd.value / 100 }); $speed(); upd(); };
     const $speed = () => { const e = spdBox.querySelector("#rspd"); if (e) e.textContent = itemLook(it).speed.toFixed(1) + "×"; };
     const swatches = h("div", { class: "rsw" }, SWATCHES.map((c) => vars(h("button", { "aria-label": c, onClick: () => {
-      const v = parseInt(c.slice(1), 16), r = (v >> 16) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
-      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), df = mx - mn;
-      const hh = df ? Math.round((((mx === r ? ((g - b) / df) % 6 : mx === g ? (b - r) / df + 2 : (r - g) / df + 4) * 60) + 360) % 360) : 0;
-      hue.value = hh;
-      apply(it, { hue: hh, sat: df ? 90 : 0 }); upd();
+      const v = App.RGBWheel.fromHex(c);
+      wheel.set(v.hue, v.sat); hex.value = App.RGBWheel.toHex(v.hue, v.sat);
+      apply(it, v); upd();
     } }), { "--c": c })));
     const detail = h("section", { class: "card2 pad rdetail" },
       h("div", { class: "rhd" }, icon(it.kind), h("h2", { text: it.name }),
         mk === "mixed" ? h("button", { class: "chip", text: App.t("rgb.unify"), title: App.t("rgb.unifyTip"), onClick: () => { apply(it, { ...itemLook(it) }); draw(); } }) : null,
         mk === "custom" ? h("button", { class: "chip", text: App.t("rgb.likeRest"), title: App.t("rgb.likeRestTip"), onClick: () => { apply(it, { ...lookOf(majorityMember()) }); draw(); } }) : null,
-        h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), disabled: !itemDriven(it), onClick: () => giveBack(it) }), power),
+        rel, power),
       prev,
-      h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour") }), hv), swatches, hue),
+      h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.colour") })),
+        h("div", { class: "rcol" }, wheel, h("div", { class: "rcolr" }, swatches, hex))),
       h("div", { class: "rrow" }, h("div", { class: "rl" }, h("span", { class: "cap", text: App.t("rgb.brightness") }), bv), br),
       fxBox,
       l.fx && l.fx !== "static" ? spdBox : null);

@@ -138,21 +138,27 @@ pub struct DevPlan {
 }
 
 impl Look {
-    /// HSL at lightness 0.55 (the page paints the same), scaled by `f` (0..1).
-    fn hsl(hue: f32, sat: f32, f: f32) -> [u8; 3] {
-        let l = 0.55f32;
-        let a = sat / 100.0 * l.min(1.0 - l);
-        let ch = |n: f32| {
-            let k = (n + hue / 30.0).rem_euclid(12.0);
-            l - a * (k - 3.0).min(9.0 - k).min(1.0).max(-1.0)
+    /// HSV with full value (saturation 0 is white, like the page's colour wheel), scaled by `f` (0..1).
+    fn hsv(hue: f32, sat: f32, f: f32) -> [u8; 3] {
+        let c = (sat / 100.0).clamp(0.0, 1.0);
+        let h = hue.rem_euclid(360.0) / 60.0;
+        let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
+        let (r, g, b) = match h as u32 {
+            0 => (c, x, 0.0),
+            1 => (x, c, 0.0),
+            2 => (0.0, c, x),
+            3 => (0.0, x, c),
+            4 => (x, 0.0, c),
+            _ => (c, 0.0, x),
         };
-        let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0 * f.clamp(0.0, 1.0)).round().clamp(0.0, 255.0) as u8;
-        [q(ch(0.0)), q(ch(8.0)), q(ch(4.0))]
+        let m = 1.0 - c;
+        let q = |v: f32| ((v + m) * 255.0 * f.clamp(0.0, 1.0)).round().clamp(0.0, 255.0) as u8;
+        [q(r), q(g), q(b)]
     }
 
     /// The colour with the brightness applied (the same HSL formula the Simple page paints with).
     pub fn rgb(&self) -> [u8; 3] {
-        Self::hsl(self.hue, self.sat, if self.on { self.br / 100.0 } else { 0.0 })
+        Self::hsv(self.hue, self.sat, if self.on { self.br / 100.0 } else { 0.0 })
     }
 
     /// True for the effects that change over time (they need the render loop).
@@ -169,9 +175,9 @@ impl Look {
         let br = self.br / 100.0;
         let wave = |x: f64| (0.5 + 0.5 * (x * std::f64::consts::TAU).sin()) as f32;
         match self.fx.as_str() {
-            "breathing" => Self::hsl(self.hue, self.sat, br * (0.1 + 0.9 * wave(t * 0.25 * s - 0.25))),
-            "rainbow" => Self::hsl(((t * 45.0 * s) as f32 + u * 160.0).rem_euclid(360.0), self.sat.max(80.0), br),
-            "wave" => Self::hsl(self.hue, self.sat, br * (0.08 + 0.92 * wave(u as f64 - t * 0.35 * s))),
+            "breathing" => Self::hsv(self.hue, self.sat, br * (0.1 + 0.9 * wave(t * 0.25 * s - 0.25))),
+            "rainbow" => Self::hsv(((t * 45.0 * s) as f32 + u * 160.0).rem_euclid(360.0), self.sat.max(80.0), br),
+            "wave" => Self::hsv(self.hue, self.sat, br * (0.08 + 0.92 * wave(u as f64 - t * 0.35 * s))),
             _ => self.rgb(),
         }
     }
@@ -297,11 +303,11 @@ mod tests {
     #[test]
     fn simple_colours_follow_the_pages_formula() {
         let look = |hue, sat, br, on| Look { name: "x".into(), nth: 0, hue, sat, br, on, fx: "static".into(), speed: 1.0 };
-        assert_eq!(look(0.0, 90.0, 100.0, true).rgb(), [244, 37, 37]);
+        assert_eq!(look(0.0, 90.0, 100.0, true).rgb(), [255, 26, 26]);
+        assert_eq!(look(120.0, 100.0, 100.0, true).rgb(), [0, 255, 0]);
         assert_eq!(look(75.0, 90.0, 100.0, false).rgb(), [0, 0, 0]);
-        assert_eq!(look(200.0, 0.0, 100.0, true).rgb(), [140, 140, 140]);
-        let half = look(200.0, 0.0, 50.0, true).rgb();
-        assert_eq!(half, [70, 70, 70]);
+        assert_eq!(look(200.0, 0.0, 100.0, true).rgb(), [255, 255, 255], "no saturation is white");
+        assert_eq!(look(200.0, 0.0, 50.0, true).rgb(), [128, 128, 128]);
     }
 
     #[test]
