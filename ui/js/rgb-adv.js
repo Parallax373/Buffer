@@ -147,9 +147,10 @@
     fan: { link: 2, pts: (n) => Array.from({ length: n }, (_, i) => [Math.cos(i / n * TAU) * 5.5, Math.sin(i / n * TAU) * 5.5, 0]) },
     strip: { link: 1, pts: (n) => lineP(n, Math.min(60, 2 + n * 1.5)) },
     keyboard: { link: 0, pts: (n) => { const c = Math.min(20, n), r = Math.ceil(n / c); return Array.from({ length: n }, (_, k) => [(k % c - (c - 1) / 2) * 1.8, 0, (Math.floor(k / c) - (r - 1) / 2) * 1.8]); } },
+    mouse: { link: 0, pts: (n) => Array.from({ length: n }, (_, i) => (n === 1 ? [0, 2.5, 0] : [Math.cos(i / n * TAU) * 2.6, 2.5, Math.sin(i / n * TAU) * 4.8])) },
     headset: { link: 0, pts: (n) => Array.from({ length: n }, (_, i) => { const side = i < n / 2 ? -8 : 8, m = Math.ceil(n / 2), j = i % m; return [side, 3, m > 1 ? (j / (m - 1) - 0.5) * 3 : 0]; }) },
   };
-  const DEFN = { header: 12, gpu: 8, ram: 8, fan: 8, strip: 16, keyboard: 120, headset: 4 };
+  const DEFN = { header: 12, gpu: 8, ram: 8, fan: 8, strip: 16, keyboard: 120, mouse: 3, headset: 4 };
   const r2 = (v) => Math.round(v * 100) / 100;
   /** the LED layout of a type with n LEDs, rounded: this is what is saved (pts) and what the backend uses */
   const layout = (type, n) => TYPES[type].pts(n).map((p) => [r2(p[0]), r2(p[1]), r2(p[2])]);
@@ -158,12 +159,13 @@
   let nextId = 1;
   const mkDev = (type, name, pts, x, y, z, rot, link) => { const d = { id: nextId++, type, name, n: pts.length, x, y, z, rot: rot || 0, sc: 1, pts }; if (link) d.link = link; return d; };
 
-  /** OpenRGB device kind (+ name) -> one of our types. 0 board, 1 RAM, 2 GPU, 3 cooler, 4 strip, 5 keyboard, 8/9 headset */
+  /** OpenRGB device kind (+ name) -> one of our types. 0 board, 1 RAM, 2 GPU, 3 cooler, 4 strip, 5 keyboard, 6 mouse, 8/9 headset */
   function typeOfDev(d) {
     const k = d.kind, nm = (d.name || "").toLowerCase();
     if (k === 2) return "gpu";
     if (k === 1) return "ram";
     if (k === 5) return "keyboard";
+    if (k === 6) return "mouse";
     if (k === 8 || k === 9) return "headset";
     if (k === 0) return "header";
     if (k === 3 || /\bfan\b/.test(nm)) return "fan";
@@ -177,6 +179,7 @@
       case "fan": return [-35, 9 + 14 * (k % 3), 21 - 42 * Math.floor(k / 3), 0];
       case "ram": return [-40 + k * 3, 38, 6, 0];
       case "keyboard": return [22, 0.5, 14 + k * 8, 0];
+      case "mouse": return [46 + k * 8, 0.5, 14, 0];
       case "headset": return [34 + k * 6, 0, -10, 0];
       default: return [-8 + k * 8, 12, -25, 0];
     }
@@ -201,10 +204,10 @@
   const X1 = -24, FAN_R = 5.5;
   const CASES = { mid: { w: 22, h: 46, d: 44 }, itx: { w: 18, h: 33, d: 36 }, dual: { w: 28, h: 46, d: 44 }, open: { w: 30, h: 44, d: 40 }, none: null };
   /** device types a slot takes; the first one is the type it is meant for (Arrange and new devices try that first) */
-  const ACC = { fan: ["fan", "header", "strip"], cpu: ["fan", "header", "strip"], gpu: ["gpu", "strip"], ram: ["ram"], edge: ["strip", "header"], io: ["header", "strip"], kb: ["keyboard"], head: ["headset"] };
-  const TORDER = ["fan", "gpu", "ram", "header", "strip", "keyboard", "headset"];
+  const ACC = { fan: ["fan", "header", "strip"], cpu: ["fan", "header", "strip"], gpu: ["gpu", "strip"], ram: ["ram"], edge: ["strip", "header"], io: ["header", "strip"], kb: ["keyboard"], mouse: ["mouse"], head: ["headset"] };
+  const TORDER = ["fan", "gpu", "ram", "header", "strip", "keyboard", "mouse", "headset"];
   /** OpenRGB device kind of our types, for the Simple page's icons */
-  const TKIND = { header: 0, ram: 1, gpu: 2, fan: 3, strip: 4, keyboard: 5, headset: 8 };
+  const TKIND = { header: 0, ram: 1, gpu: 2, fan: 3, strip: 4, keyboard: 5, mouse: 6, headset: 8 };
   const icon = (type) => (App.RGB && App.RGB.icon ? App.RGB.icon(type === "case" ? "all" : TKIND[type]).outerHTML : "");
   /** the case of a template as built (before it is moved / turned) */
   function caseBox(tpl) { const c = CASES[tpl]; return c ? { x0: X1 - c.w, x1: X1, h: c.h, z0: -c.d / 2, z1: c.d / 2, xm: X1 - c.w / 2 } : null; }
@@ -266,6 +269,7 @@
     }
     inCase = false;
     spot("kb", "kb", [22, 0.5, 14], ACC.kb);
+    spot("mouse", "mouse", [46, 0.5, 14], ACC.mouse);
     spot("head", "head", [34, 0, -10], ACC.head);
     path("mon", "mon", 0, [[2, 16, -21.5], [48, 16, -21.5], [48, 42, -21.5], [2, 42, -21.5]], ACC.edge, true);
     path("desk", "desk", 0, [[-50, -1, 30], [50, -1, 30]], ACC.edge);
@@ -573,6 +577,15 @@
     if (!real) return false;
     let changed = false;
     for (const r of real) {
+      // a mouse saved by an older version is a "strip" (it had no type of its own): give it the mouse model and its place
+      const old = r.type === "mouse" && S.devices.find((d) => d.type === "strip" && linkKey(d.link) === r.key);
+      if (old) {
+        delete old.parts; delete old.slot;
+        old.type = "mouse"; old.pts = layout("mouse", old.n || r.n);
+        const sl = freeSlot(old);
+        if (sl) placeIn(old, sl); else { const sp = defaultSpot("mouse", 0); [old.x, old.y, old.z, old.rot] = sp; }
+        changed = true;
+      }
       if (S.seen.includes(r.key) || r.hidden) continue;   // a hidden device is placed only once it is shown again
       S.seen.push(r.key); changed = true;
       if (S.devices.some((d) => linkKey(d.link) === r.key)) continue;
@@ -1393,6 +1406,14 @@
       boxL([[cx - L / 2, hi[1] - 11, cz - 2.5], [cx + L / 2, hi[1] + 0.5, cz + 2.5]]);
     }
     else if (d.type === "ram") boxL(pad([0.5, 1, 0.5]));
+    else if (d.type === "mouse") {   // a body about 6.8 x 12.5 cm: footprint, a lower top, four posts, the wheel
+      const cx = (lo[0] + hi[0]) / 2, cz = (lo[2] + hi[2]) / 2, y0 = lo[1] - 2.5;
+      const ring = (rx, rz, y) => { let pen = false; for (let i = 0; i <= 28; i++) { const a = i / 28 * TAU, p = W(d, [cx + Math.cos(a) * rx, y, cz + Math.sin(a) * rz]); if (!proj(p[0], p[1], p[2])) { pen = false; continue; } if (pen) ctx.lineTo(pr[0], pr[1]); else ctx.moveTo(pr[0], pr[1]); pen = true; } };
+      ring(3.4, 6.2, y0); ring(3, 5.4, y0 + 3.6);
+      for (const a of [0, 1, 2, 3]) { const c = Math.cos(a * TAU / 4), s = Math.sin(a * TAU / 4); const p = W(d, [cx + c * 3.4, y0, cz + s * 6.2]), q = W(d, [cx + c * 3, y0 + 3.6, cz + s * 5.4]); if (proj(p[0], p[1], p[2])) { const x0 = pr[0], y1 = pr[1]; if (proj(q[0], q[1], q[2])) { ctx.moveTo(x0, y1); ctx.lineTo(pr[0], pr[1]); } } }
+      const w1 = W(d, [cx, y0 + 3.6, cz - 2.6]), w2 = W(d, [cx, y0 + 3.6, cz - 0.6]);
+      if (proj(w1[0], w1[1], w1[2])) { const x0 = pr[0], y1 = pr[1]; if (proj(w2[0], w2[1], w2[2])) { ctx.moveTo(x0, y1); ctx.lineTo(pr[0], pr[1]); } }
+    }
     else if (d.type === "headset") {
       // two cups (the two halves of its LEDs) joined by a band over the top
       const h = Math.ceil(d.pts.length / 2), mid = (a) => [0, 1, 2].map((k) => a.reduce((s, p) => s + p[k], 0) / a.length);
