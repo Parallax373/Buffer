@@ -779,6 +779,10 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "ra.foldTip": "Ein- oder ausklappen (Ebene erneut anklicken)",
   "ra.flip": "Spiegeln",
   "ra.flipTip": "Gehäuse spiegeln: Glas und Mainboard auf der anderen Seite",
+
+  "ra.underDesk": "Unter dem Tisch",
+
+  "ra.underDeskTip": "Das Gehäuse steht auf dem Boden unter dem Tisch: Es wird mit seinem Inhalt 72 cm tiefer gezeichnet, damit Effekte nach oben oder von einem Punkt aus es so behandeln, wie es wirklich steht",
   "ra.grp.desk": "Auf dem Tisch",
   "ra.tplLabel": "Vorlage",
   "ra.tplLeft": "{n} ohne Platz: Sie stehen neben dem Gehäuse",

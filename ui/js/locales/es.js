@@ -779,6 +779,10 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "ra.foldTip": "Plegar o desplegar (vuelve a hacer clic en la capa)",
   "ra.flip": "Reflejar",
   "ra.flipTip": "Reflejar la caja: cristal y placa al otro lado",
+
+  "ra.underDesk": "Bajo la mesa",
+
+  "ra.underDeskTip": "La caja está en el suelo bajo la mesa: se dibuja 72 cm más abajo con todo lo que contiene, para que los efectos que suben o salen de un punto la traten como está de verdad",
   "ra.grp.desk": "En el escritorio",
   "ra.tplLabel": "Plantilla",
   "ra.tplLeft": "{n} sin sitio: quedan junto a la caja",

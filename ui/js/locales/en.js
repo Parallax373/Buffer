@@ -779,6 +779,10 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "ra.foldTip": "Fold or unfold (click the layer again)",
   "ra.flip": "Flip",
   "ra.flipTip": "Mirror the case: glass and board on the other side",
+
+  "ra.underDesk": "Under the desk",
+
+  "ra.underDeskTip": "The case stands on the floor under the desk: it is drawn 72 cm lower with everything in it, so effects that run up or out from a point treat it the way it really is",
   "ra.grp.desk": "On the desk",
   "ra.tplLabel": "Template",
   "ra.tplLeft": "{n} found no place: they stand next to the case",

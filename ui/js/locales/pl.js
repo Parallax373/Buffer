@@ -779,6 +779,10 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "ra.foldTip": "Zwiń albo rozwiń (kliknij warstwę jeszcze raz)",
   "ra.flip": "Odbij",
   "ra.flipTip": "Lustrzane odbicie obudowy: szyba i płyta po drugiej stronie",
+
+  "ra.underDesk": "Pod biurkiem",
+
+  "ra.underDeskTip": "Obudowa stoi na podłodze pod biurkiem: jest rysowana 72 cm niżej razem z zawartością, więc efekty biegnące w górę albo od punktu traktują ją tak, jak stoi naprawdę",
   "ra.grp.desk": "Na biurku",
   "ra.tplLabel": "Szablon",
   "ra.tplLeft": "{n} bez miejsca: stoją obok obudowy",

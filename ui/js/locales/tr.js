@@ -779,6 +779,10 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "ra.foldTip": "Daralt veya genişlet (katmana tekrar tıkla)",
   "ra.flip": "Ters çevir",
   "ra.flipTip": "Kasayı aynala: cam ve anakart diğer tarafta",
+
+  "ra.underDesk": "Masanın altında",
+
+  "ra.underDeskTip": "Kasa masanın altında yerde durur: içindekilerle birlikte 72 cm aşağıda çizilir, böylece yukarı veya bir noktadan yayılan efektler onu gerçekte durduğu yerde ele alır",
   "ra.grp.desk": "Masada",
   "ra.tplLabel": "Şablon",
   "ra.tplLeft": "{n} yer bulamadı: kasanın yanında duruyorlar",

@@ -220,8 +220,11 @@
   /** the case of a template as built (before it is moved / turned) */
   function caseBox(tpl) { const c = CASES[tpl]; return c ? { x0: X1 - c.w, x1: X1, h: c.h, z0: -c.d / 2, z1: c.d / 2, xm: X1 - c.w / 2 } : null; }
   /** where a point of the template's case is on the desk: turned about the case's middle, then moved */
+  /** how far below the desk top the floor is: a case "under the desk" stands this much lower (cm) */
+  const DESK_H = 72;
   function caseXf(p) {
     const b = caseBox(S.tpl); if (!b) return p;
+    if (S.caseLow) p = [p[0], p[1] - DESK_H, p[2]];
     const a = (S.caseRot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = (p[0] - b.xm) * (S.caseFlip ? -1 : 1), dz = p[2];   // flipped: mirrored, glass on the other side
     return [b.xm + dx * c + dz * s + S.caseAt[0], p[1], -dx * s + dz * c + S.caseAt[1]];
   }
@@ -286,7 +289,7 @@
     return out;
   }
   let SL = null, SLt = "";
-  const slots = () => { const k = S.tpl + "|" + S.caseAt.join(",") + "|" + (S.caseRot || 0) + "|" + !!S.caseFlip; return SLt === k ? SL : (SLt = k, SL = slotsOf(S.tpl)); };
+  const slots = () => { const k = S.tpl + "|" + S.caseAt.join(",") + "|" + (S.caseRot || 0) + "|" + !!S.caseFlip + "|" + !!S.caseLow; return SLt === k ? SL : (SLt = k, SL = slotsOf(S.tpl)); };
   const slotById = (id) => slots().find((s) => s.id === id);
   const fits = (d, s) => s.acc.includes(d.type);
   /** the slot ids a device stands in (one, or several parts) */
@@ -392,6 +395,17 @@
     renderTree(); renderDevInsp(); persist();
   }
   /** mirrors the case (the glass on the other side, the board too); loose devices inside are mirrored with it */
+  /** the case on the floor under the desk, or back on it: what stands in it comes along */
+  function lowerCase(on) {
+    if (!!S.caseLow === on || !caseBox(S.tpl)) return;
+    // only what stands inside the case (its height too: a keyboard on the desk above it stays on the desk)
+    const ys = caseCorners().map((q) => q[1]), y0 = Math.min(...ys) - 2, y1 = Math.max(...ys) + 2;
+    const loose = S.devices.filter((d) => !d._hid && !placesOf(d).length && inCase([d.x, d.y, d.z]) && d.y >= y0 && d.y <= y1);
+    S.caseLow = on;
+    for (const d of loose) d.y = r2(d.y + (on ? -DESK_H : DESK_H));
+    for (const d of S.devices) if (placesOf(d).length) placeDev(d);
+    persist();
+  }
   function flipCase() {
     const b = caseBox(S.tpl); if (!b) return;
     const loose = S.devices.filter((d) => !d._hid && !placesOf(d).length && inCase([d.x, d.y, d.z]));
@@ -406,7 +420,7 @@
     const b = caseBox(S.tpl); if (!b) return;
     const loose = S.devices.filter((d) => !placesOf(d).length && inCase([d.x, d.y, d.z]));
     const c0 = caseXf([b.xm, 0, 0]);
-    S.caseAt = [r2(clamp(S.caseAt[0] + dx, -60, 90)), r2(clamp(S.caseAt[1] + dz, -40, 40))];
+    S.caseAt = [r2(clamp(S.caseAt[0] + dx, -60, 130)), r2(clamp(S.caseAt[1] + dz, -40, 40))];
     S.caseRot = (((S.caseRot || 0) + (drot || 0)) % 360 + 360) % 360;
     const c1 = caseXf([b.xm, 0, 0]), a = (drot || 0) * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a);
     for (const d of loose) {   // loose devices: turned about the old middle, then moved like the case
@@ -420,9 +434,9 @@
   /* ---------------- state (kept while the app runs; the scene is reloaded on every render) ---------------- */
   const S = { view: "3d", plane: "top", snap: 2, devices: [], sel: null, layers: PRESETS[4].layers(), selLayer: 1, origin: [0, 18, 0],
     playing: true, t: 0, speed: 1, bright: 100, fxName: "Buffer now/trail", mine: [], cam: { yaw: 0.55, pitch: 0.5, dist: 150, t: [0, 18, 0] }, zoom2: 1, pan2: [0, 0], seen: [],
-    tpl: "mid", caseAt: [0, 0], caseRot: 0, caseFlip: false, field: true, slots: true, tab: "fx", originDev: null, fps: 30 };
+    tpl: "mid", caseAt: [100, 0], caseRot: 0, caseFlip: true, caseLow: false, field: true, slots: true, tab: "fx", originDev: null, fps: 30 };
   const KEEP = ["view", "plane", "snap", "devices", "sel", "layers", "selLayer", "origin", "speed", "bright", "fxName", "mine", "cam", "zoom2", "pan2", "seen", "playing",
-    "tpl", "caseAt", "caseRot", "caseFlip", "field", "slots", "tab", "originDev", "fps"];
+    "tpl", "caseAt", "caseRot", "caseFlip", "caseLow", "field", "slots", "tab", "originDev", "fps"];
   let raw = {};          // the whole saved object: keys that are not ours (e.g. the Simple/Advanced switch) are written back untouched
   let real = null;       // devices OpenRGB reports right now (null = unknown)
   let root = null, mount = null, cv = null, ctx = null, bgc = null, bgx = null, ro = null;
@@ -538,7 +552,7 @@
   }
 
   /** What the user arranged, before a change that takes many steps to redo (removing, Arrange, another case). */
-  const UNDO_KEYS = ["devices", "layers", "tpl", "caseAt", "caseRot", "caseFlip", "origin", "originDev", "sel", "selLayer", "fxName"];
+  const UNDO_KEYS = ["devices", "layers", "tpl", "caseAt", "caseRot", "caseFlip", "caseLow", "origin", "originDev", "sel", "selLayer", "fxName"];
   function snapshot() { const o = {}; for (const k of UNDO_KEYS) o[k] = S[k]; return JSON.parse(JSON.stringify(o, (k, v) => (k === "_b" ? undefined : v))); }
   /** Ctrl+Z: the states before the last changes (a move, a turn, a removal, Arrange, another case), newest last */
   const UNDO = [];
@@ -587,11 +601,11 @@
     if (typeof raw.playing === "boolean") S.playing = raw.playing;
     if (Array.isArray(raw.mine)) { S.mine = raw.mine.filter((m) => m && okL(m.layers)); S.mine.forEach((m) => m.layers.forEach(forward)); }
     if (Array.isArray(raw.seen)) S.seen = raw.seen.filter((x) => typeof x === "string");
-    for (const k of ["view", "plane", "snap", "sel", "selLayer", "origin", "speed", "bright", "fxName", "cam", "zoom2", "pan2", "tpl", "caseAt", "caseRot", "caseFlip", "field", "slots", "tab", "originDev", "fps"]) if (raw[k] != null) S[k] = raw[k];
+    for (const k of ["view", "plane", "snap", "sel", "selLayer", "origin", "speed", "bright", "fxName", "cam", "zoom2", "pan2", "tpl", "caseAt", "caseRot", "caseFlip", "caseLow", "field", "slots", "tab", "originDev", "fps"]) if (raw[k] != null) S[k] = raw[k];
     for (const L of S.layers) if (L.skip && !(Array.isArray(L.skip) && L.skip.every(Number.isFinite))) delete L.skip;
     if (!(S.tpl in CASES)) S.tpl = "mid";
     if (!Array.isArray(S.caseAt) || S.caseAt.length !== 2 || !S.caseAt.every(Number.isFinite)) S.caseAt = [0, 0];
-    S.caseRot = [0, 90, 180, 270].includes(S.caseRot) ? S.caseRot : 0; S.caseFlip = S.caseFlip === true;
+    S.caseRot = [0, 90, 180, 270].includes(S.caseRot) ? S.caseRot : 0; S.caseFlip = S.caseFlip === true; S.caseLow = S.caseLow === true;
     if (!["fx", "dev"].includes(S.tab)) S.tab = "fx";
     S.field = S.field !== false; S.slots = S.slots !== false;
     S.fps = clamp(Math.round(+S.fps) || 30, 5, 60);
@@ -924,8 +938,8 @@
         ${parts.length > 1 ? `<div class="ra-parts">${parts.map((p, i) => { const s = slotById(p.slot); return s ? `<label class="ra-part"><span>${esc(slotName(s))}</span><input class="ra-num" type="number" min="1" max="200" value="${p.n}" data-pn="${i}" aria-label="${t("ra.partLeds")}" title="${t("ra.partLeds")}"><small>LED</small></label>` : ""; }).join("")}</div>` : ""}
         ${parts.length > 1 && x._leds && x._leds < x.n ? `<div class="ra-note ra-warn" title="${t("ra.fewLedsTip")}">${t("ra.fewLeds", { n: x._leds })}</div>` : ""}` : ""}
       <div class="ra-sep"></div>
-      ${rng("X", x.x, -60, 90, 0.5, (v) => v.toFixed(1), (v) => { x.x = v; moved(x); }, t("ra.xTip"), "i-x", 1)}
-      ${rng("Y", x.y, -5, 60, 0.5, (v) => v.toFixed(1), (v) => { x.y = v; moved(x); }, t("ra.yTip"), "i-y", 1)}
+      ${rng("X", x.x, -60, 140, 0.5, (v) => v.toFixed(1), (v) => { x.x = v; moved(x); }, t("ra.xTip"), "i-x", 1)}
+      ${rng("Y", x.y, -80, 60, 0.5, (v) => v.toFixed(1), (v) => { x.y = v; moved(x); }, t("ra.yTip"), "i-y", 1)}
       ${rng("Z", x.z, -40, 40, 0.5, (v) => v.toFixed(1), (v) => { x.z = v; moved(x); }, t("ra.zTip"), "i-z", 1)}
       ${rng(t("ra.rotate"), x.rot, 0, 359, 1, (v) => v + "°", (v) => { x.rot = S.snap ? Math.round(v / 15) * 15 % 360 : v; moved(x); }, t("ra.rotTip"), "i-rot", 1, 0)}
       ${rng(t("ra.scale"), x.sc, 0.5, 2, 0.05, (v) => v.toFixed(2) + "×", (v) => { x.sc = v; moved(x); }, t("ra.scaleTip"), "i-sc", 1, 1)}
@@ -1016,10 +1030,11 @@
       ${tplAsk ? `<div class="ra-ask" role="alertdialog"><span>${t("ra.tplAsk", { name: App.t("ra.tpl." + tplAsk) })}</span>
         <span class="ra-grow"><span class="sp"></span><button class="btn ra-sm" id="tplno">${t("ra.cancel")}</button><button class="btn ra-sm acc" id="tplok">${t("ra.tplOk")}</button></span></div>` : ""}
       ${cb ? `<div class="ra-sep"></div>
-      ${rng("X", S.caseAt[0], -60, 90, 0.5, (v) => v.toFixed(1), (v) => { moveCase(v - S.caseAt[0], 0, 0); }, t("ra.caseXTip"), "c-x", 1, 0)}
+      ${rng("X", S.caseAt[0], -60, 130, 0.5, (v) => v.toFixed(1), (v) => { moveCase(v - S.caseAt[0], 0, 0); }, t("ra.caseXTip"), "c-x", 1, 0)}
       ${rng("Z", S.caseAt[1], -40, 40, 0.5, (v) => v.toFixed(1), (v) => { moveCase(0, v - S.caseAt[1], 0); }, t("ra.zTip"), "c-z", 1, 0)}
       <div class="ra-grow"><span class="cap">${t("ra.facing")}</span><span class="ra-val">${S.caseRot || 0}°</span><span class="sp"></span>
         <button class="btn ra-sm ${S.caseFlip ? "on" : ""}" id="cflip" title="${t("ra.flipTip")}" aria-pressed="${!!S.caseFlip}">${t("ra.flip")}</button>
+        <button class="btn ra-sm ${S.caseLow ? "on" : ""}" id="clow" title="${t("ra.underDeskTip")}" aria-pressed="${!!S.caseLow}">${t("ra.underDesk")}</button>
         <button class="btn ra-sm" id="crot" title="${t("ra.caseRotTip")}">${ICO.rot} 90°</button></div>
       <div class="ra-note">${t("ra.caseNote")}</div>` : `<div class="ra-note">${t("ra.noCase")}</div>`}`;
     wire(el);
@@ -1028,6 +1043,7 @@
     if (tplAsk) { $("#tplno").onclick = () => { tplAsk = null; renderDevInsp(); }; $("#tplok").onclick = () => { const v = tplAsk; tplAsk = null; setTpl(v); }; }
     const cr = $("#crot"); if (cr) cr.onclick = () => { moveCase(0, 0, 90); renderDevInsp(); };
     const cf = $("#cflip"); if (cf) cf.onclick = () => { flipCase(); renderDevInsp(); };
+    const cl = $("#clow"); if (cl) cl.onclick = () => { pushUndo(); lowerCase(!S.caseLow); renderDevInsp(); };
   }
   /** a device moved by hand leaves its place(s) */
   /** the outline a device keeps from the place it left (local cm, [lo, hi]), when it is a sane one */
@@ -1089,7 +1105,7 @@
       <div class="ra-sep"></div>
       <div class="ra-grow"><span class="cap" title="${t("ra.originTip")}">${t("ra.origin")}</span><span class="sp"></span>
         <select class="ra-selx ra-pin" id="opin" aria-label="${t("ra.pinTip")}" title="${t("ra.pinTip")}"><option value="">${t("ra.originFree")}</option>${S.devices.map((d) => `<option value="${d.id}" ${S.originDev === d.id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select></div>
-      <div id="orgp" class="ra-orgp">${["x", "y", "z"].map((a, i) => rng(a.toUpperCase(), S.origin[i], [-60, 0, -40][i], [60, 60, 40][i], 0.5, (v) => v.toFixed(1), (v) => { S.origin[i] = v; unpin(); persist(); }, "cm", "o-" + a, 1, [0, 18, 0][i])).join("")}</div>`;
+      <div id="orgp" class="ra-orgp">${["x", "y", "z"].map((a, i) => rng(a.toUpperCase(), S.origin[i], [-60, -80, -40][i], [140, 60, 40][i], 0.5, (v) => v.toFixed(1), (v) => { S.origin[i] = v; unpin(); persist(); }, "cm", "o-" + a, 1, [0, 18, 0][i])).join("")}</div>`;
     wire($("#orgp"));
     $("#opin").onchange = (e) => { S.originDev = e.target.value === "" ? null : +e.target.value; mark("geom"); persist(); };
     $("#fxm").onclick = (e) => openPop(e.currentTarget, "", (p) => {
@@ -1850,7 +1866,7 @@
     if (best) return { dev: best };
     return null;
   }
-  const clampPos = (v) => [clamp(snap(v[0]), -60, 90), clamp(snap(v[1]), -5, 60), clamp(snap(v[2]), -40, 40)];
+  const clampPos = (v) => [clamp(snap(v[0]), -60, 140), clamp(snap(v[1]), -80, 60), clamp(snap(v[2]), -40, 40)];
   const tipOf = (hh) => (!hh ? App.t("ra.stageTip") : hh.gz != null ? App.t("ra.gzTip") : hh.dir ? App.t("ra.dirTip") : hh.org ? App.t("ra.originTip") : hh.dev.id === S.sel && S.tab === "dev" ? hh.dev.name + ": " + App.t("ra.dragDevTip") : hh.dev.name);
   function bindStage() {
     cv.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1942,7 +1958,7 @@
           moveCase(tx - drag.done[0], tz - drag.done[1], 0); drag.done = [tx, tz]; updInsp();
         } else if (drag.d) {
           // only the axes being moved snap to the grid; the others stay exactly where they were
-          const o = drag.d, lim = [[-60, 90], [-5, 60], [-40, 40]];
+          const o = drag.d, lim = [[-60, 140], [-80, 60], [-40, 40]];
           const nv = drag.p0.map((v, k) => (dv[k] ? clamp(snap(v + dv[k]), lim[k][0], lim[k][1]) : v));
           o.x = nv[0]; o.y = nv[1]; o.z = nv[2]; updInsp(); moved(o);
           // the nearest free slot that fits, if the device is close to it on screen

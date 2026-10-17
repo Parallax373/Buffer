@@ -779,6 +779,10 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "ra.foldTip": "折叠或展开(再次点击图层)",
   "ra.flip": "翻转",
   "ra.flipTip": "镜像机箱:玻璃和主板在另一侧",
+
+  "ra.underDesk": "桌子下面",
+
+  "ra.underDeskTip": "机箱放在桌子下面的地板上：连同里面的设备一起画低 72 cm，这样向上或从一点扩散的效果会按它的真实位置处理",
   "ra.grp.desk": "桌面上",
   "ra.tplLabel": "模板",
   "ra.tplLeft": "{n} 个没有位置:放在机箱旁边",

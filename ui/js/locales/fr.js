@@ -779,6 +779,10 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "ra.foldTip": "Replier ou déplier (cliquez à nouveau sur le calque)",
   "ra.flip": "Miroir",
   "ra.flipTip": "Inverser le boîtier : vitre et carte mère de l'autre côté",
+
+  "ra.underDesk": "Sous le bureau",
+
+  "ra.underDeskTip": "Le boîtier est posé au sol sous le bureau : il est dessiné 72 cm plus bas avec son contenu, pour que les effets qui montent ou partent d'un point le traitent comme il est vraiment",
   "ra.grp.desk": "Sur le bureau",
   "ra.tplLabel": "Modèle",
   "ra.tplLeft": "{n} sans place : ils restent à côté du boîtier",

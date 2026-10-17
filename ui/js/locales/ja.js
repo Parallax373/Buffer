@@ -779,6 +779,10 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "ra.foldTip": "折りたたむ/展開する(レイヤーをもう一度クリック)",
   "ra.flip": "反転",
   "ra.flipTip": "ケースを左右反転:ガラスとマザーボードが反対側に",
+
+  "ra.underDesk": "机の下",
+
+  "ra.underDeskTip": "ケースは机の下の床に置かれています。中身ごと 72 cm 下に描かれるので、上方向や一点から広がるエフェクトが実際の位置どおりに扱います",
   "ra.grp.desk": "机の上",
   "ra.tplLabel": "テンプレート",
   "ra.tplLeft": "{n} 台は位置なし:ケースの横に置かれます",
