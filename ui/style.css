@@ -496,6 +496,10 @@ body { color: var(--text); }
 #nav .item .lb { font-size: 10.5px; font-weight: 500; }
 #nav .item::before { left: -6px; top: 12px; bottom: 12px; }
 #nav .item:hover::after { content: none; }
+/* a module never opened yet: a small lime dot until the first visit */
+#nav .item.new::after, #nav .item.new:hover::after { content: ""; position: absolute; top: 9px; right: 11px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--acc); box-shadow: 0 0 0 2px var(--bg); animation: none; }
+#nav .item.new:not(.on) .ic { color: var(--text); }
 
 .ed { grid-template-columns: minmax(0, 1fr) 290px; }
 .edhead .backbtn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 9px; background: var(--raised);

@@ -28,8 +28,61 @@
     if (view === "snd" && changed) App.Sound.render();
     if (view === "rgb" && changed) App.RGB.render();
     if (view === "fans" && changed) App.Fans.render();
+    const seen = App.P.settings.navSeen || {};
+    if (MODULES.includes(view) && !seen[view]) { App.P.settings.navSeen = { ...seen, [view]: 1 }; App.persist(); }
     renderRail();
   };
+
+  /* ───── sidebar modules: hide / show, "new" until first opened ───── */
+
+  /** Modules the user can hide from the sidebar (Library and Settings always stay). */
+  const MODULES = ["eq", "snd", "rgb", "fans"];
+  const NAV_KEY = { eq: "nav.eq", snd: "nav.sound", rgb: "nav.rgb", fans: "nav.fans" };
+  const navName = (v) => App.t(NAV_KEY[v]).replace("\n", " ");
+  App.navHidden = () => App.P.settings.navHidden || [];
+  /** Hides or shows one module; a hidden module that is open sends the user to the Library. */
+  App.setNavHidden = (view, hide) => {
+    const cur = App.navHidden().filter((v) => v !== view);
+    App.P.settings.navHidden = hide ? [...cur, view] : cur;
+    App.persist();
+    if (hide && S.view === view) App.go("lib");
+    else renderRail();
+    if (S.view === "set") Settings.render();
+  };
+
+  let navMenuEl = null;
+  function closeNavMenu() {
+    if (!navMenuEl) return;
+    navMenuEl.remove();
+    navMenuEl = null;
+    document.removeEventListener("pointerdown", navAway, true);
+    document.removeEventListener("keydown", navEsc, true);
+    window.removeEventListener("blur", closeNavMenu);
+  }
+  const navAway = (e) => { if (navMenuEl && !navMenuEl.contains(e.target)) closeNavMenu(); };
+  const navEsc = (e) => { if (e.key === "Escape") closeNavMenu(); };
+  /** Right click on a sidebar item: hide it (modules only) and bring back the hidden ones. */
+  function navMenu(e, view) {
+    e.preventDefault();
+    closeNavMenu();
+    const hidden = App.navHidden();
+    const items = [];
+    if (MODULES.includes(view)) items.push(h("button", { title: App.t("nav.hideTip"), onClick: () => { closeNavMenu(); App.setNavHidden(view, true); } }, App.t("nav.hide")));
+    if (hidden.length) {
+      if (items.length) items.push(h("hr"));
+      for (const v of hidden) items.push(h("button", { onClick: () => { closeNavMenu(); App.setNavHidden(v, false); } }, App.t("nav.show", { name: navName(v) })));
+    }
+    if (!items.length) return;
+    navMenuEl = h("div", { class: "eqmenu navmenu", style: { left: `${e.clientX}px`, top: `${e.clientY}px` } }, items);
+    document.body.append(navMenuEl);
+    const r = navMenuEl.getBoundingClientRect();
+    if (r.bottom > innerHeight - 8) navMenuEl.style.top = `${innerHeight - r.height - 8}px`;
+    setTimeout(() => {
+      document.addEventListener("pointerdown", navAway, true);
+      document.addEventListener("keydown", navEsc, true);
+      window.addEventListener("blur", closeNavMenu);
+    });
+  }
 
   /** The "back" action shared by the mouse Back button and Alt+Left. */
   let forwardTo = null;                       // the view Back just left: Forward returns to it
@@ -70,14 +123,19 @@
       ["set", "⚙", "nav.settings", S.view === "set"],
     ];
     if (!railItems || !railItems.every((el) => el.isConnected)) {
-      railItems = defs.map(([view, icon]) => h("button", { class: "item", onClick: () => App.go(view) },
+      railItems = defs.map(([view, icon]) => h("button", { class: "item", onClick: () => App.go(view), onContextmenu: (e) => navMenu(e, view) },
         h("span", { class: "ic", text: icon }), h("span", { class: "lb" })));
       // everything but the last item sits at the top; settings stays pinned to the bottom
       nav.replaceChildren(...railItems.slice(0, -1), h("div", { class: "grow" }), railItems[railItems.length - 1]);
     }
-    defs.forEach(([, , key, on], i) => {
+    const hidden = App.navHidden(), seen = App.P.settings.navSeen || {};
+    defs.forEach(([view, , key, on], i) => {
       const el = railItems[i], label = App.t(key);
       el.classList.toggle("on", on);
+      const isMod = MODULES.includes(view);
+      el.hidden = isMod && hidden.includes(view);
+      el.classList.toggle("new", isMod && !seen[view]);
+      el.title = isMod && !seen[view] ? App.t("nav.newTip") : "";
       el.setAttribute("aria-label", label.replace("\n", ""));
       const lb = el.querySelector(".lb");
       if (lb.textContent !== label) lb.textContent = label;
@@ -660,7 +718,10 @@
           onClick: () => { s.theme = k; App.persist(); App.applyTheme(); App.RecUI.syncLang().catch(() => {}); Settings.render(); } },
           h("div", { class: "pv2", style: { background: bg } }, h("i", { style: { width: "60%", background: "#1a1d16" } }), h("i", { style: { width: "30%", background: "#c6f432" } })),
           h("div", { class: "nm", text: App.t("theme." + k) }))))),
-      h("div", null, U.cap(App.t("cap.notify")), blocks.notify)));
+      h("div", null, U.cap(App.t("cap.notify")), blocks.notify),
+      // sidebar modules: the same switch as the right click on the sidebar
+      h("div", { title: App.t("nav.capTip") }, U.cap(App.t("nav.cap")),
+        h("div", { class: "card2 tgl" }, MODULES.map((v) => U.trow(navName(v), null, !App.navHidden().includes(v), (on) => App.setNavHidden(v, !on)))))));
   }
 
   /* O programie: version and updates, where the project lives, license. */
