@@ -886,7 +886,7 @@ App.RecUI = (function () {
       };
       const draw = () => put(box,
         h("div", null, h("div", { class: "big", text: App.t("wz.eqQ") }), h("div", { class: "muted", text: App.t("wz.eqD") })),
-        h("div", { class: "card2 tgl" }, U.trow(App.t("wz.eqOn"), App.t(w.apo && w.apo.installed ? "wz.eqHave" : "wz.eqNeed"), w.eq, (v) => {
+        h("div", { class: "card2 tgl", title: w.apo && w.apo.installed ? null : App.t("eq.installTip") }, U.trow(App.t("wz.eqOn"), App.t(w.apo && w.apo.installed ? "wz.eqHave" : "wz.eqNeed"), w.eq, (v) => {
           w.eq = v; draw();
           if (v && !(w.apo && w.apo.installed)) install();
         })),
