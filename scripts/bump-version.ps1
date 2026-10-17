@@ -25,4 +25,4 @@ $lock = [IO.File]::ReadAllText("$root\package-lock.json")
 $lockRe = New-Object Text.RegularExpressions.Regex('("name":\s*"buffer",\s*"version":\s*)"[^"]+"')
 [IO.File]::WriteAllText("$root\package-lock.json", $lockRe.Replace($lock, "`$1`"$Version`""), $utf8)
 
-Write-Host "Version is now $Version. Next: write release-notes/$Version.md (copy TEMPLATE.md), commit, then .\scripts\release.ps1"
+Write-Host "Version is now $Version. Releases need release-notes/$Version.md (format: release-notes/TEMPLATE.md)."
