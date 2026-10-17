@@ -913,6 +913,8 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "ra.s.kb": "键盘",
   "ra.s.mouse": "鼠标",
   "ra.s.head": "耳机架",
+
+  "ra.s.headOn": "戴在头上",
   "ra.s.mon": "显示器背面",
   "ra.s.desk": "桌边",
   "nav.fans": "风扇",

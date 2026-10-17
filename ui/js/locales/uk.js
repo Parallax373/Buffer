@@ -918,6 +918,8 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "ra.s.kb": "Клавіатура",
   "ra.s.mouse": "Миша",
   "ra.s.head": "Підставка для гарнітури",
+
+  "ra.s.headOn": "На голові",
   "ra.s.mon": "Задня панель монітора",
   "ra.s.desk": "Край столу",
   "nav.fans": "Вентилятори",

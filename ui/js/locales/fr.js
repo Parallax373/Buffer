@@ -913,6 +913,8 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "ra.s.kb": "Clavier",
   "ra.s.mouse": "Souris",
   "ra.s.head": "Support de casque",
+
+  "ra.s.headOn": "Sur la tête",
   "ra.s.mon": "Dos de l'écran",
   "ra.s.desk": "Bord du bureau",
   "nav.fans": "Ventilateurs",

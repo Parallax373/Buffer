@@ -913,6 +913,8 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "ra.s.kb": "キーボード",
   "ra.s.mouse": "マウス",
   "ra.s.head": "ヘッドセットスタンド",
+
+  "ra.s.headOn": "頭に装着",
   "ra.s.mon": "モニター背面",
   "ra.s.desk": "机の端",
   "nav.fans": "ファン",

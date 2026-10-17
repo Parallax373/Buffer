@@ -913,6 +913,8 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "ra.s.kb": "Klawiatura",
   "ra.s.mouse": "Mysz",
   "ra.s.head": "Stojak na słuchawki",
+
+  "ra.s.headOn": "Na głowie",
   "ra.s.mon": "Tył monitora",
   "ra.s.desk": "Krawędź biurka",
   "nav.fans": "Wentylatory",

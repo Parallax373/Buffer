@@ -283,6 +283,7 @@
     spot("kb", "kb", [22, 0.5, 14], ACC.kb);
     spot("mouse", "mouse", [46, 0.5, 14], ACC.mouse);
     spot("head", "head", [34, 0, -10], ACC.head);
+    spot("headOn", "headOn", [25, 30, 55], ACC.head);   // on the player's head: ear height, a forearm's length behind the desk's edge
     path("mon", "mon", 0, [[2, 16, -21.5], [48, 16, -21.5], [48, 42, -21.5], [2, 42, -21.5]], ACC.edge, true);
     path("desk", "desk", 0, [[-50, -1, 30], [50, -1, 30]], ACC.edge);
     for (const s of out) if (s.k === "path") { const lo = [0, 1, 2].map((i) => Math.min(...s.pts.map((p) => p[i]))), hi = [0, 1, 2].map((i) => Math.max(...s.pts.map((p) => p[i]))); s.c = lo.map((v, i) => (v + hi[i]) / 2); }
@@ -945,7 +946,7 @@
       <div class="ra-sep"></div>
       ${rng("X", x.x, -60, 140, 0.5, (v) => v.toFixed(1), (v) => { x.x = v; moved(x); }, t("ra.xTip"), "i-x", 1)}
       ${rng("Y", x.y, -80, 60, 0.5, (v) => v.toFixed(1), (v) => { x.y = v; moved(x); }, t("ra.yTip"), "i-y", 1)}
-      ${rng("Z", x.z, -40, 40, 0.5, (v) => v.toFixed(1), (v) => { x.z = v; moved(x); }, t("ra.zTip"), "i-z", 1)}
+      ${rng("Z", x.z, -40, 70, 0.5, (v) => v.toFixed(1), (v) => { x.z = v; moved(x); }, t("ra.zTip"), "i-z", 1)}
       ${rng(t("ra.rotate"), x.rot, 0, 359, 1, (v) => v + "°", (v) => { x.rot = S.snap ? Math.round(v / 15) * 15 % 360 : v; moved(x); }, t("ra.rotTip"), "i-rot", 1, 0)}
       ${rng(t("ra.scale"), x.sc, 0.5, 2, 0.05, (v) => v.toFixed(2) + "×", (v) => { x.sc = v; moved(x); }, t("ra.scaleTip"), "i-sc", 1, 1)}
       <div class="ra-grow"><span class="seg ra-s" id="sSeg" title="${t("ra.snapTip")}">${[["0", t("ra.free")], ["1", "1"], ["2", "2"], ["5", "5"]].map((s) => `<button data-s="${s[0]}" class="${+s[0] === S.snap ? "on" : ""}">${s[1]}</button>`).join("")}</span><span class="sp"></span>
@@ -1110,7 +1111,7 @@
       <div class="ra-sep"></div>
       <div class="ra-grow"><span class="cap" title="${t("ra.originTip")}">${t("ra.origin")}</span><span class="sp"></span>
         <select class="ra-selx ra-pin" id="opin" aria-label="${t("ra.pinTip")}" title="${t("ra.pinTip")}"><option value="">${t("ra.originFree")}</option>${S.devices.map((d) => `<option value="${d.id}" ${S.originDev === d.id ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select></div>
-      <div id="orgp" class="ra-orgp">${["x", "y", "z"].map((a, i) => rng(a.toUpperCase(), S.origin[i], [-60, -80, -40][i], [140, 60, 40][i], 0.5, (v) => v.toFixed(1), (v) => { S.origin[i] = v; unpin(); persist(); }, "cm", "o-" + a, 1, [0, 18, 0][i])).join("")}</div>`;
+      <div id="orgp" class="ra-orgp">${["x", "y", "z"].map((a, i) => rng(a.toUpperCase(), S.origin[i], [-60, -80, -40][i], [140, 60, 70][i], 0.5, (v) => v.toFixed(1), (v) => { S.origin[i] = v; unpin(); persist(); }, "cm", "o-" + a, 1, [0, 18, 0][i])).join("")}</div>`;
     wire($("#orgp"));
     $("#opin").onchange = (e) => { S.originDev = e.target.value === "" ? null : +e.target.value; mark("geom"); persist(); };
     $("#fxm").onclick = (e) => openPop(e.currentTarget, "", (p) => {
@@ -1871,7 +1872,7 @@
     if (best) return { dev: best };
     return null;
   }
-  const clampPos = (v) => [clamp(snap(v[0]), -60, 140), clamp(snap(v[1]), -80, 60), clamp(snap(v[2]), -40, 40)];
+  const clampPos = (v) => [clamp(snap(v[0]), -60, 140), clamp(snap(v[1]), -80, 60), clamp(snap(v[2]), -40, 70)];
   const tipOf = (hh) => (!hh ? App.t("ra.stageTip") : hh.gz != null ? App.t("ra.gzTip") : hh.dir ? App.t("ra.dirTip") : hh.org ? App.t("ra.originTip") : hh.dev.id === S.sel && S.tab === "dev" ? hh.dev.name + ": " + App.t("ra.dragDevTip") : hh.dev.name);
   function bindStage() {
     cv.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1963,7 +1964,7 @@
           moveCase(tx - drag.done[0], tz - drag.done[1], 0); drag.done = [tx, tz]; updInsp();
         } else if (drag.d) {
           // only the axes being moved snap to the grid; the others stay exactly where they were
-          const o = drag.d, lim = [[-60, 140], [-80, 60], [-40, 40]];
+          const o = drag.d, lim = [[-60, 140], [-80, 60], [-40, 70]];
           const nv = drag.p0.map((v, k) => (dv[k] ? clamp(snap(v + dv[k]), lim[k][0], lim[k][1]) : v));
           o.x = nv[0]; o.y = nv[1]; o.z = nv[2]; updInsp(); moved(o);
           // the nearest free slot that fits, if the device is close to it on screen

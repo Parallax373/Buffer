@@ -913,6 +913,8 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "ra.s.kb": "Teclado",
   "ra.s.mouse": "Ratón",
   "ra.s.head": "Soporte de auriculares",
+
+  "ra.s.headOn": "En la cabeza",
   "ra.s.mon": "Parte trasera del monitor",
   "ra.s.desk": "Borde del escritorio",
   "nav.fans": "Ventiladores",

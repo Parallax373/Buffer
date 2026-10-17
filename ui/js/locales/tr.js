@@ -913,6 +913,8 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "ra.s.kb": "Klavye",
   "ra.s.mouse": "Fare",
   "ra.s.head": "Kulaklık standı",
+
+  "ra.s.headOn": "Başında",
   "ra.s.mon": "Monitör arkası",
   "ra.s.desk": "Masa kenarı",
   "nav.fans": "Fanlar",

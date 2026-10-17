@@ -913,6 +913,8 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "ra.s.kb": "Keyboard",
   "ra.s.mouse": "Mouse",
   "ra.s.head": "Headset stand",
+
+  "ra.s.headOn": "On your head",
   "ra.s.mon": "Monitor back",
   "ra.s.desk": "Desk edge",
   "nav.fans": "Fans",

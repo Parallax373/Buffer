@@ -913,6 +913,8 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "ra.s.kb": "Tastatur",
   "ra.s.mouse": "Maus",
   "ra.s.head": "Headset-Ständer",
+
+  "ra.s.headOn": "Auf dem Kopf",
   "ra.s.mon": "Monitorrückseite",
   "ra.s.desk": "Tischkante",
   "nav.fans": "Lüfter",
