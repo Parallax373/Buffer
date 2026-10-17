@@ -618,7 +618,7 @@ body { color: var(--text); }
 
 /* Biblioteka / Aplikacja */
 .folders { display: flex; flex-direction: column; gap: 10px; }
-.frow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; }
+.dirrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto; gap: 12px; align-items: center; }
 .radio { width: 16px; height: 16px; border-radius: 8px; border: 1.5px solid #4a5040; }
 .radio.on { border: 5px solid var(--acc); }
 .path { font: 13px "JetBrains Mono", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -694,7 +694,9 @@ body { color: var(--text); }
 .sumrow .mono { font-size: 12.5px; }
 .keystrip { border: 1px dashed var(--line); border-radius: 12px; padding: 12px 14px; text-align: center; color: var(--muted); transition: all .25s ease; animation: rise .4s ease .4s both; }
 .keystrip.ok { border-color: var(--acc); color: var(--acc); background: #c6f4320f; }
-.frow .linkbtn { grid-column: auto; justify-self: end; }
+.dirrow .linkbtn { grid-column: auto; justify-self: end; }
+/* the cross is a small glyph: a 32 px hit area, taken from the row padding so the row keeps its height */
+.dirrow .linkbtn.x { min-width: 32px; min-height: 32px; margin: -8px -6px -8px 0; display: inline-flex; align-items: center; justify-content: center; }
 .folders .linkbtn { align-self: flex-start; grid-column: auto; }
 .folders { gap: 12px; }
 

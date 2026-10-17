@@ -567,7 +567,7 @@
     };
     const folderRow = (d) => {
       const isRec = d === rec;
-      return h("div", { class: "frow" },
+      return h("div", { class: "dirrow" },
         h("button", { class: "radio" + (isRec ? " on" : ""), "aria-label": App.t("lib.recHere"), title: isRec ? App.t("lib.recHereOn") : App.t("lib.recHere"),
           onClick: () => { if (!isRec) setRecDir(d); } }),
         h("span", { class: "mono path" + (isRec ? "" : " dim"), text: d }),
@@ -579,7 +579,7 @@
             App.P.libDirs = App.P.libDirs.map((x) => (x === d ? n : x));
             await setRecDir(n);
           } })
-          : h("button", { class: "linkbtn", text: "✕", title: App.t("lib.removeTip"), onClick: async () => {
+          : h("button", { class: "linkbtn x", text: "✕", title: App.t("lib.removeTip"), onClick: async () => {
             App.P.libDirs = App.P.libDirs.filter((x) => x !== d); await reload();
           } }));
     };
