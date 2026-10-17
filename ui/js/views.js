@@ -134,6 +134,7 @@
     const down = r ? r.sources.filter(faulty).map((s) => s.name) : [];
     let cls, text;
     if (!r) { cls = "off"; text = App.t("rec.pill.off"); }
+    else if (r.post_roll_left_ms > 0) { cls = "saving"; text = App.t("rec.pill.saveIn", { n: Math.ceil(r.post_roll_left_ms / 1000) }); }
     else if (r.saving) { cls = "saving"; text = App.t("rec.pill.saving"); }
     else if (r.idle) { cls = "idle"; text = App.t("rec.pill.idle"); }
     else if (!r.recording) { cls = "bad"; text = App.t("rec.pill.stopped"); }
@@ -141,9 +142,12 @@
     else { cls = "on"; text = App.t("rec.pill.on", { t: fmtBuf(r.buffer_s) }); }
     // rebuilt only when it changes: a new dot element restarts its pulse animation, and this runs on every poll
     const sig = cls + "|" + text;
-    recPill.title = recTooltip();
+    recPill.title = r && r.post_roll_left_ms > 0 ? App.t("roll.again") : recTooltip();
     if (recPill._sig === sig) return;
+    // only the text changed (the countdown ticking): keep the dot, so its pulse is not restarted every second
+    if (recPill._cls === cls && recPill.lastChild && recPill.lastChild.nodeType === 3) { recPill._sig = sig; recPill.lastChild.textContent = text; return; }
     recPill._sig = sig;
+    recPill._cls = cls;
     recPill.className = `recpill ${cls}`;
     recPill.replaceChildren(h("span", { class: "dot" }), text);
   }

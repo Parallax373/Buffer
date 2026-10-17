@@ -53,8 +53,9 @@ Favourites/exports/settings persist in `%APPDATA%\moments-lite\app-state.json`.
   falls back to libx264 for the rest of the run (`Shared.encoder_override`, survives settings reloads). x264 is capped
   at 1080p30. Every encoder gets `-force_key_frames` so segments stay 2.0 s. AMF/QSV were NOT run on real hardware
   (only `ffmpeg -h encoder=` option names were checked); NVENC and x264 were.
-- Bindings (`hotkey`, `marker_hotkey`, `record_hotkey`) are comma-separated: keyboard combo (RegisterHotKey, needs a
-  restart), `Mouse3/4/5` with optional modifiers, `Pad:View+RB` chords (>= 2 buttons, XInput only). `input.rs` polls
+- Bindings (`hotkey`, `marker_hotkey`, `record_hotkey`) are comma-separated: keyboard combo (RegisterHotKey, re-registered
+  live on `reload`; a combo another program holds gives `hotkey_ok: false` in `status`, shown as "Shortcut taken" in the
+  wizard and Settings), `Mouse3/4/5` with optional modifiers, `Pad:View+RB` chords (>= 2 buttons, XInput only). `input.rs` polls
   mouse/pad on its own thread (no hooks) and posts WM_HOTKEY to the tray thread; applied live. Pad path untested (no pad).
 - Long recording (`longrec.rs`, Alt+R / tray / Settings button / `record-start|record-stop`): finished segments are
   appended to `<game>__<stamp>.rec.ts` next to the clips, remuxed to MP4 on stop (3 named tracks, no faststart).

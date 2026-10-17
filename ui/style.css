@@ -696,6 +696,10 @@ body { color: var(--text); }
 .sumrow .mono { font-size: 12.5px; }
 .keystrip { border: 1px dashed var(--line); border-radius: 12px; padding: 12px 14px; text-align: center; color: var(--muted); transition: all .25s ease; animation: rise .4s ease .4s both; }
 .keystrip.ok { border-color: var(--acc); color: var(--acc); background: #c6f4320f; }
+.keystrip.warn { border-style: solid; border-color: var(--warn); background: #ffb4540f; }
+.hktaken { color: var(--warn); font-size: 12.5px; padding: 2px 0 6px; cursor: help; }
+.hktaken[hidden] { display: none; }
+.hktaken .linkbtn { color: var(--warn); }
 .dirrow .linkbtn { grid-column: auto; justify-self: end; }
 /* the cross is a small glyph: a 32 px hit area, taken from the row padding so the row keeps its height */
 .dirrow .linkbtn.x { min-width: 32px; min-height: 32px; margin: -8px -6px -8px 0; display: inline-flex; align-items: center; justify-content: center; }

@@ -200,6 +200,7 @@ fn run() {
         post_roll_until: Mutex::new(None),
         flash: Mutex::new(None),
         hotkey_hits: AtomicU32::new(0),
+        hotkey_taken: Mutex::new(String::new()),
         kbps_now: AtomicU32::new(0),
         cpu_x10: AtomicU32::new(0),
         gpu_x10: std::sync::atomic::AtomicI32::new(-1),

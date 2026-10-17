@@ -92,7 +92,7 @@ App.RecUI = (function () {
 
   /** Field that records the next keyboard shortcut, mouse button or gamepad chord. A new input replaces
       the entry of its own kind; Delete clears it (a required binding falls back to `fallback`).
-      `onSet(binding, keyboardChanged)`: keyboard combos need a recorder restart, mouse and pad apply at once. */
+      `onSet(binding, keyboardChanged)`; the recorder applies every kind live (`reload`, no restart). */
   /** The recorder's name for a physical key (KeyboardEvent.code, so the layout and Shift don't change it);
       null for keys a global shortcut can't use. Mirrors `parse_hotkey` in the recorder's win.rs. */
   const NAMED_KEYS = { PageUp: "PgUp", PageDown: "PgDn", Home: "Home", End: "End", Insert: "Ins", Delete: "Del",
@@ -165,6 +165,15 @@ App.RecUI = (function () {
       onAuxclick: (e) => e.preventDefault() });
     return input;
   };
+
+  /** Amber line "Shortcut taken by another program — Change", hidden until the recorder reports `hotkey_ok: false`
+   *  (`paint` shows it). `change` focuses the shortcut field. */
+  const takenWarn = (id, change) => h("div", { id, class: "hktaken", hidden: true, title: App.t("hk.takenTip") },
+    h("span", { text: App.t("hk.taken") + " — " }),
+    h("button", { class: "linkbtn", text: App.t("common.change"), onClick: change }));
+
+  /** Seconds left before a pressed save is written (the post-roll), or 0. */
+  const rollLeft = (r) => (r && r.post_roll_left_ms > 0 ? Math.ceil(r.post_roll_left_ms / 1000) : 0);
 
   /** Select of devices; `allowNone` adds an empty choice (used for the optional backup device). */
   function deviceSelect(key, kind, cur, onPick, allowNone) {
@@ -551,7 +560,8 @@ App.RecUI = (function () {
       // SKRÓTY: every global shortcut of the recorder in one place
       /** One shortcut row: the capture field plus a clear button once something is set ("no shortcut" is allowed). */
       const keyRow = (label, key, value, redraw, tip) => {
-        const field = hotkeyField(value, (c, kb) => { save({ [key]: c }, kb ? App.t("key.restart") : ""); redraw(); });
+        const field = hotkeyField(value, (c) => { save({ [key]: c }); redraw(); });   // the recorder applies shortcuts live
+        if (key === "hotkey") field.id = "hkSave";
         const clear = value ? h("button", { class: "linkbtn", text: "✕", title: App.t("hk.clear"),
           onClick: () => { save({ [key]: "" }); redraw(); } }) : null;
         const row = U.srow(label, h("div", { class: "pathrow" }, field, clear));
@@ -563,6 +573,7 @@ App.RecUI = (function () {
       const drawKeys = () => {
         put(recBox,
           keyRow(App.t("key.save"), "hotkey", cfg.hotkey, drawKeys, "key.saveTip"),
+          takenWarn("hkTaken", () => App.$("#hkSave")?.focus()),
           keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey, drawKeys, "long.tip"));
         put(devBox,
           keyRow(App.t("key.output"), "output_hotkey", cfg.output_hotkey || "", drawKeys, "key.outputTip"),
@@ -611,6 +622,13 @@ App.RecUI = (function () {
   function paint() {
     // the diagnostics line lives on the Advanced tab, which has no status bar
     const r0 = S.recorder;
+    // Shortcuts tab: the save shortcut is held by another program; the field gets the focus once, when that appears
+    const taken = App.$("#hkTaken");
+    if (taken) {
+      const show = !!r0 && r0.hotkey_ok === false;
+      if (show && taken.hidden) setTimeout(() => App.$("#hkSave")?.focus(), 0);
+      taken.hidden = !show;
+    }
     const diag = App.$("#recDiag");
     if (diag) diag.textContent = r0 ? App.t("adv.diagFmt", { n: r0.restarts, enc: r0.encoder || "?", cap: r0.capture || "?", rate: r0.kbps ? (r0.kbps / 1000).toFixed(1) + " Mb/s" : "?" }) : "—";
     const bar = App.$("#recState");
@@ -629,6 +647,9 @@ App.RecUI = (function () {
     else if (down.length) { state = "warn"; t = App.t("st.warn"); l = App.t("st.down", { list: down.join(", ") }); }
     if (lg) { state = "on"; t = App.t("long.on"); l = `${clock(lg.elapsed_s || 0)} · ${lg.mb} MB`; }
     else if (r && r.long && r.long.finalizing) t = App.t("long.fin");
+    const left = rollLeft(r);
+    if (left && !lg) { t = App.t("rec.pill.saving"); l = App.t("roll.left", { n: left }); }
+    line.title = left ? App.t("roll.again") : "";
     if (r && !l) l = r.hotkey ? App.t("st.buffer", { cur: fmtBuf(r.buffer_s), target: fmtBuf(r.buffer_target_s), hk: String(r.hotkey).replaceAll("+", " + ") })
       : App.t("st.bufferNoKey", { cur: fmtBuf(r.buffer_s), target: fmtBuf(r.buffer_target_s) });
     dot.className = `sdot ${state}`;
@@ -950,12 +971,33 @@ App.RecUI = (function () {
     const stepDone = () => {
       const e = estimates(w.cfg);
       const hotVal = h("span", { class: "mono" }), strip = h("div", { class: "keystrip" });
+      const editKey = () => {
+        w.editKey = true; drawKey();
+        hotVal.querySelector("input")?.focus();
+      };
+      /** The test strip: taken by another program (amber, the field opens) / pressed (with the post-roll countdown) / waiting. */
+      const paintStrip = () => {
+        const r = S.recorder, left = rollLeft(r);
+        if (r && r.hotkey_ok === false) {
+          if (!strip.classList.contains("warn")) {
+            strip.className = "keystrip warn";
+            strip.replaceChildren(takenWarn("", editKey));
+            strip.firstChild.hidden = false;
+            if (!w.editKey) editKey();
+          }
+          return;
+        }
+        strip.className = `keystrip${w.tested ? " ok" : ""}`;
+        strip.title = left ? App.t("roll.again") : "";
+        strip.textContent = !w.tested ? App.t("wz.keyTest", { hk: String(w.cfg.hotkey).replaceAll("+", " + ") })
+          : left ? App.t("wz.keyOk") + " · " + App.t("roll.left", { n: left }) : App.t("wz.keyOk");
+      };
+      w.paintStrip = paintStrip;
       const drawKey = () => {
         hotVal.replaceChildren(...(w.editKey
           ? [hotkeyField(w.cfg.hotkey, (c) => { w.cfg.hotkey = c; w.editKey = false; w.tested = false; applyKey().then(drawKey); drawKey(); })]
           : [String(w.cfg.hotkey).replaceAll("+", " + ")]));
-        strip.className = `keystrip${w.tested ? " ok" : ""}`;
-        strip.textContent = w.tested ? App.t("wz.keyOk") : App.t("wz.keyTest", { hk: String(w.cfg.hotkey).replaceAll("+", " + ") });
+        paintStrip();
       };
       const rows = [
         [App.t("wz.folder"), h("span", { class: "mono", text: w.dir }), h("button", { class: "linkbtn", text: App.t("common.change"), onClick: () => { w.step = 2; renderAll(); } })],
@@ -1012,9 +1054,10 @@ App.RecUI = (function () {
     }
     async function applyKey() {
       await persist();
-      if (S.recorder) { App.Rec.expectDown = Date.now(); await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {}); await sleep(1200); }
-      await api.invoke("recorder_launch").catch(() => {});
-      await sleep(1500);
+      // the recorder re-registers shortcuts on `reload` (within half a second), so the buffer is kept
+      if (S.recorder) await api.invoke("recorder_cmd", { cmd: "reload" }).catch(() => {});
+      else { await api.invoke("recorder_launch").catch(() => {}); await sleep(1500); }
+      await sleep(700);
       await App.Rec.refresh();
       w.hits0 = S.recorder ? S.recorder.hotkey_hits : null;
     }
@@ -1027,11 +1070,8 @@ App.RecUI = (function () {
       clearInterval(statusTimer);
       statusTimer = setInterval(async () => {
         await App.Rec.refresh();
-        if (S.recorder && w.hits0 != null && S.recorder.hotkey_hits > w.hits0 && !w.tested) {
-          w.tested = true;
-          const s = body.querySelector(".keystrip");
-          if (s) { s.className = "keystrip ok"; s.textContent = App.t("wz.keyOk"); }
-        }
+        if (S.recorder && w.hits0 != null && S.recorder.hotkey_hits > w.hits0 && !w.tested) w.tested = true;
+        if (body.querySelector(".keystrip") && w.paintStrip) w.paintStrip();
       }, 400);
     }
 
