@@ -94,6 +94,8 @@ static TABLE: &[(&str, [&str; 9])] = &[
     ("lr.saved", ["Recording saved", "Zapisano nagranie", "Aufnahme gespeichert", "Grabación guardada", "Enregistrement sauvegardé", "Запис збережено", "Kayıt kaydedildi", "録画を保存しました", "录制已保存"]),
     ("lr.stopped", ["Stopped: {r}", "Zatrzymano: {r}", "Gestoppt: {r}", "Detenida: {r}", "Arrêté : {r}", "Зупинено: {r}", "Durduruldu: {r}", "停止: {r}", "已停止：{r}"]),
     ("lr.save_failed", ["Couldn't save the recording", "Nie udało się zapisać nagrania", "Aufnahme konnte nicht gespeichert werden", "No se pudo guardar la grabación", "Échec de la sauvegarde de l'enregistrement", "Не вдалося зберегти запис", "Kayıt kaydedilemedi", "録画を保存できませんでした", "无法保存录制"]),
+    ("lr.remind", ["Manual recording is still running", "Nagrywanie ręczne nadal trwa", "Die manuelle Aufnahme läuft noch", "La grabación manual sigue en curso", "L'enregistrement manuel est toujours en cours", "Ручний запис досі триває", "Elle kayıt hâlâ sürüyor", "手動録画はまだ続いています", "手动录制仍在进行"]),
+    ("lr.remind_sub", ["{h} h so far · {hk} stops", "Trwa już {h} h · {hk} kończy", "Bisher {h} Std. · {hk} beendet", "Lleva {h} h · {hk} detiene", "Depuis {h} h · {hk} arrête", "Триває вже {h} год · {hk} зупиняє", "{h} saattir sürüyor · {hk} durdurur", "{h} 時間経過 · {hk} で停止", "已进行 {h} 小时 · {hk} 停止"]),
     ("pop.nothing", ["Nothing to save yet", "Nie ma jeszcze czego zapisać", "Noch nichts zu speichern", "Aún no hay nada que guardar", "Rien à enregistrer pour l'instant", "Поки нічого зберігати", "Henüz kaydedilecek bir şey yok", "まだ保存するものがありません", "暂无可保存的内容"]),
     ("pop.nothing_idle", ["Recording starts when a game does", "Nagrywanie rusza razem z grą", "Die Aufnahme startet mit einem Spiel", "La grabación empieza con un juego", "L'enregistrement démarre avec un jeu", "Запис почнеться разом із грою", "Kayıt bir oyunla birlikte başlar", "ゲームの起動と同時に録画が始まります", "游戏启动后开始录制"]),
     ("pop.nothing_stopped", ["Recording is stopped", "Nagrywanie jest zatrzymane", "Die Aufnahme ist gestoppt", "La grabación está detenida", "L'enregistrement est arrêté", "Запис зупинено", "Kayıt durdurulmuş", "録画は停止中です", "录制已停止"]),
@@ -102,6 +104,7 @@ static TABLE: &[(&str, [&str; 9])] = &[
     ("err.busy", ["recording is already running", "nagrywanie już trwa", "Aufnahme läuft bereits", "ya hay una grabación en curso", "un enregistrement est déjà en cours", "запис уже триває", "kayıt zaten sürüyor", "すでに録画中です", "录制已在进行"]),
     ("err.space", ["not enough disk space", "za mało miejsca na dysku", "zu wenig Speicherplatz", "poco espacio en disco", "espace disque insuffisant", "замало місця на диску", "yetersiz disk alanı", "ディスク容量が不足しています", "磁盘空间不足"]),
     ("err.disk_full", ["the disk is almost full", "dysk jest prawie pełny", "Datenträger fast voll", "el disco está casi lleno", "le disque est presque plein", "диск майже заповнений", "disk neredeyse dolu", "ディスクがほぼ満杯です", "磁盘几乎已满"]),
+    ("err.long_limit", ["the 12-hour limit was reached", "osiągnięto limit 12 godzin", "das 12-Stunden-Limit wurde erreicht", "se alcanzó el límite de 12 horas", "la limite de 12 heures est atteinte", "досягнуто ліміту 12 годин", "12 saatlik sınıra ulaşıldı", "12 時間の上限に達しました", "已达到 12 小时上限"]),
 ];
 
 #[cfg(test)]

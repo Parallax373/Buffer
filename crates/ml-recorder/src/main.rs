@@ -222,6 +222,7 @@ fn run() {
         std::thread::spawn(move || longrec::recover_orphans(&cfg));
     }
     tray::apply_app_sources(&shared);
+    let _ = std::fs::remove_file(config::quit_marker());
     log(&format!("recorder starting (ffmpeg: {})", ml_core::tools::ffmpeg().display()));
 
     let stop_capture = Arc::new(AtomicBool::new(false));
@@ -253,6 +254,8 @@ fn run() {
     fans::shutdown();
     stop_capture.store(true, Ordering::Relaxed);
     let _ = handle.join();
+    // a closing on purpose: the app must not bring the recorder back (see config::quit_marker)
+    let _ = std::fs::write(config::quit_marker(), "quit");
     log("recorder stopped");
 }
 

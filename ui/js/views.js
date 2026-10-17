@@ -218,7 +218,8 @@
     if (S.view === "set" && Settings.live()) Settings.paintRecorder();
   };
   /* A recorder that was up and then vanished (crash, killed by another tool) is relaunched, and the user is told.
-     A stop the user asked for (Rec.expectDown) is left alone. */
+     A stop the user asked for is left alone: from this window (Rec.expectDown), and from the tray or anywhere else
+     (the recorder leaves a marker when it is closed on purpose, a crash leaves none). */
   let wasUp = false, downPolls = 0, lastRelaunch = 0;
   Rec.expectDown = 0;
   function watchdog() {
@@ -228,8 +229,8 @@
     if (now - Rec.expectDown < 20000 || now - lastRelaunch < 30000) return;
     lastRelaunch = now;
     wasUp = false;
-    api.invoke("recorder_launch")
-      .then(() => { App.toast(App.t("rec.relaunched"), "err"); setTimeout(Rec.refresh, 2500); })
+    api.invoke("recorder_quit_deliberate").catch(() => false)
+      .then((deliberate) => (deliberate ? null : api.invoke("recorder_launch").then(() => { App.toast(App.t("rec.relaunched"), "err"); setTimeout(Rec.refresh, 2500); })))
       .catch((e) => App.toast(App.t("rec.relaunchFail", { err: e }), "err"));
   }
   Rec.start = () => {

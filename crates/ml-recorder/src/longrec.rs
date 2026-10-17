@@ -22,6 +22,39 @@ use std::{
 /// Below this much free space on the output drive a long recording stops by itself.
 const MIN_FREE: u64 = 2 * 1024 * 1024 * 1024;
 const TS_PACKET: u64 = 188;
+/// A recording nobody remembers to stop (one ran for 35 hours): a popup every this many seconds ...
+const REMIND_EVERY_SECS: u64 = 2 * 3600;
+/// ... and it stops and saves by itself after this long.
+const MAX_SECS: u64 = 12 * 3600;
+
+/// What a long recording that has run for `elapsed` seconds owes the user; `reminded` is how many reminders were sent.
+#[derive(Debug, PartialEq)]
+enum Overtime {
+    Fine,
+    /// Hours so far, and the new count of reminders sent.
+    Remind(u64, u64),
+    Stop,
+}
+
+fn overtime(elapsed: u64, reminded: u64) -> Overtime {
+    if elapsed >= MAX_SECS {
+        return Overtime::Stop;
+    }
+    // counted by division, so a wake from sleep after 7 hours gives one reminder, not three in a row
+    let due = elapsed / REMIND_EVERY_SECS;
+    if due > reminded {
+        Overtime::Remind(elapsed / 3600, due)
+    } else {
+        Overtime::Fine
+    }
+}
+
+/// `<stem>.pN.rec.ts` with N >= 2: a later part of a recording, found through its first part, never on its own.
+fn is_later_part(name: &str) -> bool {
+    name.strip_suffix(".rec.ts")
+        .and_then(|s| s.rsplit_once(".p"))
+        .is_some_and(|(_, n)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) && n.parse::<u32>().is_ok_and(|n| n >= 2))
+}
 
 pub struct Long {
     pub started: Instant,
@@ -34,6 +67,8 @@ pub struct Long {
     last: String,
     pub bytes: u64,
     last_disk_check: Instant,
+    /// Reminders about a long-running recording sent so far (see [`overtime`]).
+    reminded: u64,
 }
 
 fn seg_name(p: &Path) -> String {
@@ -77,6 +112,7 @@ pub fn start(shared: &Arc<Shared>) -> Result<(), String> {
         last: segments().last().map(|p| seg_name(p)).unwrap_or_default(),
         bytes: 0,
         last_disk_check: Instant::now(),
+        reminded: 0,
     });
     drop(slot);
     log("long recording started");
@@ -121,7 +157,23 @@ pub fn tick(shared: &Arc<Shared>) {
             problem = Some(crate::lang::t("err.disk_full"));
         }
     }
+    let mut remind = None;
+    if problem.is_none() {
+        match overtime(l.started.elapsed().as_secs(), l.reminded) {
+            Overtime::Fine => {}
+            Overtime::Remind(hours, count) => {
+                l.reminded = count;
+                remind = Some(hours);
+            }
+            Overtime::Stop => problem = Some(crate::lang::t("err.long_limit")),
+        }
+    }
     drop(guard);
+    if let Some(hours) = remind {
+        // read the shortcut first: `popup` takes the config lock itself
+        let hk = shared.cfg.lock().unwrap().record_hotkey.clone();
+        shared.popup(Event::Game, crate::lang::t("lr.remind"), crate::lang::f("lr.remind_sub", &[("h", &hours), ("hk", &hk)]));
+    }
     if let Some(msg) = problem {
         stop_async(shared, Some(msg));
     }
@@ -307,13 +359,14 @@ pub fn recover_orphans(cfg: &Config) {
         let mut found: Vec<PathBuf> = rd
             .flatten()
             .map(|e| e.path())
-            .filter(|p| seg_name(p).ends_with(".rec.ts") && !seg_name(p).contains(".p2.") && p.metadata().is_ok_and(|m| m.len() > 0))
+            .filter(|p| seg_name(p).ends_with(".rec.ts") && !is_later_part(&seg_name(p)) && p.metadata().is_ok_and(|m| m.len() > 0))
             .collect();
         found.sort();
         for first in found {
             let stem = seg_name(&first).trim_end_matches(".rec.ts").to_string();
             let mut parts = vec![first.clone()];
-            for n in 2..20 {
+            // every stall or restart of the encoder starts a new part: a long recording can have dozens
+            for n in 2..10_000 {
                 let next = dir.join(format!("{stem}.p{n}.rec.ts"));
                 if next.is_file() {
                     parts.push(next);
@@ -330,6 +383,7 @@ pub fn recover_orphans(cfg: &Config) {
                 last: String::new(),
                 bytes: 0,
                 last_disk_check: Instant::now(),
+                reminded: 0,
             };
             match remux(&l) {
                 Ok(out) => {
@@ -341,5 +395,36 @@ pub fn recover_orphans(cfg: &Config) {
                 Err(e) => log(&format!("could not recover {}: {e}", first.display())),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_forgotten_recording_is_reminded_and_then_stopped() {
+        assert_eq!(overtime(10, 0), Overtime::Fine);
+        assert_eq!(overtime(2 * 3600 - 1, 0), Overtime::Fine);
+        assert_eq!(overtime(2 * 3600, 0), Overtime::Remind(2, 1));
+        assert_eq!(overtime(2 * 3600 + 5, 1), Overtime::Fine, "one reminder per interval");
+        assert_eq!(overtime(4 * 3600, 1), Overtime::Remind(4, 2));
+        assert_eq!(overtime(7 * 3600, 0), Overtime::Remind(7, 3), "a wake from sleep gives one reminder, not three");
+        assert_eq!(overtime(7 * 3600 + 1, 3), Overtime::Fine);
+        assert_eq!(overtime(MAX_SECS - 1, 5), Overtime::Fine);
+        assert_eq!(overtime(MAX_SECS, 5), Overtime::Stop);
+        assert_eq!(overtime(35 * 3600, 0), Overtime::Stop, "the 35 hour recording would have ended at 12");
+    }
+
+    #[test]
+    fn later_parts_are_found_through_their_first_part() {
+        assert!(!is_later_part("Desktop__2026-10-15__23-08-05.rec.ts"));
+        assert!(!is_later_part("Desktop__2026-10-15__23-08-05.p1.rec.ts"));
+        for n in [2, 3, 4, 10, 18, 19, 20, 25, 123] {
+            assert!(is_later_part(&format!("Desktop__2026-10-15__23-08-05.p{n}.rec.ts")), "p{n} belongs to the first part");
+        }
+        assert!(!is_later_part("Game.pro__2026.rec.ts"), "a dot-p in the game name is not a part");
+        assert!(!is_later_part("Game.p__2026.rec.ts"));
+        assert!(!is_later_part("Desktop.p2.mp4"));
     }
 }

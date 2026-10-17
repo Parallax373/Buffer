@@ -658,6 +658,13 @@ async fn recorder_cmd(cmd: String) -> Result<serde_json::Value, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// The recorder was closed on purpose (tray, Settings) and has not been started since: the watchdog leaves it down.
+/// A crash or a kill leaves no marker, and the recorder is brought back.
+#[tauri::command]
+fn recorder_quit_deliberate() -> bool {
+    local_dir().join("recorder.quit").is_file()
+}
+
 #[tauri::command]
 fn recorder_launch() -> Result<(), String> {
     let exe = recorder_exe().ok_or("buffer-recorder.exe not found next to the app")?;
@@ -889,6 +896,7 @@ fn main() {
             tools_status,
             recorder_cmd,
             recorder_launch,
+            recorder_quit_deliberate,
             recorder_config,
             set_recorder_config,
             recorder_devices,

@@ -163,6 +163,12 @@ pub fn buffer_dir() -> PathBuf {
     local_dir().join("buffer")
 }
 
+/// Written when the recorder is closed on purpose (tray, `quit` command), removed when it starts. The app's watchdog
+/// brings back a recorder that vanished (crash, killed) but must leave one alone that was quit by the user.
+pub fn quit_marker() -> PathBuf {
+    local_dir().join("recorder.quit")
+}
+
 pub fn log_path() -> PathBuf {
     local_dir().join("recorder.log")
 }
