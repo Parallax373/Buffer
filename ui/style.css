@@ -96,6 +96,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px;
 #toast .t { background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; animation: pop var(--a) ease both; pointer-events: auto; max-width: 70vw; }
 #toast .t.err { border-color: var(--err); }
 #toast .t.ok { border-color: var(--ok); }
+#toast .t .tact { margin-left: 14px; padding: 4px 10px; min-height: 28px; border-radius: 8px; border: 1px solid var(--acc); color: var(--acc); background: var(--acc-dim); font-size: 12.5px; cursor: pointer; }
 
 /* ───── library ───── */
 .lib { display: grid; grid-template-columns: clamp(170px, 16vw, 230px) minmax(0, 1fr) clamp(220px, 22vw, 300px); height: 100%; min-height: 0; }
@@ -1074,8 +1075,6 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 
 /* ───── RGB advanced (rgb-adv.js): space stage + devices on the left, layered effect creator on the right ───── */
 .ra { --text2: color-mix(in srgb, var(--text) 78%, var(--muted)); --line2: color-mix(in srgb, var(--line) 70%, var(--muted)); padding: 0 18px 18px; min-height: 0; overflow-y: auto; height: 100%; }
-.ra-adv { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; align-items: start; }
-.ra-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .ra-stage { display: flex; flex-direction: column; gap: 10px; }
 .ra-tb { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .ra .sp { flex: 1; }
@@ -1118,7 +1117,6 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .ra-save input[type=text] { flex: 1; min-width: 0; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; outline: none; }
 .ra-save input[type=text]:focus { border-color: var(--acc); }
 .ra-fx { display: flex; flex-direction: column; gap: 12px; }
-.ra-pick { border-color: #c6f43266; }
 .ra-devl { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .ra-dr { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 10px; border: 1px solid transparent; border-radius: 9px; color: var(--text2); min-width: 0; }
 .ra-dr b { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1126,8 +1124,6 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .ra-dr:hover { background: var(--raised); }
 .ra-dr.on { border-color: #c6f43299; background: var(--raised); color: var(--text); }
 .ra-tag { font: 10px "JetBrains Mono", Consolas, monospace; color: var(--warn); border: 1px solid #ffb45466; border-radius: 999px; padding: 0 6px; }
-.ra-insp { display: flex; flex-direction: column; gap: 10px; padding: 8px 10px 6px; margin-bottom: 4px; }
-.ra-insp .ra-scan { margin-bottom: 2px; }
 .ra-grow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ra-grow input[type=color] { width: 34px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); cursor: pointer; }
 .ra-selx { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; outline: none; font-size: 12px; color: var(--text); }
@@ -1156,7 +1152,129 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .ra-gbar { position: relative; height: 22px; border-radius: 6px; border: 1px solid var(--line); cursor: copy; margin: 0 8px; touch-action: none; }
 .ra-gs { position: absolute; top: -5px; width: 14px; height: 30px; margin-left: -7px; border-radius: 5px; border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--muted); cursor: ew-resize; touch-action: none; }
 .ra-gs.on { box-shadow: 0 0 0 2px var(--acc); z-index: 2; }
-@media (max-width: 900px) { .ra-adv { grid-template-columns: minmax(0, 1fr); } }
+/* Advanced, layout C: device list | stage | inspector; the inspector drops under the two at mid widths, all stack when narrow */
+.ra-c { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) minmax(290px, 340px); gap: 16px; align-items: start; }
+.ra-c > * { min-width: 0; }
+.ra-left, .ra-mid, .ra-right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* mid widths: the stage and the inspector stay side by side (what is edited stays in sight), the list goes under them */
+@media (max-width: 1260px) { .ra-c { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); } .ra-mid { order: 1; } .ra-right { order: 2; } .ra-left { order: 3; grid-column: 1 / -1; } }
+@media (max-width: 760px) { .ra-c { grid-template-columns: minmax(0, 1fr); } .ra-left { grid-column: auto; } .ra-pip { display: none; } }
+.ra-c .ra-cv { height: clamp(360px, 60vh, 660px); }
+.ra-tb .ra-selx { min-height: 28px; }
+/* list */
+.ra-tree { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.ra-grp { display: flex; flex-direction: column; gap: 2px; }
+.ra-gh { font-size: 10px; padding: 2px 10px; }
+.ra-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--acc); flex: none; }
+.ra-dr.st-off .ra-dot { background: transparent; border: 1px solid var(--warn); }
+.ra-dr.st-sim .ra-dot { background: transparent; border: 1px dashed var(--warn); }
+.ra-dr.st-sim b { color: var(--muted); }
+.ra-dn { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.ra-dr .ra-dn > b { flex: none; }
+.ra-dr .ra-scan b { flex: 1; height: 3px; }
+.ra-dr small { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ra-tag.sim { color: var(--muted); border-color: var(--line2); }
+.ra-empty { padding: 14px 4px; }
+/* inspector */
+.ra-insp2 { display: flex; flex-direction: column; gap: 14px; }
+.ra-tabs { align-self: flex-start; }
+.ra .seg.ra-tabs > button { padding: 5px 14px; font-size: 12px; }
+.ra-devi { display: flex; flex-direction: column; gap: 10px; }
+.ra-scene { display: flex; flex-direction: column; gap: 10px; }
+.ra-ih { display: flex; align-items: center; gap: 8px; min-height: 32px; min-width: 0; }
+.ra-title { font-weight: 600; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ra-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ra-chip[data-busy] { opacity: .55; }
+.ra-chip.part { border-style: dashed; }
+.ra-cks { display: flex; flex-direction: column; }
+.ra-ck { display: grid; grid-template-columns: 18px minmax(0, 1fr) 34px; gap: 8px; align-items: center; min-height: 30px; font-size: 13px; color: var(--text2); cursor: pointer; }
+.ra-ck input { width: 15px; height: 15px; accent-color: #c6f432; margin: 0; }
+.ra-l0 { min-width: 54px; text-align: center; }
+.ra .btn.ra-ic#l0m, .ra .btn.ra-ic#l0p { width: 32px; height: 32px; font-size: 16px; }
+.ra-pin { max-width: 170px; }
+.ra-orgp { display: flex; flex-direction: column; gap: 10px; }
+/* the open layer folds its editor away (click its header again) */
+.ra-fold { display: none; width: 24px; text-align: center; color: var(--muted); font-size: 18px; line-height: 1; transition: transform var(--t) ease; }
+.ra-lay.sel .ra-fold { display: inline-block; transform: rotate(90deg); }
+.ra-lay.sel.fold .ra-fold { transform: none; }
+.ra-lay.fold .ra-le { display: none; }
+/* the open layer's header has its buttons: the gradient and blend it repeats are in the editor, the name gets the room */
+.ra-lay.sel .ra-lh .ra-gp, .ra-lay.sel .ra-lh .ra-nm small { display: none; }
+.ra-lay.sel .ra-lh .ra-nm { min-width: 60px; }
+/* a device's dot: lime = the effect, its own colour = its own look, hollow = given back */
+.ra-dot.own { background: var(--c); box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 2.5px var(--line2); }
+.ra-dot.free { background: transparent; border: 1px solid var(--subtle); }
+/* nothing plays the effect: said above it */
+.ra-warnbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 11px; border: 1px solid #ffb45466; border-radius: 10px; background: #ffb4540d; font-size: 12.5px; color: var(--text2); }
+.ra-warnbar span { flex: 1; min-width: 160px; }
+/* one scene, two views: a device with its own colour, swatches to set it quickly, the Simple view's note */
+.ra-tag.own { color: var(--acc); border-color: #c6f43266; }
+.ra-sw button { width: 24px; height: 24px; border-radius: 7px; }
+.rnote { margin: 0; color: var(--text2); font-size: 13px; }
+/* the list: what stands in the case is indented under it */
+.ra-dr.in { margin-left: 14px; width: calc(100% - 14px); }
+/* what the marks on the stage mean (changes with the inspector's tab) */
+.ra-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11.5px; color: var(--muted); min-height: 18px; align-items: center; }
+.ra-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ra-legend i { display: inline-block; flex: none; }
+.lg-org { width: 10px; height: 10px; border: 1.5px solid var(--acc); border-radius: 50%; }
+.lg-dir { width: 16px; height: 2px; background: var(--acc); position: relative; }
+.lg-dir::after { content: ""; position: absolute; right: -2px; top: -3px; border: 4px solid transparent; border-left: 5px solid var(--acc); border-right: 0; }
+.lg-fld { width: 14px; height: 10px; border: 1px solid #c6f432aa; background: #c6f43218; }
+.lg-ax { width: 12px; height: 2px; }
+.lg-ax.x { background: #ff6b6b; } .lg-ax.y { background: #8fdc6a; } .lg-ax.z { background: #5aa9ff; }
+.lg-l0 { width: 10px; height: 10px; border: 1.5px solid var(--text); border-radius: 50%; }
+/* list: icons, the case row, hidden devices */
+.ra-dr .ric { width: 18px; height: 18px; flex: none; color: var(--muted); }
+.ra-dr.on .ric { color: var(--acc); }
+.ra-dr.ra-case small { color: var(--muted); }
+.ra-hidh { font-size: 12px; padding: 4px 10px; text-align: left; }
+.ra-dr.hid { opacity: .7; cursor: default; }
+.ra-ih .ric { width: 20px; height: 20px; color: var(--acc); flex: none; }
+/* one device in several places */
+.ra-parts { display: flex; flex-direction: column; gap: 4px; }
+.ra-part { display: grid; grid-template-columns: minmax(0, 1fr) 64px auto; gap: 8px; align-items: center; font-size: 12.5px; color: var(--text2); }
+.ra-num { background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 3px 6px; width: 100%; color: var(--text); font: 12px "JetBrains Mono", Consolas, monospace; }
+.ra-num:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.ra-warn { color: var(--warn); }
+/* "change the case?" inside the inspector (no browser dialog) */
+.ra-ask { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #ffb45466; border-radius: 10px; background: #ffb4540d; font-size: 12.5px; color: var(--text2); }
+/* colour calibration panel, over the RGB page */
+.rcal { position: absolute; inset: 0; z-index: 40; background: var(--bg); display: flex; flex-direction: column; gap: 12px; padding: 14px 18px 18px; overflow-y: auto; animation: fadeUp .18s ease both; }
+.rcal-lead { margin: 0; color: var(--text2); max-width: 80ch; }
+.rcal-top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+.rcal-tests { display: flex; flex-wrap: wrap; gap: 6px; }
+.rcal-tests .chip { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.rcal-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--line); }
+.rcal-top .rcal-l { min-width: 260px; flex: 1; max-width: 420px; }
+.rcal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+.rcal-d { display: flex; flex-direction: column; gap: 10px; }
+.rcal-d.ref { border-color: #c6f43266; }
+.rcal-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rcal-h b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rcal-h .ric { width: 20px; height: 20px; flex: none; color: var(--muted); }
+.rcal-acts { display: flex; align-items: center; gap: 8px; }
+.rcal-sw { width: 26px; height: 26px; border-radius: 7px; background: var(--c); box-shadow: 0 0 0 1px var(--line), 0 0 14px var(--c); flex: none; }
+.rcal-ls { display: flex; flex-direction: column; gap: 6px; }
+.rcal-d.ref .rcal-ls { display: none; }
+.rcal-refn { display: none; }
+.rcal-d.ref .rcal-refn { display: block; }
+.rcal-l { display: grid; grid-template-columns: 74px minmax(0, 1fr) 46px; gap: 10px; align-items: center; }
+.rcal-l .rval { text-align: right; }
+/* a channel's line in its own colour, so red / green / blue read at a glance */
+.rcal-l input.rline.red { background: linear-gradient(90deg, #ff6b6b var(--p, 50%), var(--line) var(--p, 50%)); }
+.rcal-l input.rline.green { background: linear-gradient(90deg, #8fdc6a var(--p, 50%), var(--line) var(--p, 50%)); }
+.rcal-l input.rline.blue { background: linear-gradient(90deg, #5aa9ff var(--p, 50%), var(--line) var(--p, 50%)); }
+.rcal-foot { margin: 0; max-width: 90ch; }
+.rcal .chip, .ra .chip { cursor: pointer; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line); font-size: 11.5px; color: var(--muted); background: var(--raised); white-space: nowrap; }
+.rcal .chip:hover, .ra .chip:hover { border-color: var(--subtle); color: var(--text); }
+.rcal .chip.on, .ra .chip.on { border-color: var(--acc); color: var(--acc); background: var(--acc-dim); }
+.rcal-h small { font: 11px "JetBrains Mono", Consolas, monospace; color: var(--muted); flex: none; }
+/* the 2D inset in the corner of the stage */
+.ra-pip { position: absolute; right: 10px; bottom: 10px; width: min(30%, 250px); aspect-ratio: 16 / 10; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #070806; padding: 0; cursor: pointer; }
+.ra-pip:hover { border-color: var(--muted); }
+.ra-pip canvas { display: block; width: 100%; height: 100%; }
+.ra-pipl { position: absolute; left: 7px; top: 4px; font: 10px "JetBrains Mono", Consolas, monospace; color: var(--muted); pointer-events: none; }
 .rgb > .radv { flex: 1; min-height: 0; position: relative; }
 .eqhead button.chip { cursor: pointer; }
 .rdev.idle .rleds i { background: var(--subtle); opacity: .5; }

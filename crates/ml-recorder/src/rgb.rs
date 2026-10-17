@@ -57,6 +57,10 @@ struct File {
     /// (profile, profile reply as hex) of the keyboard before Buffer wrote to it; present only while we hold it
     #[serde(default)]
     kb_backup: Option<(u8, String)>,
+    /// colour calibration per device (key "name#n" -> r, g, b in percent): a property of the hardware (a fan whose white
+    /// is greenish), applied to every colour sent to that device in every mode and profile; only lowers channels
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    calib: BTreeMap<String, [f32; 3]>,
 }
 
 /// The keyboard is not an OpenRGB device; the page sees it as one with this name and index.
@@ -105,7 +109,11 @@ fn file_path() -> PathBuf {
 
 impl File {
     fn load() -> File {
-        std::fs::read(file_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        let mut f: File = std::fs::read(file_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        // Simple and Advanced are one scene now: the scene and every profile are turned into that form once
+        f.scene.migrate();
+        f.profiles.values_mut().for_each(Scene::migrate);
+        f
     }
 
     fn save(&mut self) -> Result<(), String> {
@@ -140,6 +148,54 @@ struct St {
     game_profile: Option<String>,
     /// zone length changes asked for: (device index, zone index, LEDs)
     zones: Vec<(usize, u32, u32)>,
+    /// `rgb-blink`: the OpenRGB device (name, nth) that shows where it is and where its LED 0 is, until when
+    blink: Option<(String, u32, Instant)>,
+    /// `rgb-test`: every shown device in one colour (calibrated), until when; never saved
+    test: Option<([u8; 3], Instant)>,
+    /// bumped when the calibration changes (the worker sends every device again)
+    calib_rev: u64,
+}
+
+/// A scene from `rgb-scene-set`. The devices' own looks (`simple`) and the given-back list (`free`) are edited by their
+/// own commands; a page that sends the whole scene without them (the Advanced page does) keeps the current ones, so a
+/// late save of that page cannot undo a look set meanwhile. A scene in the old form is migrated (see Scene::migrate).
+fn scene_from(arg: &str, cur: &Scene) -> Result<Scene, String> {
+    let v: Value = serde_json::from_str(arg).map_err(|e| e.to_string())?;
+    // only a scene in the new form takes them over; an old-form one (a restored backup) is migrated on its own
+    let new_form = v.get("merged") == Some(&Value::Bool(true));
+    let (has_simple, has_free) = (v.get("simple").is_some(), v.get("free").is_some());
+    let mut s: Scene = serde_json::from_value(v).map_err(|e| e.to_string())?;
+    if new_form && !has_simple {
+        s.simple = cur.simple.clone();
+    }
+    if new_form && !has_free {
+        s.free = cur.free.clone();
+    }
+    s.migrate();
+    Ok(s)
+}
+
+/// How long a calibration test pattern stays at most (the page normally ends it).
+const TEST_MAX: Duration = Duration::from_secs(600);
+
+/// A colour as a calibrated device should get it: each channel scaled by its percentage (0..100).
+fn calibrate(c: [u8; 3], k: [f32; 3]) -> [u8; 3] {
+    let f = |v: u8, p: f32| (v as f32 * (p / 100.0).clamp(0.0, 1.0)).round() as u8;
+    [f(c[0], k[0]), f(c[1], k[1]), f(c[2], k[2])]
+}
+
+/// How long `rgb-blink` lights a device.
+const BLINK: Duration = Duration::from_secs(3);
+
+/// The blink pattern at `secs` into it: the device dim white, LED 0 flashing white, LED 1 lime (the direction).
+fn blink_frame(buf: &mut [[u8; 3]], secs: f64) {
+    buf.fill([40, 40, 40]);
+    if let Some(o) = buf.get_mut(1) {
+        *o = [120, 150, 30];
+    }
+    if let Some(o) = buf.first_mut() {
+        *o = if (secs * 3.0).fract() < 0.5 { [255, 255, 255] } else { [0, 0, 0] };
+    }
 }
 
 pub struct Hub {
@@ -218,6 +274,7 @@ impl Hub {
             "profile_sizes": st.file.profiles.iter().map(|(n, s)| (n.clone(), s.driven_count())).collect::<BTreeMap<_, _>>(),
             "profile_dirty": st.file.active_profile.as_ref().and_then(|n| st.file.profiles.get(n)).is_some_and(|p| *p != st.file.scene),
             "game_profiles": st.file.game_profiles, "game_profile": st.game_profile,
+            "hidden": st.file.hidden,
             "conflicts": crate::away::conflicts(&crate::away::snapshot()),
         })
     }
@@ -233,6 +290,7 @@ impl Hub {
                 let k = key(&st.devices, i);
                 v["hidden"] = json!(st.file.hidden.contains(&k));
                 v["label"] = json!(st.file.names.get(&k));
+                v["calib"] = json!(st.file.calib.get(&k));
                 v
             })
             .collect();
@@ -258,10 +316,14 @@ impl Hub {
         match cmd {
             "rgb-status" => self.status(),
             "rgb-scene-get" => json!({ "ok": true, "scene": self.lock().file.scene }),
-            "rgb-scene-set" => match serde_json::from_str::<Scene>(arg) {
-                Ok(scene) => self.edit(|f| f.scene = scene),
-                Err(e) => err(format!("invalid scene: {e}")),
-            },
+            "rgb-scene-set" => {
+                // the current scene is copied first: a guard held in the match would deadlock with edit() below
+                let cur = self.lock().file.scene.clone();
+                match scene_from(arg, &cur) {
+                    Ok(scene) => self.edit(|f| f.scene = scene),
+                    Err(e) => err(format!("invalid scene: {e}")),
+                }
+            }
             "rgb-look" => match serde_json::from_str::<Look>(arg) {
                 Ok(look) => self.edit(|f| f.scene.set_look(look)),
                 Err(e) => err(format!("invalid look: {e}")),
@@ -359,6 +421,49 @@ impl Hub {
                     _ => err("bad arguments"),
                 }
             }
+            "rgb-calib" => {
+                // rgb-calib <key> <[r,g,b] | null>: a device's colour calibration (percent; null = none)
+                // the key has spaces (device names), the compact JSON value has none: split at the last space
+                let Some((k, v)) = arg.trim().rsplit_once(' ') else { return err("usage: rgb-calib <name#n> <[r,g,b]|null>") };
+                let v: Option<[f32; 3]> = match serde_json::from_str(v) { Ok(v) => v, Err(e) => return err(e) };
+                let mut st = self.lock();
+                match v.map(|c| c.map(|x| x.clamp(0.0, 100.0))) {
+                    Some(c) if c != [100.0; 3] => { st.file.calib.insert(k.to_string(), c); }
+                    _ => { st.file.calib.remove(k); }
+                }
+                st.calib_rev += 1;
+                let r = st.file.save();
+                self.poke(&mut st);
+                r.map_or_else(err, |_| json!({ "ok": true }))
+            }
+            "rgb-test" => {
+                // rgb-test <[r,g,b] | off>: every shown device in this colour (calibrated) while the calibration is open
+                let mut st = self.lock();
+                if !st.connected {
+                    return err("RGB is not running");
+                }
+                st.test = if arg.trim() == "off" {
+                    None
+                } else {
+                    match serde_json::from_str::<[u8; 3]>(arg) {
+                        Ok(c) => Some((c, Instant::now() + TEST_MAX)),
+                        Err(e) => return err(e),
+                    }
+                };
+                self.poke(&mut st);
+                json!({ "ok": true })
+            }
+            "rgb-blink" => {
+                let Some((nth, name)) = arg.split_once(' ') else { return err("usage: rgb-blink <nth> <name>") };
+                let Ok(nth) = nth.parse::<u32>() else { return err("bad nth") };
+                let mut st = self.lock();
+                if !st.connected {
+                    return err("RGB is not running");
+                }
+                st.blink = Some((name.to_string(), nth, Instant::now() + BLINK));
+                self.poke(&mut st);
+                json!({ "ok": true })
+            }
             "rgb-zone" => {
                 let p: Vec<&str> = arg.split(' ').collect();
                 let (Some(Ok(i)), Some(Ok(z)), Some(Ok(n))) = (p.first().map(|s| s.parse::<usize>()), p.get(1).map(|s| s.parse::<u32>()), p.get(2).map(|s| s.parse::<u32>())) else {
@@ -388,6 +493,14 @@ impl Hub {
                     return err("RGB is not running");
                 }
                 self.devices(&st)
+            }
+            "rgb-follow" => {
+                // a device follows the scene's effect again (no look of its own, not given back): `rgb-follow <nth> <name>`
+                let Some((n, name)) = arg.split_once(' ') else { return err("usage: rgb-follow <nth> <name>") };
+                match n.parse::<u32>() {
+                    Ok(n) => self.edit(|f| f.scene.follow_scene(name, n)),
+                    Err(_) => err("bad arguments"),
+                }
             }
             "rgb-unlook" => {
                 // give a device back: `rgb-unlook <nth> <name>` (the name may contain spaces)
@@ -451,6 +564,10 @@ struct Planned {
     applied: String,
     applied_at: Option<Instant>,
     pos: Vec<[f32; 3]>,
+    /// Advanced: this device's own layer list when some layers skip it, its brightness and its delay (s)
+    layers: Option<Vec<ml_rgb::engine::Layer>>,
+    gain: f32,
+    delay: f64,
     buf: Vec<[u8; 3]>,
     last: Vec<[u8; 3]>,
 }
@@ -475,9 +592,17 @@ struct Conn {
     plan: Vec<Planned>,
     replan: bool,
     dirty: bool,
+    /// seconds of the devices' own looks (their effects carry their own speed) and of the scene's effect (scene speed)
     t: f64,
+    ts: f64,
     last_tick: Instant,
     last_beat: Instant,
+    /// calibration per device index (percent r, g, b; None = untouched), the revision it was built from, a reusable buffer
+    cal: Vec<Option<[f32; 3]>>,
+    cal_rev: u64,
+    cbuf: Vec<[u8; 3]>,
+    /// the test pattern shown last (colour, calibration revision), so it is sent only when something changes
+    test_last: Option<([u8; 3], u64)>,
 }
 
 /// Device indices after the list changed: each index names the same device (by key) as before, devices that left are dropped.
@@ -672,8 +797,13 @@ impl Worker {
             replan: true,
             dirty: true,
             t: 0.0,
+            ts: 0.0,
             last_tick: Instant::now(),
             last_beat: Instant::now(),
+            cal: Vec::new(),
+            cal_rev: u64::MAX,
+            cbuf: Vec::new(),
+            test_last: None,
         })
     }
 
@@ -736,10 +866,10 @@ impl Worker {
         } else {
             look
         };
-        let simple = c.scene.mode == ml_rgb::scene::Mode::Simple || c.away.is_some();
-        let Some(want) = look.filter(|_| on && simple) else {
+        // whatever view is open: switching views must not write the keyboard's stored profile twice
+        let Some(want) = look.filter(|_| on) else {
             if held {
-                self.kb_release(c); // opt-out, or the scene left Simple mode: give the keyboard back
+                self.kb_release(c); // opt-out, or its look was removed: give the keyboard back
             }
             return None;
         };
@@ -873,17 +1003,31 @@ impl Worker {
                 }
             }
             drop(st);
-            c.c.set_colors(i as u32, colors)?;
-            c.taken.insert(i);
-        } else {
-            c.c.frame(i as u32, colors)?;
         }
-        Ok(())
+        // the device's colour calibration, the one place every colour passes on its way out
+        let mut out = std::mem::take(&mut c.cbuf);
+        out.clear();
+        match c.cal.get(i).copied().flatten() {
+            Some(k) => out.extend(colors.iter().map(|&x| calibrate(x, k))),
+            None => out.extend_from_slice(colors),
+        }
+        let r = if c.taken.insert(i) { c.c.set_colors(i as u32, &out) } else { c.c.frame(i as u32, &out) };
+        c.cbuf = out;
+        r
+    }
+    /// The calibration per device index, from the file (after a device list change or a calibration change).
+    fn load_cal(&self, c: &mut Conn) {
+        let st = self.hub.lock();
+        c.cal = (0..c.devs.len()).map(|i| st.file.calib.get(&key(&c.devs, i)).copied()).collect();
+        c.cal_rev = st.calib_rev;
     }
 
     fn render(&self, c: &mut Conn) {
         let env = Env { origin: c.scene.origin, level: (self.hub.level)().clamp(0.0, 1.0), bright: (c.scene.bright / 100.0).clamp(0.0, 1.0) };
         for p in c.plan.iter_mut() {
+            if let (Some(f), false) = (p.fixed, p.look.as_ref().is_some_and(Look::animated)) {
+                p.buf.fill(f); // a blink may have drawn over a fixed colour
+            }
             if let Some(look) = p.look.as_ref().filter(|l| l.animated()) {
                 // Simple effects need no positions: an LED's place along the device is its index
                 let n = p.buf.len().max(2) as f32 - 1.0;
@@ -891,8 +1035,11 @@ impl Worker {
                     *o = look.at(c.t, i as f32 / n);
                 }
             } else if p.fixed.is_none() {
+                let layers = p.layers.as_deref().unwrap_or(&c.scene.layers);
+                let (g, t) = (p.gain, c.ts - p.delay);
                 for (o, pos) in p.buf.iter_mut().zip(&p.pos) {
-                    *o = to_bytes(color_at(&c.scene.layers, *pos, c.t, &env));
+                    let v = color_at(layers, *pos, t, &env);
+                    *o = to_bytes([v[0] * g, v[1] * g, v[2] * g]);
                 }
             }
         }
@@ -957,10 +1104,54 @@ impl Worker {
             st.refreshed = st.refresh_req;
             self.hub.cv.notify_all();
         }
+        // calibration: rebuilt after a device list or calibration change; then every device is sent again
+        if refresh || self.hub.lock().calib_rev != c.cal_rev {
+            self.load_cal(c);
+            c.dirty = true;
+            c.test_last = None;
+            for p in c.plan.iter_mut() {
+                p.last.clear();
+            }
+        }
         for (i, colors) in raw {
             if i < c.devs.len() {
                 self.take_over(c, i, &colors)?;
             }
+        }
+        // the calibration test pattern: every shown OpenRGB device in one colour (calibrated); the scene waits meanwhile.
+        // The keyboard is left out (every write to it rewrites its stored profile).
+        let test = {
+            let mut st = self.hub.lock();
+            match st.test {
+                Some((_, until)) if until <= Instant::now() => {
+                    st.test = None;
+                    None
+                }
+                t => t.map(|x| x.0),
+            }
+        };
+        if let Some(col) = test {
+            if c.test_last != Some((col, c.cal_rev)) {
+                let hidden = self.hub.lock().file.hidden.clone();
+                for i in 0..c.devs.len() {
+                    let n = c.devs[i].led_names.len();
+                    if n == 0 || hidden.contains(&key(&c.devs, i)) {
+                        continue;
+                    }
+                    if c.native_on.remove(&i) {
+                        c.taken.remove(&i); // from a device mode: take it over again (Direct) first
+                    }
+                    self.take_over(c, i, &vec![col; n])?;
+                }
+                c.test_last = Some((col, c.cal_rev));
+            }
+            c.last_tick = Instant::now();
+            self.nap(Duration::from_millis(100));
+            return Ok(());
+        }
+        if c.test_last.take().is_some() {
+            // the test ended: the scene again, devices it does not drive go back to their own mode
+            c.replan = true;
         }
 
         if c.replan {
@@ -968,7 +1159,7 @@ impl Worker {
             // lights out: every device black (the ones the scene does not drive too), the earlier modes come back afterwards
             let hidden = self.hub.lock().file.hidden.clone();
             let plans: Vec<DevPlan> = if c.away.is_some() {
-                (0..names.len()).map(|index| DevPlan { index, fixed: Some([0; 3]), look: None, pos: Vec::new() }).collect()
+                (0..names.len()).map(|index| DevPlan::fixed(index, [0; 3], None)).collect()
             } else {
                 c.scene.plan(&names)
             }
@@ -981,7 +1172,7 @@ impl Worker {
                 .map(|p| {
                     let n = names[p.index].1;
                     let buf = vec![p.fixed.unwrap_or([0; 3]); n];
-                    Planned { index: p.index, fixed: p.fixed, look: p.look, applied: String::new(), applied_at: None, pos: p.pos, last: Vec::with_capacity(n), buf }
+                    Planned { index: p.index, fixed: p.fixed, look: p.look, applied: String::new(), applied_at: None, pos: p.pos, layers: p.layers, gain: p.gain, delay: p.delay, last: Vec::with_capacity(n), buf }
                 })
                 .collect();
             // devices that dropped out of the scene go back to their own mode
@@ -994,17 +1185,44 @@ impl Worker {
             c.replan = false;
             c.dirty = true;
         }
-        let advanced = c.scene.mode == ml_rgb::scene::Mode::Advanced && c.scene.playing && !c.scene.layers.is_empty() && c.plan.iter().any(|p| p.fixed.is_none());
-        let simple_fx = c.scene.mode == ml_rgb::scene::Mode::Simple && c.plan.iter().any(|p| p.look.as_ref().is_some_and(Look::animated));
+        // one scene, whatever view is open: the effect moves on devices that follow it, looks with an effect move on theirs,
+        // each on its own clock (a look carries its own speed, the effect uses the scene's)
+        let advanced = c.scene.playing && c.scene.has_effect() && c.plan.iter().any(|p| p.fixed.is_none());
+        let simple_fx = c.plan.iter().any(|p| p.look.as_ref().is_some_and(Look::animated));
         let animated = advanced || simple_fx;
         let now = Instant::now();
-        if animated {
-            // Simple effects carry their own speed; the scene speed is the Advanced page's
-            c.t += (now - c.last_tick).as_secs_f64().min(0.1) * if simple_fx { 1.0 } else { c.scene.speed.clamp(0.0, 3.0) as f64 };
+        // a device that blinks: found by name + nth among OpenRGB's devices; when the blink ends it gets its frame back
+        let blink = {
+            let mut st = self.hub.lock();
+            match st.blink.clone() {
+                Some((_, _, until)) if until <= now => {
+                    st.blink = None;
+                    c.dirty = true;
+                    None
+                }
+                Some((name, nth, until)) => {
+                    let names: Vec<(&str, usize)> = c.devs.iter().map(|d| (d.name.as_str(), d.led_names.len())).collect();
+                    // saturating: a blink asked for right after `now` was taken ends later than now + BLINK
+                    ml_rgb::scene::resolve(&names, &name, nth).map(|i| (i, BLINK.saturating_sub(until.saturating_duration_since(now)).as_secs_f64()))
+                }
+                None => None,
+            }
+        };
+        let dt = (now - c.last_tick).as_secs_f64().min(0.1);
+        if simple_fx {
+            c.t += dt;
+        }
+        if advanced {
+            c.ts += dt * c.scene.speed.clamp(0.0, 3.0) as f64;
         }
         c.last_tick = now;
-        if animated || c.dirty {
+        if animated || c.dirty || blink.is_some() {
             self.render(c);
+            if let Some((i, secs)) = blink {
+                if let Some(p) = c.plan.iter_mut().find(|p| p.index == i) {
+                    blink_frame(&mut p.buf, secs);
+                }
+            }
             let mut plan = std::mem::take(&mut c.plan);
             let mut r = Ok(());
             for p in plan.iter_mut().filter(|p| !p.look.as_ref().is_some_and(Look::is_native) && p.buf != p.last) {
@@ -1038,7 +1256,9 @@ impl Worker {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         };
-        if animated {
+        if blink.is_some() {
+            self.nap(Duration::from_millis(50).saturating_sub(now.elapsed()));
+        } else if animated {
             let frame = Duration::from_secs_f64(1.0 / c.scene.fps() as f64);
             let spent = now.elapsed();
             self.nap(frame.saturating_sub(spent));
@@ -1063,6 +1283,42 @@ mod tests {
         assert_eq!(remap_indices(&k(&["ram#0", "ram#1", "gpu#0"]), &k(&["ram#0", "new#0", "ram#1", "gpu#0"]), &set), [2, 3].into_iter().collect());
         // a device left: it is dropped, the others keep their identity
         assert_eq!(remap_indices(&k(&["a#0", "b#0", "c#0"]), &k(&["a#0", "c#0"]), &[1, 2].into_iter().collect()), [1].into_iter().collect());
+    }
+
+    #[test]
+    fn a_whole_scene_from_a_page_keeps_looks_set_meanwhile() {
+        let mut cur = Scene::default();
+        cur.migrate();
+        cur.set_look(serde_json::from_str(r#"{"name":"Fan","hue":10}"#).unwrap());
+        cur.free.push("Board#0".into());
+        // the Advanced page sends its scene without `simple` / `free`: the current ones stay
+        let s = scene_from(r#"{"mode":"advanced","merged":true,"speed":2}"#, &cur).unwrap();
+        assert_eq!((s.simple.len(), s.free.clone(), s.speed), (1, vec!["Board#0".to_string()], 2.0));
+        // a full scene (a restore, the Simple page) replaces them, and an old-form one is migrated
+        let s = scene_from(r#"{"mode":"simple","simple":[],"devices":[{"id":1,"type":"gpu","link":{"name":"G"}}]}"#, &cur).unwrap();
+        assert_eq!((s.simple.len(), s.free.clone(), s.merged), (0, vec!["G#0".to_string()], true));
+    }
+
+    #[test]
+    fn calibration_only_scales_down() {
+        assert_eq!(calibrate([255, 255, 255], [100.0, 80.0, 50.0]), [255, 204, 128]);
+        assert_eq!(calibrate([10, 20, 30], [100.0; 3]), [10, 20, 30]);
+        assert_eq!(calibrate([200, 200, 200], [150.0, -5.0, 0.0]), [200, 0, 0], "clamped to 0..100 %");
+        let f: File = serde_json::from_str(r#"{"calib":{"Fan#0":[100,85,90]}}"#).unwrap();
+        assert_eq!(f.calib.get("Fan#0"), Some(&[100.0, 85.0, 90.0]));
+        assert!(!serde_json::to_string(&File::default()).unwrap().contains("calib"), "no calibration, no key");
+    }
+
+    #[test]
+    fn blink_marks_led_zero_and_the_direction() {
+        let mut b = vec![[9, 9, 9]; 5];
+        blink_frame(&mut b, 0.1);
+        assert_eq!(b, [[255, 255, 255], [120, 150, 30], [40, 40, 40], [40, 40, 40], [40, 40, 40]]);
+        blink_frame(&mut b, 0.2);
+        assert_eq!(b[0], [0, 0, 0], "LED 0 flashes");
+        let mut one = vec![[0, 0, 0]];
+        blink_frame(&mut one, 0.1);
+        assert_eq!(one, [[255, 255, 255]], "a one-LED device just flashes");
     }
 
     #[test]

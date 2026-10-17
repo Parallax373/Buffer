@@ -254,11 +254,13 @@ const App = {};
   };
 
   /* ───── toast ───── */
-  App.toast = (msg, kind = "") => {
+  /** `action` = { label, run }: a button in the toast (e.g. "Undo"); the toast then stays a little longer */
+  App.toast = (msg, kind = "", action = null) => {
     const box = App.$("#toast");
     const t = App.h("div", { class: `t ${kind}`, text: msg });
+    if (action) t.append(App.h("button", { class: "tact", text: action.label, onClick: () => { t.remove(); action.run(); } }));
     box.append(t);
-    setTimeout(() => t.remove(), kind === "err" ? 7000 : 3500);
+    setTimeout(() => t.remove(), kind === "err" ? 7000 : action ? 7000 : 3500);
   };
 
   /* An uncaught error would otherwise only reach the devtools console: say so, at most once per 10 s. */

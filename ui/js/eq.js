@@ -568,6 +568,35 @@
     return input;
   }
 
+  /** Share codes (App.share): copy this EQ as a line of text, or paste someone's: it becomes one of my presets. */
+  function shareRow() {
+    const ch = channel();
+    const field = h("input", { class: "field", placeholder: App.t("share.paste"), spellcheck: false, "aria-label": App.t("share.paste") });
+    const num = (v, a, b, d) => (Number.isFinite(+v) ? Math.min(b, Math.max(a, +v)) : d);
+    const apply = async () => {
+      const v = await App.share.decode("EQ", field.value);
+      const bands = v && Array.isArray(v.bands) ? v.bands.slice(0, 16).filter((x) => x && typeof x === "object")
+        .map((x) => ({ kind: typeof x.kind === "string" ? x.kind : "peak", f: num(x.f, 10, 24000, 1000), gain: num(x.gain, -30, 30, 0), q: num(x.q, 0.05, 20, 1), on: x.on !== false })) : [];
+      if (!bands.length) { App.toast(App.t("share.bad"), "err"); return; }
+      let name = String(v.name || App.t("share.shared")).slice(0, 28) || App.t("share.shared");
+      for (let i = 2, base = name; PRESETS.includes(name) || st.user_presets.some((p) => p.name === name); i++) name = base + " " + i;
+      st.user_presets.push({ name, bands: structuredClone(bands) });
+      const c = channel(); c.bands = structuredClone(bands); c.preset = name;
+      push(true); paintAll();
+      App.toast(App.t("share.added", { name }));
+    };
+    field.addEventListener("keydown", (e) => { if (e.key === "Enter") apply(); if (e.key === "Escape") paintHeader(); });
+    field.addEventListener("paste", () => setTimeout(apply));
+    return [
+      h("button", { class: "btn ghost sm", text: App.t("share.copy"), title: App.t("share.copyTip"), onClick: async () => {
+        const code = await App.share.encode("EQ", { name: ch.preset ? presetLabel(ch.preset) : App.t("share.shared"), bands: ch.bands });
+        App.toast(App.t((await App.share.copy(code, field)) ? "share.copied" : "share.selected"));
+      } }),
+      field,
+      h("button", { class: "btn ghost sm", text: "✕", title: App.t("share.close"), onClick: () => paintHeader() }),
+    ];
+  }
+
   function paintHeader() {
     const ch = channel();
     const list = isMic() ? devs.capture : devs.render;
@@ -577,6 +606,7 @@
     const edited_ = PRESETS.includes(ch.preset) && st.user_presets.some((p) => p.name === ch.preset);
     const presetBox = h("div", { class: "pathrow" }, presetChips(),
       h("button", { class: "btn ghost sm", text: "+", title: App.t("eq.savePreset"), onClick: (e) => e.currentTarget.parentNode.replaceChildren(savePreset()) }),
+      h("button", { class: "btn ghost sm", text: "⇄", title: App.t("share.eqTip"), "aria-label": App.t("share.eqTip"), onClick: (e) => e.currentTarget.parentNode.replaceChildren(...shareRow()) }),
       userPreset ? h("button", { class: "btn ghost sm", text: "✕", title: App.t("eq.delPreset"), onClick: () => {
         st.user_presets = st.user_presets.filter((p) => p.name !== ch.preset); ch.preset = ""; push(true); paintAll();
       } }) : null,

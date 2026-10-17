@@ -140,6 +140,42 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
   inline (`-EncodedCommand`), never as a file. The recorder starts/stops the server with `schtasks /Run` and `/End` (no prompt).
 - Page `ui/js/rgb.js` ("Simple": colour, brightness, power per device, saved via `rgb_look`). Advanced (3D placement, synced effects)
   lives in `ui/js/rgb-adv.js` against the same scene.
+- **Advanced layout C (2026-10-16):** device list (grouped by type, live strip, Arrange) | stage (3D/2D, 2D inset of the other plane) |
+  inspector (Effect / Device) + scene settings (speed, brightness, fps). The selected layer is drawn as its shape in space ("field":
+  wave = planes of its peaks, radial = sphere, scan = slab and trail, noise = sampled volume) with a draggable direction arrow; the
+  origin can follow a device. Case templates (mid-tower, Mini-ITX, dual chamber, open frame, none) plus desk places give slots; a
+  dragged device snaps into a free slot that fits and takes its shape (`pts`). Per device: LED 0 / order (rewrites `pts`), Blink
+  (`rgb-blink`), layers that act on it (`layers[].skip`), own brightness, delay; the recorder applies them per device
+  (`DevPlan.layers/gain/delay`), the page preview does the same.
+- **Advanced, round 2 (2026-10-17):** moving is by Blender-style handles only (arrows X red / Y green / Z blue, a ring for the desk
+  plane; a click on a device only selects it; the old body-drag intersected the floor plane and ran off at flat camera angles).
+  F / double-click / a button centres on the selection; "Fit" frames the lit space. The 3D camera was rotated 180° before (right
+  and up vectors had the wrong sign; fixed in `setupCam`). The case is an object (list row "Case"): template change asks first and
+  arranges what lost its place (leftovers stand in a row beside it), it can be moved and turned 90° and carries its slots and the
+  devices in them. One device can sit in several places (`parts`): the MSI B450 board is ONE LED in OpenRGB (zone "MSI Zone",
+  1 LED), so fans and the CPU cooler on its header always show one shared colour; per-fan effects need a separate ARGB controller.
+  Devices hidden on the Simple page are hidden here too (same `rgb_hide`). Simple outlines (fan frames, keyboard plate, card,
+  stick, headset band). Colour calibration (`rgb-calib.js`, RGB header "Colour calibration"): per device r/g/b percent in
+  `rgb.json: calib`, applied in the recorder's `take_over` in every mode; while the panel is open `rgb-test` lights every shown
+  device in one test colour. It cannot fix a colour drifting along one long chain.
+- **Round 3 (2026-10-17):** the device list groups by place (what stands in the case is indented under the case row, the rest
+  "On the desk"); the case can be flipped (mirror, `caseFlip`); slots carry an outline (card, sticks, I/O) so a GPU reads as a
+  card even with one LED; every template has a "Board I/O" slot. Sliders snap to round steps (15°, 5 %, 50 ms, 0.25×; Shift =
+  fine), the open layer folds by clicking its header again. Share codes (`ui/js/share.js`): "BUF-FX1." / "BUF-EQ1." +
+  base64url(deflate-raw(JSON)); the RGB effect menu and the EQ header ("⇄") copy or paste them, pasted ones are cleaned to known
+  ranges and become "Mine" / a user preset.
+- **Simple + Advanced merged (2026-10-17):** one scene, two views (RGB-SCENE.md "One scene, two views"): per device own look >
+  effect > given back (`free`), `mode` is only the open view. Simple has a "Scene" effect choice (device follows the effect) and
+  "scene" tags; Advanced has "Colour from: Effect / Own colour / Given back" in the inspector and previews looks with a port of
+  `Look::at`. Migration (`Scene::migrate`, flag `merged`) kept exactly what was lit in the scene and both profiles (checked by
+  comparing driven sets before/after). A deadlock in the first cut (`rgb-scene-set` held the state lock inside its `match` while
+  `edit()` locked again) froze the recorder; fixed by copying the scene first.
+- **UX pass (2026-10-17):** both views re-read the scene on a view switch / page entry (the Simple view used to show stale looks);
+  "All devices" knows the effect (Scene choice, tag, one click puts every device back on it); when no online device plays the
+  effect a bar above it says so ("All on the effect"); list rows show the drive state as a dot (lime / own colour / hollow), not
+  long tags; removing a device or layer, Arrange and a case change have "Undo" in the toast (`App.toast(msg, kind, {label, run})`);
+  dragging the selected device's body moves it (same solve as the ring); mid widths keep stage + inspector side by side; offline
+  hidden devices stay hidden (`rgb-status: hidden`). The debug recorder's autostart goes through `conhost.exe --headless`.
 - Measured on the dev PC: without admin OpenRGB sees the PNY RTX 3090 and the Arctis 5; the MSI B450 board and RAM need the elevated
   task. The Dark Project keyboard (eVision, `320F:706E`) has no OpenRGB controller.
 - Tests: `cargo test -p ml-rgb` (engine, scene, protocol); ignored, hardware: `cargo test -p ml-recorder rgb_hosting -- --ignored --nocapture`

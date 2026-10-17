@@ -88,6 +88,31 @@ pub async fn rgb_unlook(name: String, nth: u32) -> Result<(), String> {
     send(format!("rgb-unlook {nth} {name}")).await.map(|_| ())
 }
 
+/// A device follows the scene's effect again: its own look goes, it is not given back.
+#[tauri::command]
+pub async fn rgb_follow(name: String, nth: u32) -> Result<(), String> {
+    send(format!("rgb-follow {nth} {name}")).await.map(|_| ())
+}
+
+/// Lights one device for 3 s so it can be told apart: dim white, LED 0 flashing, LED 1 lime (the direction).
+#[tauri::command]
+pub async fn rgb_blink(name: String, nth: u32) -> Result<(), String> {
+    send(format!("rgb-blink {nth} {name}")).await.map(|_| ())
+}
+
+/// A device's colour calibration (`key` "name#n", percent r, g, b; None removes it). Applies in every mode.
+#[tauri::command]
+pub async fn rgb_calib(key: String, value: Option<[f32; 3]>) -> Result<(), String> {
+    send(format!("rgb-calib {key} {}", serde_json::to_string(&value).map_err(|e| e.to_string())?)).await.map(|_| ())
+}
+
+/// The calibration test pattern: every shown device in `color` (calibrated); None ends it and the scene comes back.
+#[tauri::command]
+pub async fn rgb_test(color: Option<[u8; 3]>) -> Result<(), String> {
+    let arg = match color { Some(c) => serde_json::to_string(&c).map_err(|e| e.to_string())?, None => "off".into() };
+    send(format!("rgb-test {arg}")).await.map(|_| ())
+}
+
 /// One device's Simple look `{name, nth, hue, sat, br, on}`: saved, shown at once, switches to Simple mode.
 #[tauri::command]
 pub async fn rgb_look(look: Value) -> Result<(), String> {

@@ -48,6 +48,12 @@ pub struct Device {
     /// LED positions in cm in the device's own space; the built-in layout of `type` when absent
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pts: Option<Vec<[f32; 3]>>,
+    /// own brightness of this device, 0..100 (on top of the scene's)
+    #[serde(default = "full")]
+    pub trim: f32,
+    /// this device shows the effect `delay` ms later than the rest
+    #[serde(default)]
+    pub delay: f32,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -106,8 +112,19 @@ pub struct Scene {
     pub layers: Vec<Layer>,
     #[serde(default)]
     pub simple: Vec<Look>,
+    /// devices (key "name#n") placed in the scene that Buffer leaves alone: they show their own lighting ("Give back")
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub free: Vec<String>,
+    /// the scene is in the merged form (one scene, Simple and Advanced are two views of it); see `migrate`
+    #[serde(default)]
+    pub merged: bool,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// The key of the `nth` OpenRGB device called `name` (as in `hidden`, `calib`, `free`).
+pub fn dev_key(name: &str, nth: u32) -> String {
+    format!("{name}#{nth}")
 }
 
 fn yes() -> bool {
@@ -144,6 +161,19 @@ pub struct DevPlan {
     /// Simple mode: the look, for the effects that move over time
     pub look: Option<Look>,
     pub pos: Vec<[f32; 3]>,
+    /// Advanced: the layers that act on this device, when some skip it (None = all the scene's layers)
+    pub layers: Option<Vec<Layer>>,
+    /// Advanced: multiplier after the effect (the device's own brightness), 1.0 = unchanged
+    pub gain: f32,
+    /// Advanced: seconds this device runs behind the scene
+    pub delay: f64,
+}
+
+impl DevPlan {
+    /// A device that shows one colour (or a Simple look).
+    pub fn fixed(index: usize, color: [u8; 3], look: Option<Look>) -> Self {
+        DevPlan { index, fixed: Some(color), look, pos: Vec::new(), layers: None, gain: 1.0, delay: 0.0 }
+    }
 }
 
 impl Look {
@@ -236,7 +266,9 @@ pub fn builtin_layout(kind: &str) -> Vec<[f32; 3]> {
 }
 
 impl Device {
-    /// World positions of `leds` LEDs. A layout with another LED count is resampled by index.
+    /// World positions of `leds` LEDs. A layout with more points than LEDs gives each LED the middle of its group of
+    /// points (a board OpenRGB sees as one LED, laid over three fans, takes its colour at their middle; the page's
+    /// preview uses the same rule); one with fewer points is resampled by index.
     pub fn world(&self, leds: usize) -> Vec<[f32; 3]> {
         let local = match &self.pts {
             Some(p) if !p.is_empty() => p.clone(),
@@ -244,9 +276,16 @@ impl Device {
         };
         let a = self.rot.to_radians();
         let (c, s) = (a.cos(), a.sin());
+        let n = local.len();
         (0..leds)
             .map(|i| {
-                let p = local[(i * local.len() / leds.max(1)).min(local.len() - 1)];
+                let p = if leds < n {
+                    let (a, b) = (i * n / leds, ((i + 1) * n / leds).max(i * n / leds + 1));
+                    let k = (b - a) as f32;
+                    local[a..b].iter().fold([0.0f32; 3], |m, q| [m[0] + q[0] / k, m[1] + q[1] / k, m[2] + q[2] / k])
+                } else {
+                    local[(i * n / leds.max(1)).min(n - 1)]
+                };
                 [self.x + (p[0] * c + p[2] * s) * self.sc, self.y + p[1] * self.sc, self.z + (-p[0] * s + p[2] * c) * self.sc]
             })
             .collect()
@@ -259,34 +298,95 @@ pub fn resolve(devs: &[(&str, usize)], name: &str, nth: u32) -> Option<usize> {
 }
 
 impl Scene {
-    /// How many devices this scene drives (Simple: the looks; Advanced: the placed devices linked to a real one).
-    pub fn driven_count(&self) -> usize {
-        match self.mode {
-            Mode::Simple => self.simple.len(),
-            Mode::Advanced => self.devices.iter().filter(|d| d.link.is_some()).count(),
+    /// There is an effect to follow: at least one layer is on (all off = placed devices show their own lighting, not black).
+    pub fn has_effect(&self) -> bool {
+        self.layers.iter().any(|l| l.on)
+    }
+
+    fn has_look(&self, key: &str) -> bool {
+        self.simple.iter().any(|l| dev_key(&l.name, l.nth) == key)
+    }
+
+    /// The placed devices that follow the effect (linked, not given back, no look of their own), by key.
+    fn scene_keys(&self) -> Vec<String> {
+        if !self.has_effect() {
+            return Vec::new();
         }
+        self.devices
+            .iter()
+            .filter_map(|d| d.link.as_ref().map(|l| dev_key(&l.name, l.nth)))
+            .filter(|k| !self.free.contains(k) && !self.has_look(k))
+            .collect()
+    }
+
+    /// How many devices this scene drives: the ones with a look of their own, and the ones that follow the effect.
+    pub fn driven_count(&self) -> usize {
+        self.simple.len() + self.scene_keys().len()
+    }
+
+    /// Simple and Advanced used to be two scenes in one, and only `mode`'s one was shown. Now both are one scene: a
+    /// device's own look wins, a placed device without one follows the effect, `free` ones are left alone, and `mode`
+    /// is only the view that is open. The old form is turned into the new one so that exactly what was lit stays lit:
+    /// a Simple scene gives back every placed device without a look; an Advanced scene's looks were not shown, so they
+    /// are put aside (`simple_before_merge`), not lost. Runs once (`merged`).
+    pub fn migrate(&mut self) {
+        if self.merged {
+            return;
+        }
+        match self.mode {
+            Mode::Simple => {
+                let keys: Vec<String> = self.devices.iter().filter_map(|d| d.link.as_ref().map(|l| dev_key(&l.name, l.nth))).collect();
+                for k in keys {
+                    if !self.has_look(&k) && !self.free.contains(&k) {
+                        self.free.push(k);
+                    }
+                }
+            }
+            Mode::Advanced => {
+                if !self.simple.is_empty() {
+                    self.extra.insert("simple_before_merge".into(), serde_json::to_value(&self.simple).unwrap_or_default());
+                    self.simple.clear();
+                }
+            }
+        }
+        self.merged = true;
     }
 
     pub fn fps(&self) -> u32 {
         self.fps.unwrap_or(30).clamp(5, 60)
     }
 
-    /// Drops the look of one device: it is given back (the recorder restores its own lighting).
+    /// Gives one device back: its look goes, and if it is placed it does not follow the effect either; it shows its
+    /// own lighting (the recorder restores it).
     pub fn remove_look(&mut self, name: &str, nth: u32) {
         self.simple.retain(|l| !(l.name == name && l.nth == nth));
+        let k = dev_key(name, nth);
+        let placed = self.devices.iter().any(|d| d.link.as_ref().is_some_and(|l| l.name == name && l.nth == nth));
+        if placed && !self.free.contains(&k) {
+            self.free.push(k);
+        }
     }
 
-    /// Replaces (or adds) the look of one device and switches to Simple mode.
+    /// One device follows the scene's effect again: no look of its own, not given back.
+    pub fn follow_scene(&mut self, name: &str, nth: u32) {
+        self.simple.retain(|l| !(l.name == name && l.nth == nth));
+        let k = dev_key(name, nth);
+        self.free.retain(|f| f != &k);
+    }
+
+    /// Replaces (or adds) the look of one device: its own colour, over the effect. The open view (`mode`) stays.
     pub fn set_look(&mut self, look: Look) {
+        let k = dev_key(&look.name, look.nth);
+        self.free.retain(|f| f != &k);
         match self.simple.iter_mut().find(|l| l.name == look.name && l.nth == look.nth) {
             Some(l) => *l = look,
             None => self.simple.push(look),
         }
-        self.mode = Mode::Simple;
     }
 
-    /// What each driven device shows, given the OpenRGB device list as (name, LED count). Simple mode drives the
-    /// devices that have a look, Advanced the ones with a link; a device is never planned twice.
+    /// What each driven device shows, given the OpenRGB device list as (name, LED count), whatever view is open: a
+    /// device's own look first, then the effect for placed devices that are not given back; a device is never planned
+    /// twice.
     pub fn plan(&self, devs: &[(&str, usize)]) -> Vec<DevPlan> {
         let mut out: Vec<DevPlan> = Vec::new();
         let mut add = |p: DevPlan| {
@@ -294,20 +394,18 @@ impl Scene {
                 out.push(p);
             }
         };
-        match self.mode {
-            Mode::Simple => {
-                for l in &self.simple {
-                    if let Some(index) = resolve(devs, &l.name, l.nth) {
-                        add(DevPlan { index, fixed: Some(l.rgb()), look: Some(l.clone()), pos: Vec::new() });
-                    }
-                }
+        for l in &self.simple {
+            if let Some(index) = resolve(devs, &l.name, l.nth) {
+                add(DevPlan::fixed(index, l.rgb(), Some(l.clone())));
             }
-            Mode::Advanced => {
-                for d in &self.devices {
-                    if let Some(link) = &d.link {
-                        if let Some(index) = resolve(devs, &link.name, link.nth) {
-                            add(DevPlan { index, fixed: None, look: None, pos: d.world(devs[index].1) });
-                        }
+        }
+        if self.has_effect() {
+            for d in &self.devices {
+                if let Some(link) = d.link.as_ref().filter(|l| !self.free.contains(&dev_key(&l.name, l.nth))) {
+                    if let Some(index) = resolve(devs, &link.name, link.nth) {
+                        let layers = self.layers.iter().any(|l| l.skip.contains(&d.id)).then(|| self.layers.iter().filter(|l| !l.skip.contains(&d.id)).cloned().collect());
+                        let gain = (d.trim / 100.0).clamp(0.0, 1.0);
+                        add(DevPlan { index, fixed: None, look: None, pos: d.world(devs[index].1), layers, gain, delay: (d.delay.clamp(0.0, 5000.0) / 1000.0) as f64 });
                     }
                 }
             }
@@ -390,9 +488,11 @@ mod tests {
         s.mode = Mode::Advanced;
         let dev = |kind: &str, name: &str, nth, x| Device {
             id: 1, kind: kind.into(), name: name.into(), ex: false, x, y: 0.0, z: 0.0, rot: 0.0, sc: 1.0,
-            link: Some(Link { name: name.into(), nth }), pts: None, extra: Map::new(),
+            link: Some(Link { name: name.into(), nth }), pts: None, trim: 100.0, delay: 0.0, extra: Map::new(),
         };
         s.devices = vec![dev("header", "Board", 0, 10.0), dev("headset", "Headset", 1, 0.0), dev("gpu", "Nope", 0, 0.0)];
+        assert!(s.plan(&devs).is_empty(), "no effect (no layers): placed devices are not driven");
+        s.layers = serde_json::from_str(r##"[{"gen":"solid","stops":[{"p":0,"c":"#ffffff"},{"p":1,"c":"#ffffff"}]}]"##).unwrap();
         let p = s.plan(&devs);
         assert_eq!(p.iter().map(|d| (d.index, d.pos.len())).collect::<Vec<_>>(), [(0, 12), (2, 2)]);
         assert!((p[0].pos[0][0] - (10.0 - 9.0)).abs() < 1e-4 && (p[0].pos[11][0] - 19.0).abs() < 1e-4);
@@ -403,9 +503,82 @@ mod tests {
         r.rot = 90.0;
         let w = r.world(12);
         assert!(w[11][0].abs() < 1e-4 && (w[11][2] + 9.0).abs() < 1e-4);
-        s.mode = Mode::Simple;
+        // one scene, whatever view is open: a look of its own wins over the effect; the view (mode) changes nothing
         s.set_look(Look { name: "Headset".into(), nth: 1, hue: 75.0, sat: 90.0, br: 100.0, on: true, fx: "static".into(), speed: 1.0, c2: None, rev: false, native: None });
-        assert_eq!(s.plan(&devs).iter().map(|d| d.index).collect::<Vec<_>>(), [2]);
-        assert!(s.plan(&devs)[0].fixed.is_some());
+        assert_eq!(s.mode, Mode::Advanced, "setting a look does not switch the view");
+        let p = s.plan(&devs);
+        assert_eq!(p.iter().map(|d| (d.index, d.fixed.is_some())).collect::<Vec<_>>(), [(2, true), (0, false)]);
+        s.mode = Mode::Simple;
+        assert_eq!(s.plan(&devs).len(), 2, "the Simple view drives the same");
+        // give back: no look and not the effect either; follow the scene again: the effect
+        s.remove_look("Headset", 1);
+        assert_eq!(s.plan(&devs).iter().map(|d| d.index).collect::<Vec<_>>(), [0]);
+        assert_eq!(s.free, ["Headset#1"]);
+        s.follow_scene("Headset", 1);
+        assert_eq!(s.plan(&devs).iter().map(|d| (d.index, d.fixed.is_some())).collect::<Vec<_>>(), [(0, false), (2, false)]);
+        assert_eq!(s.driven_count(), 3, "counts what the scene drives, also a placed device OpenRGB does not see now");
+        // every layer off: no effect, the placed devices are given back (not driven black)
+        s.layers.iter_mut().for_each(|l| l.on = false);
+        assert!(s.plan(&devs).is_empty() && s.driven_count() == 0);
+    }
+
+    #[test]
+    fn migration_keeps_what_was_lit() {
+        let base = r##"{"devices":[{"id":1,"type":"gpu","link":{"name":"G"}},{"id":2,"type":"ram","link":{"name":"R"}}],
+            "layers":[{"gen":"solid","stops":[{"p":0,"c":"#ffffff"},{"p":1,"c":"#ffffff"}]}],
+            "simple":[{"name":"R","hue":10}]"##;
+        let devs = [("G", 8), ("R", 10)];
+        let drive = |s: &Scene| s.plan(&devs).iter().map(|p| (p.index, p.fixed.is_some())).collect::<Vec<_>>();
+        // a Simple scene showed only its looks: the placed device without one is given back
+        let mut s: Scene = serde_json::from_str(&format!("{base},\"mode\":\"simple\"}}")).unwrap();
+        s.migrate();
+        assert_eq!((drive(&s), s.free.clone(), s.merged), (vec![(1, true)], vec!["G#0".to_string()], true));
+        // an Advanced scene showed only its effect: its looks are put aside, not lost
+        let mut a: Scene = serde_json::from_str(&format!("{base},\"mode\":\"advanced\"}}")).unwrap();
+        a.migrate();
+        assert_eq!(drive(&a), [(0, false), (1, false)]);
+        assert!(a.simple.is_empty() && a.extra["simple_before_merge"][0]["name"] == "R");
+        // once only, and it survives a round trip
+        let again = { let mut x = a.clone(); x.migrate(); x };
+        assert_eq!(again, a);
+        let back: Scene = serde_json::from_value(serde_json::to_value(&a).unwrap()).unwrap();
+        assert_eq!(back, a);
+    }
+
+    #[test]
+    fn per_device_layers_brightness_and_delay() {
+        let j = r##"{"mode":"advanced","devices":[
+            {"id":1,"type":"gpu","name":"G","x":0,"y":0,"z":0,"link":{"name":"GPU"}},
+            {"id":2,"type":"ram","name":"R","x":0,"y":0,"z":0,"link":{"name":"RAM"},"trim":50,"delay":250}],
+          "layers":[{"gen":"solid","stops":[{"p":0,"c":"#ffffff"},{"p":1,"c":"#ffffff"}]},
+                    {"gen":"wave","skip":[2],"stops":[{"p":0,"c":"#000000"},{"p":1,"c":"#ff0000"}]}]}"##;
+        let s: Scene = serde_json::from_str(j).unwrap();
+        let p = s.plan(&[("GPU", 8), ("RAM", 10)]);
+        assert!(p[0].layers.is_none(), "a device no layer skips uses the scene's layers");
+        assert_eq!((p[0].gain, p[0].delay), (1.0, 0.0));
+        let only = p[1].layers.as_ref().expect("the RAM is skipped by the wave");
+        assert_eq!(only.len(), 1);
+        assert_eq!(p[1].gain, 0.5);
+        assert!((p[1].delay - 0.25).abs() < 1e-9);
+        // the new fields round-trip, and a scene saved before them still loads with neutral values
+        let back: Scene = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+        let old: Device = serde_json::from_str(r#"{"id":3,"type":"fan"}"#).unwrap();
+        assert_eq!((old.trim, old.delay), (100.0, 0.0));
+        assert!(!serde_json::to_string(&s.layers[0]).unwrap().contains("skip"), "an empty skip list is not written");
+    }
+
+    #[test]
+    fn fewer_leds_than_points_take_the_middle_of_their_group() {
+        // a board OpenRGB sees as one LED, laid over two fan rings (points at x = 0 and x = 10): its LED sits in between
+        let d: Device = serde_json::from_str(r#"{"id":1,"type":"header","x":0,"y":0,"z":0,"pts":[[0,1,0],[0,-1,0],[10,1,0],[10,-1,0]]}"#).unwrap();
+        let one = d.world(1);
+        assert_eq!(one.len(), 1);
+        assert!((one[0][0] - 5.0).abs() < 1e-5 && one[0][1].abs() < 1e-5);
+        // two LEDs: one per ring
+        let two = d.world(2);
+        assert!((two[0][0] - 0.0).abs() < 1e-5 && (two[1][0] - 10.0).abs() < 1e-5);
+        // more LEDs than points: resampled by index as before
+        assert_eq!(d.world(8).len(), 8);
     }
 }

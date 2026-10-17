@@ -17,8 +17,12 @@
   /** per device (name#nth): { hue, sat, br, on, fx, speed, c2, rev, native }, loaded from the scene the recorder keeps and saved on every change */
   const look = new Map();
   const lkey = (d) => d.name + "#" + d.nth;
-  /** keys of devices Buffer drives; the others still show their own lighting, so their cards stay dim */
+  /** keys of devices Buffer drives with a look of their own; the others still show their own lighting (dim cards) */
   const driven = new Set();
+  /** One scene, two views: devices placed in the Advanced view (`placed`) follow its effect (`onScene`) unless they have a
+      look of their own or were given back. `sceneCol` is the effect's main colour, for their cards. */
+  const placed = new Set(), onScene = new Set();
+  let sceneCol = "#c6f432";
   const fresh = () => ({ hue: 75, sat: 90, br: 100, on: true, fx: "static", speed: 1, c2: null, rev: false, native: null });
   const lookOf = (d) => {
     if (!look.has(lkey(d))) look.set(lkey(d), fresh());
@@ -82,11 +86,18 @@
     return st.devs.find((d) => driven.has(lkey(d)) && sigOf(d) === ref) || st.devs[0];
   }
   const itemDriven = (it) => it.members.some((m) => driven.has(lkey(m)));
+  /** every device of the item takes its colour from the scene's effect */
+  /** the members the effect can colour (the Dark Project keyboard never: it is not an OpenRGB device) */
+  const fxMembers = (it) => it.members.filter((m) => !m.stored);
+  /** every device of the item ("All devices": every one the effect can colour) takes its colour from the scene's effect */
+  const itemScene = (it) => !it.stored && fxMembers(it).length > 0 && fxMembers(it).every((m) => onScene.has(lkey(m)));
+  /** the item can follow the effect: its devices are placed on the Advanced view (for "All": at least one is) */
+  const itemPlaced = (it) => (it.all ? fxMembers(it).some((m) => placed.has(lkey(m))) : !it.stored && it.members.length > 0 && it.members.every((m) => placed.has(lkey(m))));
   const itemOn = (it) => !itemDriven(it) || itemLook(it).on;
 
   /** Sends a device's look at most every 40 ms (a drag fires far more often), one timer per device. */
   function push(d) {
-    driven.add(lkey(d));
+    driven.add(lkey(d)); onScene.delete(lkey(d));   // a look of its own wins over the effect
     clearTimeout(sendTimers.get(d.index));
     sendTimers.set(d.index, setTimeout(() => {
       api.invoke("rgb_look", { look: { name: d.name, nth: d.nth, ...lookOf(d) } }).catch(toast);
@@ -107,12 +118,20 @@
   /** Gives devices back: their own lighting returns. */
   async function giveBackQuiet(it) {
     for (const m of it.members) {
-      if (!driven.has(lkey(m))) continue;
-      driven.delete(lkey(m)); look.delete(lkey(m));
+      if (!driven.has(lkey(m)) && !onScene.has(lkey(m))) continue;
+      driven.delete(lkey(m)); look.delete(lkey(m)); onScene.delete(lkey(m));   // no look, and not the effect either
       await api.invoke("rgb_unlook", { name: m.name, nth: m.nth }).catch(toast);
     }
   }
   async function giveBack(it) { await giveBackQuiet(it); draw(); }
+  /** The devices of an item follow the scene's effect again (set in the Advanced view): their own look goes. */
+  async function followScene(it) {
+    for (const m of fxMembers(it).filter((x) => placed.has(lkey(x)))) {
+      driven.delete(lkey(m)); look.delete(lkey(m)); onScene.add(lkey(m));
+      await api.invoke("rgb_follow", { name: m.name, nth: m.nth }).catch(toast);
+    }
+    draw();
+  }
 
   /** Hides a device (or shows it again): it leaves the list and Buffer stops driving it. */
   async function hide(it, on) {
@@ -174,15 +193,15 @@
   }
 
   function paintCard(card, it, ref = reference()) {
-    const l = itemLook(it), on = itemOn(it), dr = itemDriven(it);
-    const mk = mark(it, ref);
+    const l = itemLook(it), on = itemOn(it), dr = itemDriven(it), sc = itemScene(it);
+    const mk = sc ? "scene" : mark(it, ref);
     card.classList.toggle("diff", mk === "custom");
     const tag = card.querySelector(".rtag");
-    if (tag) { tag.hidden = !mk; tag.textContent = mk ? App.t("rgb." + mk) : ""; tag.title = App.t(mk === "custom" ? "rgb.customTip" : "rgb.mixedTip"); tag.classList.toggle("mix", mk === "mixed"); }
-    card.style.setProperty("--c", css(l));
-    card.style.setProperty("--br", on ? l.br / 100 : 0.08);
+    if (tag) { tag.hidden = !mk; tag.textContent = mk ? App.t(mk === "scene" ? "rgb.sceneTag" : "rgb." + mk) : ""; tag.title = App.t(mk === "scene" ? "rgb.sceneTip" : mk === "custom" ? "rgb.customTip" : "rgb.mixedTip"); tag.classList.toggle("mix", mk === "mixed"); }
+    card.style.setProperty("--c", sc ? sceneCol : css(l));
+    card.style.setProperty("--br", sc ? 1 : on ? l.br / 100 : 0.08);
     card.classList.toggle("off", dr && !l.on);
-    card.classList.toggle("idle", !dr);
+    card.classList.toggle("idle", !dr && !sc);
     card.querySelector(".toggle")?.classList.toggle("on", on);
   }
 
@@ -207,11 +226,16 @@
   /** The saved scene: which view, and the looks the Simple page drives. */
   function adoptScene(sc) {
     mode = sc.mode === "advanced" || sc.mode === "adv" ? "advanced" : "simple";
-    driven.clear(); look.clear();
+    driven.clear(); look.clear(); placed.clear(); onScene.clear();
     for (const l of sc.simple || []) {
-      look.set(l.name + "#" + l.nth, { hue: l.hue, sat: l.sat, br: l.br, on: l.on, fx: l.fx || "static", speed: l.speed || 1, c2: l.c2 || null, rev: !!l.rev, native: l.native || null });
-      driven.add(l.name + "#" + l.nth);
+      look.set(l.name + "#" + (l.nth || 0), { hue: l.hue, sat: l.sat, br: l.br, on: l.on, fx: l.fx || "static", speed: l.speed || 1, c2: l.c2 || null, rev: !!l.rev, native: l.native || null });
+      driven.add(l.name + "#" + (l.nth || 0));
     }
+    const free = new Set(sc.free || []), layers = (sc.layers || []).filter((x) => x.on !== false);
+    for (const d of sc.devices || []) if (d.link) placed.add(d.link.name + "#" + (d.link.nth || 0));
+    if (layers.length) for (const k of placed) if (!free.has(k) && !driven.has(k)) onScene.add(k);
+    const top = layers[layers.length - 1], st = top && top.stops;
+    sceneCol = st && st.length ? st[st.length - 1].c : "#c6f432";
   }
 
   async function start() {
@@ -235,17 +259,20 @@
   function head(...extra) {
     return h("div", { class: "eqhead" }, h("h1", { text: "RGB" }), h("span", { class: "chip on", text: "OpenRGB" }),
       App.ui.segc([["simple", App.t("rgb.simple")], ["advanced", App.t("rgb.advanced")]], mode, setMode),
-      h("span", { class: "sp" }), App.RGBAuto.awayChip(), App.RGBAuto.conflictChip(), ...extra);
+      h("span", { class: "sp" }), App.RGBAuto.awayChip(), App.RGBAuto.conflictChip(),
+      h("button", { class: "chip", text: App.t("rcal.title"), title: App.t("ra.calTip"), onClick: () => App.RGBCalib.open() }), ...extra);
   }
 
   /** Switching also tells the recorder which view the saved scene belongs to (rgb-scene-set replaces the whole scene). */
   async function setMode(m) {
     if (m === mode) return;
-    if (mode === "advanced") App.RGBAdv.leave();
+    // the Advanced page's last save lands first; then the scene is read again: both views show the same one
+    if (mode === "advanced") await App.RGBAdv.leave();
     mode = m;
     try {
       const sc = await api.invoke("rgb_scene_get");
       if (sc.mode !== m) await api.invoke("rgb_scene_set", { scene: { ...sc, mode: m } });
+      adoptScene({ ...sc, mode: m });
     } catch (e) { toast(e); }
     draw(true);
   }
@@ -320,15 +347,20 @@
       if (!c) { e.target.value = App.RGBWheel.toHex(itemLook(it).hue, itemLook(it).sat); return; }
       wheel.set(c.hue, c.sat); apply(it, c); upd();
     } });
-    const br = h("input", { class: "rline", type: "range", min: 0, max: 100, value: l.br, "aria-label": App.t("rgb.brightness") });
-    const spd = h("input", { class: "rline", type: "range", min: 20, max: 300, value: Math.round(l.speed * 100), "aria-label": App.t("rgb.speed") });
+    // round steps (5 %, 0.1×); Shift while dragging = 1 % steps
+    const br = h("input", { class: "rline", type: "range", min: 0, max: 100, step: 5, value: l.br, "aria-label": App.t("rgb.brightness") });
+    const spd = h("input", { class: "rline", type: "range", min: 20, max: 300, step: 10, value: Math.round(l.speed * 100), "aria-label": App.t("rgb.speed") });
+    for (const [inp, st] of [[br, 5], [spd, 10]]) {
+      inp.addEventListener("pointerdown", (e) => { inp.step = e.shiftKey ? 1 : st; });
+      inp.addEventListener("keydown", (e) => { inp.step = e.shiftKey ? 1 : st; });
+    }
     const bv = h("span", { class: "mono rval", text: l.br + "%" });
     const sv = h("span", { class: "mono rval", text: l.speed.toFixed(1) + "×" });
     const n = 48;   // the big preview: a fixed number of thin segments, whatever the device has
     const prev = h("div", { class: "rbig" }, Array.from({ length: n }, (_, i) =>
       vars(h("i"), { "--o": (0.4 + 0.6 * (i / (n - 1))).toFixed(2), "--i": i })));
     const mk = mark(it, reference());
-    const rel = h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), disabled: !itemDriven(it), onClick: () => giveBack(it) });
+    const rel = h("button", { class: "chip", text: App.t("rgb.release"), title: App.t("rgb.releaseTip"), disabled: !itemDriven(it) && !itemScene(it), onClick: () => giveBack(it) });
     const power = h("button", { class: "chip" + (itemOn(it) ? " on" : ""), text: App.t(itemOn(it) ? "rgb.on" : "rgb.off"), onClick: () => { apply(it, { on: !itemOn(it) }); draw(); } });
     const cap = (k, tip) => h("div", { class: "cap", text: App.t(k), title: tip ? App.t(tip) : null });
     // addressable zones whose LED count can be set (an ARGB header: the strip or fans on it may have any length)
@@ -340,11 +372,15 @@
       prev.style.setProperty("--c", css(l)); prev.style.setProperty("--br", itemOn(it) ? l.br / 100 : 0.08);
       prev.style.setProperty("--sp", (1 / l.speed).toFixed(2));
       bv.textContent = l.br + "%"; sv.textContent = itemLook(it).speed.toFixed(1) + "×";
-      rel.disabled = !itemDriven(it);
+      rel.disabled = !itemDriven(it) && !itemScene(it);
       paintAll();
     };
     br.oninput = () => { apply(it, { br: +br.value }); upd(); };
     spd.oninput = () => { apply(it, { speed: +spd.value / 100 }); upd(); };
+    // double-click puts a slider back to its default
+    br.ondblclick = () => { br.value = 100; br.oninput(); };
+    spd.ondblclick = () => { spd.value = 100; spd.oninput(); };
+    br.title = spd.title = App.t("ra.resetTip");
     const swatches = h("div", { class: "rsw" }, SWATCHES.map((c) => vars(h("button", { "aria-label": c, onClick: () => {
       const v = App.RGBWheel.fromHex(c);
       wheel.set(v.hue, v.sat); hex.value = App.RGBWheel.toHex(v.hue, v.sat);
@@ -367,8 +403,13 @@
       wants.colour2 ? h("div", { class: "rcol2row" }, h("span", { class: "cap", text: App.t("rgb.colour2") }),
         l.c2 ? colour2(it, l) : h("button", { class: "chip rplus", text: "+", title: App.t("rgb.colour2"), "aria-label": App.t("rgb.colour2"), onClick: () => { apply(it, { c2: [(l.hue + 180) % 360, 90] }); draw(); } })) : null) : null;
     // card "Efekt": the plain effects, and the device's own ones as a wrapped row of chips (the active one again = plain colour)
+    const scene = itemScene(it), canScene = itemPlaced(it);
+    const fxSeg = App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]).concat(it.stored ? [] : [["scene", App.t("rgb.fx.scene")]]),
+      scene ? "scene" : l.fx === "native" ? "" : l.fx || "static", (v) => { if (v === "scene") { if (canScene) followScene(it); return; } apply(it, { fx: v, native: null }); draw(); });
+    const sb = fxSeg.querySelector('[data-v="scene"], button:last-child');
+    if (sb && !it.stored) { sb.title = App.t(canScene ? "rgb.sceneTip" : "rgb.sceneNoPlace"); if (!canScene) sb.disabled = true; }
     const effectCard = h("section", { class: "card2 pad rcard" }, cap("rgb.effect"),
-      App.ui.segc(FX.map((f) => [f, App.t("rgb.fx." + f)]), l.fx === "native" ? "" : l.fx || "static", (v) => { apply(it, { fx: v, native: null }); draw(); }),
+      fxSeg,
       nat.length ? cap("rgb.native", "rgb.nativeTip") : null,
       nat.length ? h("div", { class: "rnats" }, nat.map((m) => h("button", { class: "chip" + (natMode && natMode.name === m.name ? " on" : ""),
         text: m.name + (m.flags & F.AUTOSAVE ? " ◆" : ""),
@@ -390,8 +431,11 @@
               adoptDevices(list); draw();
             } catch (err) { toast(err); }
           } })))));
+    // a device on the scene's effect: its colour comes from the Advanced view
+    const sceneCard = scene ? h("section", { class: "card2 pad rcard" }, cap("rgb.fx.scene"), h("p", { class: "rnote", text: App.t("rgb.sceneNote") }),
+      h("button", { class: "btn", text: App.t("rgb.openAdv"), onClick: () => setMode("advanced") })) : null;
     const detail = h("section", { class: "rdetail" }, hd, prev,
-      h("div", { class: "rgrid2" + (colourCard ? "" : " one") }, colourCard, effectCard), setCard);
+      scene ? h("div", { class: "rgrid2" }, sceneCard, effectCard) : h("div", { class: "rgrid2" + (colourCard ? "" : " one") }, colourCard, effectCard), scene ? null : setCard);
     upd();
 
     // the automation bar sits under the panel and is kept between redraws (an open pop-up must not close when a card is clicked)
@@ -419,6 +463,10 @@
   }
 
   App.RGB = {
+    /** the line icon of an OpenRGB device kind (the Advanced page uses the same ones) */
+    icon,
+    /** switches the view ("simple" | "advanced"): one scene, two views */
+    view: (m) => setMode(m),
     async render() {
       page = App.$("#v-rgb");
       let s = null;
@@ -426,9 +474,9 @@
       if (S.view !== "rgb") return;
       if (!s || !s.installed) gate();
       else if (!s.enabled) gate();
-      else if (s.running && st.devs.length) { await App.RGBAuto.refresh(); draw(true); }
+      else if (s.running && st.devs.length) { try { adoptScene(await api.invoke("rgb_scene_get")); } catch (_) { /* keep */ } await App.RGBAuto.refresh(); draw(true); }   // the scene may have changed elsewhere
       else start();
     },
-    leave() { if (mode === "advanced") App.RGBAdv.leave(); },
+    leave() { App.RGBCalib.close(); if (mode === "advanced") App.RGBAdv.leave(); },
   };
 })();

@@ -262,7 +262,10 @@ fn autostart(install: bool) {
         old.args(["delete", RUN_KEY, "/v", "MomentsLiteRecorder", "/f"]);
         ml_core::export::hide_window(&mut old);
         let _ = old.output();
-        cmd.args(["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d", &format!("\"{exe}\" run"), "/f"]);
+        // a debug build is a console program: started at login it would open a terminal window, so it starts through a
+        // headless console host (the release build has no console and starts directly)
+        let line = if cfg!(debug_assertions) { format!("conhost.exe --headless \"{exe}\" run") } else { format!("\"{exe}\" run") };
+        cmd.args(["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d", &line, "/f"]);
     } else {
         cmd.args(["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]);
     }

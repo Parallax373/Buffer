@@ -98,6 +98,10 @@ pub struct Layer {
     pub blend: Blend,
     #[serde(default = "one")]
     pub opacity: f32,
+    /// scene device ids this layer does not act on (the Advanced page's "Applies to"); kept on the layer so it
+    /// follows the layer when layers are reordered, copied or deleted
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skip: Vec<u32>,
 }
 
 fn yes() -> bool {
@@ -322,7 +326,7 @@ mod tests {
 
     fn layer(kind: Gen, p: Params, a: &str, b: &str, blend: Blend, opacity: f32) -> Layer {
         let col = |s: &str| serde_json::from_value::<Color>(serde_json::json!(s)).unwrap();
-        Layer { on: true, kind, p, stops: vec![Stop { p: 0.0, c: col(a) }, Stop { p: 1.0, c: col(b) }], blend, opacity }
+        Layer { on: true, kind, p, stops: vec![Stop { p: 0.0, c: col(a) }, Stop { p: 1.0, c: col(b) }], blend, opacity, skip: Vec::new() }
     }
 
     fn all() -> Vec<Layer> {
