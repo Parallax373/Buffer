@@ -104,6 +104,8 @@ App.i18n = (function () {
     return h("div", { class: "langhint inline" },
       h("button", { class: "linkbtn lime", text: App.tIn(code, "lang.switchTo"), onClick: () => setLang(code) }),
       App.locales[code].ai ? h("span", { class: "muted", title: App.tIn(code, "lang.aiTip"), text: App.tIn(code, "lang.ai") }) : null,
+      // started in a machine-translated Windows language: say so, as the link did before
+      auto && App.locales[lang].ai ? h("span", { class: "muted", title: App.t("lang.aiTip"), text: App.t("lang.ai") }) : null,
       h("button", { class: "linkbtn", text: "✕", onClick: (e) => { dismissHint(); e.currentTarget.parentElement.remove(); onDone?.(); } }));
   }
 
