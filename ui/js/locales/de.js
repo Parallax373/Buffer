@@ -798,6 +798,7 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "ra.dirTip": "Die Richtung, in die der Effekt läuft. Spitze ziehen, um sie zu drehen.",
   "ra.arrangedLeft": "Platziert: {n}. Kein freier Platz: {m}",
   "ra.s.cpu": "CPU-Kühler",
+  "ra.s.pump": "AIO-Pumpe",
   "rcal.swTip": "Was dieses Gerät gerade zeigt",
   "rcal.all": "Alle",
   "rcal.ref": "Referenz",

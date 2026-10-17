@@ -798,6 +798,7 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "ra.dirTip": "エフェクトが進む方向。先端をドラッグで回します。",
   "ra.arrangedLeft": "配置:{n}。空き位置なし:{m}",
   "ra.s.cpu": "CPU クーラー",
+  "ra.s.pump": "AIO ポンプ",
   "rcal.swTip": "このデバイスの現在の表示",
   "rcal.all": "全体",
   "rcal.ref": "基準",

@@ -798,6 +798,7 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "ra.dirTip": "La dirección en la que avanza el efecto. Arrastra la punta para girarla.",
   "ra.arrangedLeft": "Colocados: {n}. Sin sitio libre: {m}",
   "ra.s.cpu": "Refrigeración de CPU",
+  "ra.s.pump": "Bomba AIO",
   "rcal.swTip": "Lo que muestra este dispositivo ahora",
   "rcal.all": "Todo",
   "rcal.ref": "Referencia",

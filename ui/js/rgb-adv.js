@@ -236,7 +236,8 @@
       const gpuH = (y) => { path("gpuH", "gpuH", 0, [[x0 + 13, y, -14], [x0 + 13, y, 14]], ACC.gpu); box([[x0 + 1, y - 5.5, -15], [x0 + 13.5, y + 0.5, 15]]); };
       const gpuV = (y) => { path("gpuV", "gpuV", 0, [[x1 - 5, y, -13], [x1 - 5, y, 15]], ACC.gpu); box([[x1 - 8, y - 12.5, -14], [x1 - 3, y + 0.5, 16]]); };
       const io = (y, z0_, z1_) => { path("io", "io", 0, [[x0 + 1, y, z0_], [x0 + 1, y, z1_]], ACC.io); box([[x0 + 0.5, y - 4, z0_ - 1], [x0 + 3, y + 1, z1_ + 1]]); };
-      const cpu = (y, z) => ring("cpu", "cpu", 0, [x0 + 3, y, z], "x", 4, ACC.cpu);   // the CPU cooler's ring (air cooler or AIO pump)
+      // the CPU cooler: an air cooler's fan looks to the front of the case (in front of its heatsink); an AIO pump looks at the glass
+      const cpu = (y, z) => { ring("cpu", "cpu", 0, [x0 + 9, y, z + 5], "z", FAN_R, ACC.cpu); ring("pump", "pump", 0, [x0 + 3, y, z], "x", 4, ACC.cpu); };
       const glass = () => { path("glassTop", "glassTop", 0, [[x1, h, z0], [x1, h, z1]], ACC.edge); path("glassFront", "glassFront", 0, [[x1, 0, z1], [x1, h, z1]], ACC.edge); };
       if (tpl === "mid") {
         for (let i = 0; i < 3; i++) ring("front" + (i + 1), "front", i + 1, [xm, 10 + 13 * i, z1 - 1], "z");
@@ -328,6 +329,18 @@
     if (d.parts && d.parts.length < 2) { d.slot = d.parts[0] && d.parts[0].slot; delete d.parts; }
     else if (d.parts) d.slot = d.parts[0].slot;
     return true;
+  }
+  /** the shape of a place can change between versions (the CPU fan now looks to the front): devices sitting in a place
+      follow it when the scene is opened. Nothing moves when nothing changed. */
+  function followSlots() {
+    let moved = false;
+    for (const d of S.devices) {
+      if (!placesOf(d).length || !placesOf(d).every((id) => slotById(id))) continue;
+      const before = JSON.stringify([d.x, d.y, d.z, d.pts]);
+      placeDev(d);
+      if (JSON.stringify([d.x, d.y, d.z, d.pts]) !== before) moved = true;
+    }
+    if (moved) persist();
   }
   /** one slot for a device (its parts are dropped) */
   function placeIn(d, s) { delete d.parts; d.slot = s.id; placeDev(d); }
@@ -666,6 +679,7 @@
     try { sc = await api.invoke("rgb_scene_get"); if (typeof sc === "string") sc = JSON.parse(sc); if (sc && typeof sc === "object" && "ok" in sc && "scene" in sc) sc = sc.scene; } catch (_) { /* no saved scene yet */ }
     if (my !== gen) return;
     restore(sc);
+    followSlots();
     build();
     document.addEventListener("pointerdown", onDocDown);
     window.addEventListener("keydown", onKey);

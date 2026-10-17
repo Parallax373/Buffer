@@ -798,6 +798,7 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "ra.dirTip": "Le sens dans lequel l'effet avance. Glissez la pointe pour le tourner.",
   "ra.arrangedLeft": "Placés : {n}. Sans place libre : {m}",
   "ra.s.cpu": "Refroidissement CPU",
+  "ra.s.pump": "Pompe AIO",
   "rcal.swTip": "Ce que cet appareil montre maintenant",
   "rcal.all": "Tout",
   "rcal.ref": "Référence",

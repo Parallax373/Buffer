@@ -798,6 +798,7 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "ra.dirTip": "The direction the effect travels. Drag the tip to turn it.",
   "ra.arrangedLeft": "Placed: {n}. No free place: {m}",
   "ra.s.cpu": "CPU cooler",
+  "ra.s.pump": "AIO pump",
   "rcal.swTip": "What this device shows now",
   "rcal.all": "All",
   "rcal.ref": "Reference",

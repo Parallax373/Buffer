@@ -798,6 +798,7 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "ra.dirTip": "效果前进的方向。拖动箭头可转动它。",
   "ra.arrangedLeft": "已摆放:{n}。没有空位:{m}",
   "ra.s.cpu": "CPU 散热器",
+  "ra.s.pump": "一体式水冷泵",
   "rcal.swTip": "此设备当前的显示",
   "rcal.all": "全部",
   "rcal.ref": "基准",

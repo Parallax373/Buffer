@@ -798,6 +798,7 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "ra.dirTip": "Kierunek, w którym biegnie efekt. Przeciągnij grot, żeby go obrócić.",
   "ra.arrangedLeft": "Ułożono: {n}. Bez wolnego miejsca: {m}",
   "ra.s.cpu": "Chłodzenie CPU",
+  "ra.s.pump": "Pompa AIO",
   "rcal.swTip": "Co to urządzenie pokazuje teraz",
   "rcal.all": "Wszystkie",
   "rcal.ref": "Wzorzec",

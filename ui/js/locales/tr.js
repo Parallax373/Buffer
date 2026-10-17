@@ -798,6 +798,7 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "ra.dirTip": "Efektin ilerlediği yön. Döndürmek için ucu sürükle.",
   "ra.arrangedLeft": "Yerleşti: {n}. Boş yer yok: {m}",
   "ra.s.cpu": "CPU soğutucu",
+  "ra.s.pump": "AIO pompası",
   "rcal.swTip": "Bu cihazın şu an gösterdiği",
   "rcal.all": "Tümü",
   "rcal.ref": "Referans",
