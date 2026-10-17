@@ -15,6 +15,25 @@
   let raf = 0;
   let loadToken = 0;
   let ui = {};                    // cached DOM nodes of the built editor
+  let encoder = null;             // what "auto" exports with (tools_status, probed once by the backend); null until known
+
+  /** Codec choices for this PC: HEVC only with NVENC, and "(GPU)" only when there is a GPU encoder. */
+  function codecs() {
+    const nv = encoder === "h264_nvenc" || (encoder === null && E.codec === "hevc-nvenc");
+    const gpu = encoder === null || encoder !== "libx264";
+    return [["auto", App.t(gpu ? "ed.codecAuto" : "ed.codecAutoPlain")], nv ? ["hevc-nvenc", "HEVC NVENC"] : null, ["x264", "H.264 CPU"]].filter(Boolean);
+  }
+  /** Asks once which encoder "auto" means; a saved HEVC choice falls back to auto on a PC without NVENC. */
+  function knowEncoder() {
+    const fit = () => { if (E && encoder !== "h264_nvenc" && E.codec === "hevc-nvenc") E.codec = "auto"; };
+    if (encoder !== null) { fit(); return; }
+    api.invoke("tools_status").then((t) => {
+      if (!t || !t.ffmpeg_found) return;            // not known (yet): keep every choice
+      encoder = t.encoder || "libx264";
+      fit();
+      if (E && E.adv && S.view === "ed") renderPanel();
+    }).catch(() => {});
+  }
 
   const video = h("video", { muted: true, playsInline: true, preload: "auto" });
 
@@ -31,6 +50,7 @@
       target: App.P.settings.defTarget, wide: !!App.P.settings.cropDef, pan: App.P.settings.cropPan ?? 50, norm: App.P.settings.normDef,
       speed: 1, codec: App.P.settings.codecDef || "auto", res: App.P.settings.resDef || "orig", done: null, adv: false, v0: 0, v1: 0,
     };
+    knowEncoder();
     App.markSeen(path);
     App.go("ed");          // needs E to be set: go() falls back to the library when no clip is open
     build();
@@ -568,7 +588,8 @@
     const sum = h("div", { class: "sumcard", title: App.t("ed.qualityTip") },
       h("div", { class: "r1" }, h("span", { class: "big", id: "sumLen" }), h("span", { class: "mono muted", id: "sumTarget", style: { fontSize: "12px" } })),
       h("div", { class: "meter" }, h("div", { id: "sumMeter" })),
-      h("div", { class: "r3" }, h("span", { id: "sumQ" }), h("span", { id: "sumKbps" })));
+      h("div", { class: "r3" }, h("span", { id: "sumQ" }), h("span", { id: "sumKbps" })),
+      h("div", { class: "hint", id: "sumHint", hidden: true, text: App.t("ed.lowHint") }));
 
     const exporting = S.exporting && S.exporting.source === E.clip.path;
     const items = [
@@ -596,8 +617,7 @@
                 .map(([v, t]) => h("option", { value: v, text: t, selected: E.res === v })))),
           h("div", { class: "opt" }, h("span", { text: App.t("ed.codec") }),
             h("select", { class: "field", onChange: (ev) => { E.codec = ev.target.value; App.P.settings.codecDef = E.codec; App.persist(); } },
-              [["auto", App.t("ed.codecAuto")], ["hevc-nvenc", "HEVC NVENC"], ["x264", "H.264 CPU"]]
-                .map(([v, t]) => h("option", { value: v, text: t, selected: E.codec === v })))),
+              codecs().map(([v, t]) => h("option", { value: v, text: t, selected: E.codec === v })))),
           h("div", { class: "opt" }, h("span", { text: App.t("ed.speed") }),
             seg([["0.5×", 0.5], ["1×", 1], ["1.5×", 1.5], ["2×", 2]], E.speed, (v) => {
               E.speed = v; video.playbackRate = v;
@@ -641,6 +661,8 @@
     set("sumTarget", `→ ${E.target} MiB`);
     set("sumQ", label); set("sumKbps", `${kbps} kbps · ${E.res === "orig" ? E.info.height : E.res}p`);
     const q = App.$("#sumQ"); if (q) q.style.color = color;
+    // amber or red: say what helps (a shorter clip or a bigger file)
+    const hint = App.$("#sumHint"); if (hint) hint.hidden = color === "var(--ok)";
     const m = App.$("#sumMeter");
     if (m) { m.style.width = `${Math.min(100, (kbps / 9000) * 100)}%`; m.style.background = color; }
   }
