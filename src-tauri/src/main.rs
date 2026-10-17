@@ -538,7 +538,7 @@ fn save_state(state: serde_json::Value) -> Result<(), String> {
 
 // ───────────────────────── tools & recorder ─────────────────────────
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct ToolsStatus {
     ffmpeg_path: String,
     ffmpeg_found: bool,
@@ -550,8 +550,23 @@ struct ToolsStatus {
     gpu: String,
 }
 
+/// Two ffmpeg runs and nvidia-smi cost ~110 ms and the answer cannot change while Buffer runs, so a found ffmpeg is
+/// remembered (a missing one is looked for again: it can be installed meanwhile). Settings > Advanced waits for this.
+static TOOLS_CACHE: std::sync::OnceLock<ToolsStatus> = std::sync::OnceLock::new();
+
 #[tauri::command]
 async fn tools_status() -> ToolsStatus {
+    if let Some(t) = TOOLS_CACHE.get() {
+        return t.clone();
+    }
+    let t = tools_status_probe().await;
+    if t.ffmpeg_found {
+        let _ = TOOLS_CACHE.set(t.clone());
+    }
+    t
+}
+
+async fn tools_status_probe() -> ToolsStatus {
     tauri::async_runtime::spawn_blocking(|| {
         let path = ml_core::tools::ffmpeg();
         let found = ml_core::tools::available(path);

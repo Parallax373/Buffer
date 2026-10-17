@@ -241,6 +241,21 @@ pub fn command(cmd: &str, arg: &str) -> Value {
     }
 }
 
+/// The Dark Project keyboard is plugged in. Enumerating HID collections takes ~150 ms and the pages ask for the status
+/// every second or so (and Settings > Advanced waits for it), so the answer is kept for 10 s.
+fn keyboard_present() -> bool {
+    static CACHE: OnceLock<Mutex<Option<(Instant, bool)>>> = OnceLock::new();
+    let mut c = CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    match *c {
+        Some((at, found)) if at.elapsed() < Duration::from_secs(10) => found,
+        _ => {
+            let found = ml_rgb::darkproject::detect().is_some();
+            *c = Some((Instant::now(), found));
+            found
+        }
+    }
+}
+
 fn err(e: impl ToString) -> Value {
     json!({ "ok": false, "error": e.to_string() })
 }
@@ -268,7 +283,7 @@ impl Hub {
             "ok": true, "installed": installed, "enabled": st.file.enabled, "running": st.connected, "connected": st.connected,
             "devices": st.devices.len(), "playing": st.file.scene.playing, "streaming": st.streaming,
             "fps": st.file.scene.fps(), "error": st.error,
-            "keyboard_found": ml_rgb::darkproject::detect().is_some(),
+            "keyboard_found": keyboard_present(),
             "power": st.file.power, "away": st.away,
             "profiles": st.file.profiles.keys().collect::<Vec<_>>(), "profile": st.file.active_profile,
             "profile_sizes": st.file.profiles.iter().map(|(n, s)| (n.clone(), s.driven_count())).collect::<BTreeMap<_, _>>(),
@@ -295,7 +310,7 @@ impl Hub {
             })
             .collect();
         let mut list = list;
-        if ml_rgb::darkproject::detect().is_some() {
+        if keyboard_present() {
             // not an OpenRGB device: shown to the page as one so it gets a card and a look like the others
             list.push(json!({
                 "index": KB_INDEX, "kind": 5, "name": KB_NAME, "vendor": "Dark Project", "description": "", "location": "",
