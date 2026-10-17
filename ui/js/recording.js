@@ -712,9 +712,11 @@ App.RecUI = (function () {
     if (!w.cfg.chat.primary) w.cfg.chat.primary = hasChat ? { id: hasChat.id, name: hasChat.name } : follow;
     if (!w.cfg.mic.primary) w.cfg.mic.primary = follow;
     const presets = presetsFor(w.cfg);
+    // the recommended profile: Balanced with a GPU encoder, Light on the processor (x264 is capped at 1080p30 anyway)
+    const recId = tools && tools.encoder && tools.encoder !== "libx264" ? "bal" : "eco";
     // a resumed wizard already saved the user's picks: only a new start takes the recommended profile and the chat split
     if (fresh && !resumeAt) {
-      Object.assign(w.cfg, presets[1][3]);
+      Object.assign(w.cfg, presets.find((p) => p[0] === recId)[3]);
       // One shared output is the common case: split a chat app out of the game track by default.
       if (sharedOutput(w.cfg) && !w.cfg.chat_app) w.cfg.chat_app = "discord";
     }
@@ -841,7 +843,7 @@ App.RecUI = (function () {
       };
       presets.forEach((p, i) => {
         cardsBox.append(h("div", { class: "pcard", style: { animationDelay: `${0.05 + i * 0.07}s` }, onClick: () => { Object.assign(w.cfg, p[3]); refresh(); drawAdv(false); } },
-          h("b", null, App.t(p[1]), p[0] === "bal" ? h("span", { class: "recbadge", text: App.t("wz.recommended") }) : null),
+          h("b", null, App.t(p[1]), p[0] === recId ? h("span", { class: "recbadge", text: App.t("wz.recommended") }) : null),
           h("div", { class: "muted", text: App.t(p[2]) }), h("div", { class: "mono spec", text: p[4] || `${App.t("res.native").toLocaleLowerCase(App.tag())} · ${p[3].fps} fps` })));
       });
       // "Dostosuj": folder, games only, post-roll, resolution, fps, quality, screen and the encoder
@@ -946,7 +948,7 @@ App.RecUI = (function () {
       const ready = w.step !== 0 || w.checksDone;
       const label = last ? App.t("wz.finish") : w.step === 2 ? App.t("wz.startRec") : App.t("wz.next");
       put(foot,
-        last ? h("span", { class: "faint", title: App.t("wz.closeOkTip"), text: App.t("wz.closeOk") })
+        last ? h("span", { class: "faint", title: fresh ? App.t("wz.closeOkTip") : "", text: App.t("wz.closeOk") })
           : h("button", { class: "btn ghost", text: App.t("wz.skip"), title: App.t("wz.skipTip"), onClick: () => go(KEY_STEP) }),
         h("span", { class: "sp" }),
         w.step > 0 ? h("button", { class: "btn", text: App.t("wz.back"), onClick: () => go(w.step - 1) }) : null,
@@ -995,7 +997,9 @@ App.RecUI = (function () {
       await App.Rec.refresh();
       if (w.hits0 == null) mark();
       clearInterval(statusTimer);
+      if (!overlay.isConnected || w.step !== KEY_STEP) return;   // finished or left the step while the recorder started
       statusTimer = setInterval(async () => {
+        if (!overlay.isConnected) { clearInterval(statusTimer); return; }
         await App.Rec.refresh();
         if (w.step !== KEY_STEP || !overlay.isConnected) return;
         const r = S.recorder;
@@ -1025,6 +1029,7 @@ App.RecUI = (function () {
       App.toast(App.t("wz.toastDone"), "ok");
       await App.Lib.load();
       if (open && S.byPath.has(open)) App.Ed.open(open);
+      else if (open) App.go("lib");            // not in the list (yet): the Library shows it with the newest clips
       else if (S.view === "set") App.Settings.render();
     }
 

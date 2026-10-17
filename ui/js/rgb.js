@@ -210,11 +210,15 @@
     const enable = async (close) => {
       gate(App.t("rgb.installing"), true);
       try {
-        // another lighting program would paint over Buffer's colours: close it first (the user asked for that)
-        if (close && close.length) await api.invoke("rgb_close_conflicts", { names: close });
         if (!(await api.invoke("rgb_status")).installed) await api.invoke("rgb_install");
-        await start();
-      } catch (e) { gate(String(e), false); }
+      } catch (e) { gate(String(e), false); return; }
+      // installed: now the other lighting program, which would paint over Buffer's colours, may go (the user asked for
+      // that). Only after the install, so a declined prompt does not leave the user with no lighting program at all.
+      if (close && close.length) {
+        try { await api.invoke("rgb_close_conflicts", { names: close }); App.RGBAuto.noteClosed(close); }
+        catch (e) { App.toast(App.t("rgb.err", { err: e }), "err"); }      // the page's conflict chip still offers it
+      }
+      try { await start(); } catch (e) { gate(String(e), false); }
     };
     page.replaceChildren(App.emptyState(App.t("rgb.gate"), msg || App.t("rgb.gateD"), busy ? null : App.t("rgb.enable"), () => enable(null)));
     const b = page.querySelector(".empty");
