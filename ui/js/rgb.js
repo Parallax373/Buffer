@@ -205,16 +205,31 @@
     card.querySelector(".toggle")?.classList.toggle("on", on);
   }
 
+  let gateSeq = 0;
   function gate(msg, busy) {
-    page.replaceChildren(App.emptyState(App.t("rgb.gate"), msg || App.t("rgb.gateD"), busy ? null : App.t("rgb.enable"), async () => {
+    const enable = async (close) => {
       gate(App.t("rgb.installing"), true);
       try {
+        // another lighting program would paint over Buffer's colours: close it first (the user asked for that)
+        if (close && close.length) await api.invoke("rgb_close_conflicts", { names: close });
         if (!(await api.invoke("rgb_status")).installed) await api.invoke("rgb_install");
         await start();
       } catch (e) { gate(String(e), false); }
-    }));
+    };
+    page.replaceChildren(App.emptyState(App.t("rgb.gate"), msg || App.t("rgb.gateD"), busy ? null : App.t("rgb.enable"), () => enable(null)));
     const b = page.querySelector(".empty");
     if (b && !busy) b.querySelector("button")?.setAttribute("title", App.t("rgb.tip"));
+    if (!b || busy) return;
+    // SignalRGB, iCUE, a vendor app ... running now: propose taking over from it instead of only warning on the page later
+    const seq = ++gateSeq;
+    api.invoke("rgb_status").catch(() => null).then((s) => {
+      const c = (s && s.conflicts) || [];
+      if (seq !== gateSeq || !b.isConnected || !c.length) return;
+      const name = c[0] + (c.length > 1 ? " +" + (c.length - 1) : "");
+      b.append(h("div", { class: "gateother", title: App.t("rgb.takeTip", { apps: c.join(", ") }) },
+        h("span", { class: "muted", text: App.t("rgb.foundOther", { name }) }),
+        h("button", { class: "btn acc", text: App.t("rgb.takeOver", { name }), onClick: () => enable(c) })));
+    });
   }
 
   /** The device list from the recorder, with each device's number among the ones of the same name. */

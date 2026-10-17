@@ -445,6 +445,9 @@ body { color: var(--text); }
 .empty .t i, .empty .w i { display: block; height: 5px; border-radius: 2px; background: var(--acc); }
 .empty .t i { opacity: .3; animation: trailIn .9s var(--ease) both; }
 .empty b { font: 600 18px "Instrument Sans"; }
+/* the module gate's proposal when another program holds the hardware (FanControl, SignalRGB ...) */
+.empty .gateother { display: flex; align-items: center; gap: 12px; margin-top: 6px; padding: 10px 12px 10px 16px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--panel); font-size: 13px; animation: pop var(--t) ease both; }
 
 /* editor: playhead wake, markers, shortcuts popover, header "?" */
 .tl .head::before { content: ""; position: absolute; right: 1px; top: 26px; bottom: 4px; width: 56px;
