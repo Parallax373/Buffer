@@ -311,10 +311,15 @@
       });
       return card;
     };
+    let showHid = false;
     const visibleCtl = () => S.controls.filter((c) => !c.hidden);
+    // hidden controls (empty headers, a pump you never touch) are listed only on request, dimmed
+    const fillCards = () => { cards.replaceChildren(...S.controls.filter((c) => showHid || !c.hidden).map((c) => { const k = cardOf(c); k.classList.toggle("hid", !!c.hidden); return k; })); refreshCards(); };
+    const hidN = S.controls.filter((c) => c.hidden).length;
+    const hidB = hidN ? h("button", { class: "chip", text: t("fans.hiddenN", { n: hidN }), onClick: () => { showHid = !showHid; hidB.classList.toggle("on", showHid); fillCards(); } }) : null;
     cards.append(...visibleCtl().map(cardOf));
     function refreshCards() {
-      const lay = stage.layout, slots = stage.slots;
+      const lay = stage.layout || {}, slots = stage.slots || [];
       cards.querySelectorAll("[data-card]").forEach((card) => {
         const id = card.dataset.card, c = K.control(id); if (!c) return;
         card.querySelector(".fc-mini").replaceChildren(miniCase(lay[id], slots));
@@ -378,7 +383,19 @@
       cards.querySelectorAll("[data-card]").forEach((x) => x.classList.toggle("sel", x.dataset.card === id));
       title.textContent = c.name; hist.fan.length = 0;
       if (which === "curve") showCurve();
-      else if (which === "tune") tab.replaceChildren(h("div", { class: "card2 fpad" }, ...controlFields(c)));
+      else if (which === "tune") {
+        // name and visibility first, then the tuning
+        const nameIn = h("input", { class: "field", value: c.name, maxlength: 40, "aria-label": t("fans.rename"), onChange: (e) => {
+          const v = e.target.value.trim(); if (!v) { e.target.value = c.name; return; }
+          c.name = v; K.commit(); title.textContent = v; const b = cards.querySelector(`[data-card="${CSS.escape(c.id)}"] .fc-nm b`); if (b) b.textContent = v;
+        } });
+        const hideB = h("button", { class: "chip", text: t(c.hidden ? "fans.show" : "fans.hide"), onClick: () => {
+          c.hidden = !c.hidden; K.commit(); hideB.textContent = t(c.hidden ? "fans.show" : "fans.hide");
+          const k = cards.querySelector(`[data-card="${CSS.escape(c.id)}"]`); if (k) { if (c.hidden && !showHid) k.remove(); else k.classList.toggle("hid", c.hidden); }
+          stage.relayout();
+        } });
+        tab.replaceChildren(h("div", { class: "card2 fpad" }, K.row(t("fans.rename"), h("div", { class: "rowflex" }, nameIn, hideB))), h("div", { class: "card2 fpad" }, ...controlFields(c)));
+      }
       else if (which === "place") tab.replaceChildren(placeTab(c));
       else { const hh = h("div", { class: "card2 fpad" }, h("div", { class: "rowflex" }, h("span", { class: "cap", text: t("fans.history") }), h("span", { class: "sp" }), h("span", { class: "chip", text: "CPU" }), h("span", { class: "chip", text: "GPU" }), h("span", { class: "chip on", text: t("fans.thisFan") })), h("div", { "data-hist": 1 })); tab.replaceChildren(hh); }
       K.tick();
@@ -387,9 +404,11 @@
     el.append(h("div", { class: "fpanel" }, heat,
       h("div", { class: "fp-main" },
         h("div", { class: "fp-left" },
-          h("div", { class: "rowflex" }, App.ui.cap(t("fans.controls")), h("span", { class: "sp" }), h("span", { class: "mono muted", text: t("fans.dragTip") })), cards,
+          h("div", { class: "rowflex" }, App.ui.cap(t("fans.controls")), hidB, h("span", { class: "sp" }), h("span", { class: "mono muted", text: t("fans.dragTip") })), cards,
+          // the picked control right under the cards, the curves after it: the case keeps the whole right side
+          h("div", { class: "fp-edit" }, h("div", { class: "rowflex" }, h("div", { style: { flex: 1, minWidth: 0 } }, App.ui.cap(t("fans.fan")), title), tabs), tab),
           App.ui.cap(t("fans.curves")), curvesEl),
-        h("div", { class: "fp-right" }, stageHost, h("div", { class: "rowflex" }, h("div", { style: { flex: 1, minWidth: 0 } }, App.ui.cap(t("fans.fan")), title), tabs), tab))));
+        h("div", { class: "fp-right" }, stageHost))));
     show(K.control(K.sel.ctl) && !K.control(K.sel.ctl).hidden ? K.sel.ctl : (visibleCtl()[0] || {}).id, "curve");
   }
 

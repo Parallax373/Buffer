@@ -10,7 +10,7 @@
   let page = null, st = {}, setup = null, timer = 0, saveT = 0, bodyEl = null, chipEl = null, closeEl = null;
   const sel = { ctl: null, curve: null };
   const liveFns = [];
-  let showHidden = false, importPaths = [];
+  let importPaths = [];
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
   /** which level and which Advanced view were open last (kept in the app's preferences) */
@@ -183,41 +183,6 @@
       redraw();
     });
   }
-
-  /* ───── presets: a curve of the control's own, on the temperature that matters for it ───── */
-
-  const PRESETS = { silent: [[40, 20], [55, 30], [70, 50], [85, 80]], balanced: [[40, 30], [55, 45], [70, 70], [85, 100]], performance: [[40, 45], [55, 65], [70, 90], [80, 100]] };
-
-  function defaultSource(c) {
-    const s = sensorOf(c.id) || sensorOf(c.fan);
-    const cpu = primary("cpu"), gpu = primary("gpu");
-    if (/^Gpu/.test((s && s.hw_type) || "")) return gpu || cpu;
-    if (/cpu/i.test(c.name)) return cpu || gpu;
-    if (cpu && gpu) {
-      if (!setup.mixes.some((m) => m.id === "auto")) setup.mixes.push({ id: "auto", name: App.t("fans.mixAuto"), func: "max", inputs: [cpu, gpu] });
-      return "mix:auto";
-    }
-    return cpu || gpu;
-  }
-
-  function applyPreset(c, key) {
-    const id = "p:" + c.id;
-    let cv = curveOf(id);
-    const pts = PRESETS[key].map((p) => p.slice());
-    if (cv) { cv.type = "graph"; cv.points = pts; } else {
-      cv = { id, name: `${c.name} · ${App.t("fans.preset." + key)}`, type: "graph", src: defaultSource(c), points: pts, hyst: 2, resp: 2, skip_edges: true };
-      setup.curves.push(cv);
-    }
-    cv.name = `${c.name} · ${App.t("fans.preset." + key)}`;
-    c.curve = id; c.mode = "curve";
-    commit();
-    return cv;
-  }
-  const presetOf = (c) => {
-    const cv = c.curve && curveOf(c.curve);
-    if (!cv || cv.type !== "graph" || c.curve !== "p:" + c.id) return null;
-    return Object.keys(PRESETS).find((k) => PRESETS[k].every((p, i) => cv.points[i] && cv.points[i][0] === p[0] && cv.points[i][1] === p[1])) || "custom";
-  };
 
   /* ───── live updates (once a second, in place) ───── */
 
@@ -497,77 +462,92 @@
     page.querySelector(".fans").append(ov);
   }
 
-  /* ───── Simple view: list of fans | the picked fan ───── */
+  /* ───── Simple view: the fans in groups any PC has (processor, graphics card, case), one dial each ─────
+     For someone who wants it to just work: no curves, no numbers to set. A group is Auto (the board or the card decides)
+     or follows a dial from quiet to cool; the dial writes a Buffer-owned curve per group ("simple:<group>") on the
+     temperature that matters for it (the CPU, the card, the warmer of the two for the case). A group whose fans were set
+     up on the Advanced view keeps that and says so, with "Simplify" to go back to the dial. */
 
-  function simple() {
-    const list = h("div", { class: "flist" + (showHidden ? " showhid" : "") });
-    const detail = h("div", { class: "fdetail" });
-    const row = (c) => {
-      const el = h("button", { class: "frow" + (c.id === sel.ctl ? " sel" : "") + (c.hidden ? " hid" : ""), "data-c": c.id,
-        onClick: () => { sel.ctl = c.id; list.querySelectorAll(".frow").forEach((x) => x.classList.toggle("sel", x === el)); sel.curve = c.curve || sel.curve; fill(); } },
-        h("span", { "data-dot": c.id, class: "dot" }), h("span", { class: "nm", text: c.name }),
-        h("span", { class: "r" }, h("span", { "data-pct": c.id, text: "0" }), "%"),
-        h("span", { class: "sub" }, scan("ctl", c.id, 16), h("span", { class: "sp" }), h("span", { class: "mono" }, h("span", { "data-rpm": c.id, text: "–" }), " rpm")));
-      return el;
-    };
-    const hiddenN = setup.controls.filter((c) => c.hidden).length;
-    list.append(...[App.ui.cap(App.t("fans.fans")), ...setup.controls.map(row),
-      hiddenN ? h("button", { class: "fhidbtn", text: App.t("fans.hiddenN", { n: hiddenN }), onClick: () => { showHidden = !showHidden; list.classList.toggle("showhid", showHidden); } }) : null,
-      App.ui.cap(App.t("fans.temps")), h("div", { class: "frow2" }, [["cpu", "CPU"], ["gpu", "GPU"]].map(([k, n]) => primary(k) && h("span", { class: "chip" }, n + " ", h("b", { class: "mono", "data-temp": primary(k), text: "–" }), "°")))].filter(Boolean));
-    const fill = () => {
-      const c = control(sel.ctl);
-      detail.replaceChildren(c ? detailOf(c, list) : h("div", { class: "muted", text: App.t("fans.none") }));
-      tick();
-    };
-    bodyEl.append(h("div", { class: "fsimple" }, h("div", { class: "fleft" }, list), detail));
-    fill();
+  const SIMPLE = {
+    // [quietest, coolest] curves (temperature °C, speed %); the dial's 5 steps lie between them
+    cpu: [[[40, 20], [60, 30], [75, 60], [85, 100]], [[30, 40], [45, 55], [60, 80], [70, 100]]],
+    gpu: [[[40, 30], [65, 40], [78, 70], [87, 100]], [[30, 40], [50, 60], [65, 85], [75, 100]]],
+    case: [[[35, 25], [60, 35], [75, 60], [85, 100]], [[30, 40], [45, 55], [60, 80], [70, 100]]],
+  };
+  const LEVELS = 5;
+  const simplePts = (g, lv) => SIMPLE[g][0].map((p, i) => [0, 1].map((k) => Math.round(p[k] + (SIMPLE[g][1][i][k] - p[k]) * (lv / (LEVELS - 1)))));
+  /** which group a control belongs to: by its places (Advanced), else by its kind and name (the temperature a curve follows says
+      nothing: case fans often follow the CPU) */
+  function groupOf(c) {
+    if (c.id.startsWith("/gpu") || /^Gpu/.test((sensorOf(c.id) || {}).hw_type || "")) return "gpu";
+    const places = App.FansStage ? App.FansStage.parse(setup.layout && setup.layout[c.id]) : [];
+    if (places.some((p) => p === "cpu" || p === "cpu2" || p === "pump")) return "cpu";
+    if (places.length) return "case";
+    if (/cpu|pump|aio|pompa/i.test(c.name)) return "cpu";
+    return "case";
+  }
+  function simpleSrc(g) {
+    const cpu = primary("cpu"), gpu = primary("gpu");
+    if (g === "cpu") return cpu || gpu;
+    if (g === "gpu") return gpu || cpu;
+    if (cpu && gpu) {
+      if (!setup.mixes.some((m) => m.id === "auto")) setup.mixes.push({ id: "auto", name: App.t("fans.mixAuto"), func: "max", inputs: [cpu, gpu] });
+      return "mix:auto";
+    }
+    return cpu || gpu;
+  }
+  /** "auto" | 0..4 (the dial) | "custom" (set up on the Advanced view) */
+  function levelOf(g, members) {
+    if (members.every((c) => c.mode === "auto")) return "auto";
+    const id = "simple:" + g, cv = curveOf(id);
+    if (!cv || !members.every((c) => c.mode === "curve" && c.curve === id)) return "custom";
+    for (let lv = 0; lv < LEVELS; lv++) { const p = simplePts(g, lv); if (cv.points && cv.points.length === p.length && cv.points.every((q, i) => q[0] === p[i][0] && q[1] === p[i][1])) return lv; }
+    return "custom";
+  }
+  function setLevel(g, members, lv) {
+    if (lv === "auto") { members.forEach((c) => { c.mode = "auto"; }); commit(); return; }
+    const id = "simple:" + g;
+    let cv = curveOf(id);
+    if (!cv) { cv = { id, name: App.t("fans.g." + g), type: "graph", src: simpleSrc(g), points: [], hyst: 2, resp: 3, skip_edges: true }; setup.curves.push(cv); }
+    cv.type = "graph"; cv.points = simplePts(g, lv); cv.name = App.t("fans.g." + g);
+    if (!cv.src) cv.src = simpleSrc(g);
+    members.forEach((c) => { c.curve = id; c.mode = "curve"; });
+    commit();
   }
 
-  function detailOf(c, list) {
-    const body = h("div", { class: "fmode" });
-    const title = h("div", { class: "ftitle", text: c.name, title: App.t("fans.rename"), onClick: () => {
-      const inp = h("input", { class: "field", value: c.name, maxlength: 40, "aria-label": App.t("fans.rename") });
-      const done = (ok) => { if (ok && inp.value.trim()) { c.name = inp.value.trim(); commit(); const r = list.querySelector(`[data-c="${CSS.escape(c.id)}"] .nm`); if (r) r.textContent = c.name; } title.textContent = c.name; };
-      title.replaceChildren(inp); inp.focus(); inp.select();
-      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") done(true); if (e.key === "Escape") done(false); });
-      inp.addEventListener("blur", () => done(true));
-    } });
-    const hideBtn = h("button", { class: "chip", text: App.t(c.hidden ? "fans.show" : "fans.hide"), onClick: (e) => {
-      c.hidden = !c.hidden; commit(); e.target.textContent = App.t(c.hidden ? "fans.show" : "fans.hide");
-      list.querySelector(`[data-c="${CSS.escape(c.id)}"]`)?.classList.toggle("hid", c.hidden);
-    } });
-    const modes = App.ui.segc([["curve", App.t("fans.mode.curve")], ["manual", App.t("fans.mode.manual")], ["auto", App.t("fans.mode.auto")]], c.mode, (m) => {
-      if (m === "curve" && !c.curve) applyPreset(c, "balanced");
-      c.mode = m; commit();
-      modes.querySelectorAll("button").forEach((b, i) => b.classList.toggle("on", ["curve", "manual", "auto"][i] === m));
-      mode(); tick();
-    });
-    const mode = () => {
-      if (c.mode === "manual") {
-        body.replaceChildren(h("div", { class: "card2 fpad" }, h("div", { class: "srow" }, h("span", { class: "lb", text: App.t("fans.speed") }),
-          h("div", { class: "fval" }, slider({ value: Math.round(c.manual), live: c.id, onInput: (v) => { c.manual = v; num_.textContent = v + "%"; commit(); } }), ((num_ = h("span", { class: "fnum mono", text: Math.round(c.manual) + "%" })))))));
-      } else if (c.mode === "auto") {
-        body.replaceChildren(h("div", { class: "card2 fpad muted", text: App.t("fans.autoD") }));
-      } else {
-        const cv = curveOf(c.curve), pr = presetOf(c);
-        const mini = h("div", { id: "fmini" });
-        const curveSel = h("select", { class: "field", "aria-label": App.t("fans.curve"), onChange: (e) => { c.curve = e.target.value; commit(); mode(); tick(); } },
-          setup.curves.map((x) => h("option", { value: x.id, text: x.name, selected: x.id === c.curve })));
-        body.replaceChildren(h("div", { class: "card2 fpad" },
-          h("div", { class: "rowflex" }, h("span", { class: "cap", text: App.t("fans.curve") }), curveSel, h("span", { class: "chip", text: cv ? sensorName(curveSrc(cv)) || App.t("fans.noSource") : "" })),
-          h("div", { class: "rowflex fpre" }, [...Object.keys(PRESETS), "custom"].map((k) => h("button", { class: "chip" + (pr === k ? " on" : ""), text: App.t("fans.preset." + k),
-            onClick: () => { if (k === "custom") { sel.curve = c.curve; pref().level = "adv"; pref().adv = "curves"; App.persist(); draw(); return; } applyPreset(c, k); mode(); tick(); } }))),
-          mini, h("div", { class: "rowflex" }, h("button", { class: "btn", text: App.t("fans.editCurve"), onClick: () => { sel.curve = c.curve; pref().level = "adv"; pref().adv = "curves"; App.persist(); draw(); } }))));
-        if (cv) graph(mini, cv.id, { w: 420, h: 190, compact: true });
+  function simple() {
+    const groups = { cpu: [], gpu: [], case: [] };
+    visible().forEach((c) => groups[groupOf(c)].push(c));
+    const cards = Object.entries(groups).filter(([, m]) => m.length).map(([g, members]) => {
+      const src = simpleSrc(g);
+      const word = h("b", { class: "fsg-word" });
+      const autoB = h("button", { class: "chip", text: App.t("fans.mode.auto"), title: App.t("fans.autoD") });
+      const custom = h("div", { class: "fsg-custom" }, h("span", { class: "muted", text: App.t("fans.customSet") }),
+        h("button", { class: "chip", text: App.t("fans.simplify"), title: App.t("fans.simplifyTip"), onClick: () => { setLevel(g, members, 2); paint(); tick(); } }));
+      const dial = slider({ min: 0, max: LEVELS - 1, step: 1, value: 2, onInput: (v) => { setLevel(g, members, v); paint(); } });
+      const dialRow = h("div", { class: "fsg-dial" }, h("span", { class: "muted", text: App.t("fans.lvQuiet") }), dial, h("span", { class: "muted", text: App.t("fans.lvCool") }));
+      autoB.onclick = () => { setLevel(g, members, levelOf(g, members) === "auto" ? 2 : "auto"); paint(); tick(); };
+      /** shows the group's state without rebuilding the card */
+      function paint() {
+        const lv = levelOf(g, members);
+        autoB.classList.toggle("on", lv === "auto");
+        custom.hidden = lv !== "custom";
+        dialRow.hidden = lv === "custom";
+        dialRow.classList.toggle("off", lv === "auto");
+        word.textContent = lv === "auto" ? App.t("fans.autoShort") : lv === "custom" ? App.t("fans.customShort") : App.t("fans.lv." + lv);
+        if (typeof lv === "number") dial.set(lv);
       }
-    };
-    let num_ = null;
-    mode();
-    return h("div", { class: "fstack" },
-      h("div", { class: "rowflex" }, h("div", { style: { flex: 1, minWidth: 0 } }, App.ui.cap(App.t("fans.fan")), title), hideBtn),
-      h("div", { class: "card2 fpad" }, h("div", { class: "rowflex fbig" }, h("span", { class: "mono big" }, h("span", { "data-pct": c.id, text: "0" }), h("small", { text: "%" })),
-        h("span", { class: "mono muted" }, h("span", { "data-rpm": c.id, text: "–" }), " rpm"), h("span", { class: "sp" }), scan("ctl", c.id, 20, true))),
-      modes, body);
+      const rows = members.map((c) => h("div", { class: "fsg-row" }, h("span", { "data-dot": c.id, class: "dot" }), h("span", { class: "nm", text: c.name }), scan("ctl", c.id, 12), h("span", { class: "mono muted" }, h("span", { "data-rpm": c.id, text: "–" }), " rpm")));
+      const card = h("section", { class: "card2 fsg" },
+        h("div", { class: "fsg-top" }, h("div", { class: "fsg-nm" }, h("b", { text: App.t("fans.g." + g) }), h("span", { class: "muted", text: App.t("fans.gCount", { n: members.length }) })),
+          h("span", { class: "sp" }), src ? h("span", { class: "fheat", "data-heat": src, title: sensorName(src) }, h("i", { class: "hd" }), h("b", { class: "mono" }, h("span", { "data-temp": src, text: "–" }), "°")) : null),
+        h("div", { class: "fsg-mode" }, word, h("span", { class: "sp" }), autoB),
+        dialRow, custom, h("div", { class: "fsg-rows" }, ...rows));
+      paint();
+      return card;
+    });
+    bodyEl.append(h("div", { class: "fsgrid" }, ...(cards.length ? cards : [h("div", { class: "muted", text: App.t("fans.none") })])));
+    tick();
   }
 
   /** what fans-adv.js needs */

@@ -1584,7 +1584,8 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .fsafe .field { width: auto; padding: 4px 8px; }
 .fp-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(380px, 1fr); gap: 16px; }
 .fp-left, .fp-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow-y: auto; padding-right: 4px; }
-.fpanel .fstage .ra-cv { height: clamp(280px, min(46vh, 80cqw), 560px); }
+.fpanel .fstage .ra-cv { height: clamp(320px, calc(100vh - 360px), 900px); }
+.fp-edit { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel) 60%, transparent); }
 .fp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; }
 .fcard { touch-action: none; user-select: none; display: flex; flex-direction: column; gap: 9px; padding: 12px 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; cursor: pointer; transition: border-color var(--t) ease; }
 .fcard:hover { border-color: var(--subtle); }
@@ -1627,3 +1628,19 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 /* a chip that is a button ("Close FanControl") must look like one */
 .fans button.chip.warn { cursor: pointer; background: var(--warn); color: #111; border-color: var(--warn); font-weight: 600; }
 .fans button.chip.warn:hover { filter: brightness(1.1); }
+
+/* Fans · Simple: the groups any PC has, one dial each */
+.fsgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; max-width: 1200px; }
+.fsg { display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; }
+.fsg-top { display: flex; align-items: center; gap: 10px; }
+.fsg-nm { display: flex; flex-direction: column; gap: 2px; } .fsg-nm b { font-size: 16px; font-weight: 600; }
+.fsg-mode { display: flex; align-items: center; gap: 8px; }
+.fsg-word { font-size: 20px; font-weight: 600; }
+.fsg-dial { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; font-size: 12px; }
+.fsg-dial.off { opacity: .45; }
+.fsg-custom { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.fsg-rows { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line2, #1d2018); padding-top: 10px; }
+.fsg-row { display: grid; grid-template-columns: auto minmax(0, 1fr) 90px 80px; gap: 10px; align-items: center; font-size: 12.5px; }
+.fsg-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fsg-row .mono { text-align: right; font-size: 11.5px; }
+.fcard.hid { opacity: .5; border-style: dashed; }
