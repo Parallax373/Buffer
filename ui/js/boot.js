@@ -3,10 +3,10 @@
 
 (async function boot() {
   await App.loadPersisted();
-  if (App.fresh) {
-    // First launch on this machine: library = the default clips folder, not a developer-specific path.
-    App.P.libDirs = [await App.api.invoke("default_clips_dir").catch(() => "")].filter(Boolean);
-  }
+  // %USERPROFILE%\Videos\Buffer: where a fresh install saves clips, and the export folder's fallback
+  App.clipsHome = await App.api.invoke("default_clips_dir").catch(() => "");
+  // First launch on this machine: library = the default clips folder.
+  if (App.fresh) App.P.libDirs = [App.clipsHome].filter(Boolean);
   App.isDev = await App.api.invoke("is_dev_build").catch(() => false);
   if (App.isDev) document.title = "Buffer (dev)";
   App.i18n.init();

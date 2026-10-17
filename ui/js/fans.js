@@ -298,7 +298,12 @@
     if (!setup.controls.length && !(st.sensors || []).some((x) => x.control)) {
       stop();
       importAfter = false;
-      page.replaceChildren(App.emptyState(App.t("fans.noControl"), App.t("fans.noControlD"), App.t("fans.off"), turnOff));
+      // "Turn off" leaves the elevated helper and its task installed; "Remove" takes them away too (same as Settings)
+      const remove = App.ui.sure(App.t("fans.removeHelper"), App.t("fans.removeTip"), async (b) => {
+        try { await api.invoke("fans_uninstall"); App.toast(App.t("fans.removed"), "ok"); } catch (err) { App.toast(App.t("fans.err", { err }), "err"); b.disabled = false; return; }
+        render();
+      });
+      page.replaceChildren(App.emptyState(App.t("fans.noControl"), App.t("fans.noControlD"), App.t("fans.off"), turnOff, [remove]));
       return;
     }
     draw();

@@ -7,6 +7,7 @@ App.locales = {};
 App.i18n = (function () {
   const ORDER = ["en", "pl", "de", "es", "fr", "uk", "tr", "ja", "zh"];
   let lang = "en";
+  let auto = false;          // the language was taken from Windows on first run (the wizard then offers English)
   const rules = {};
   const rule = (code) => (rules[code] ||= new Intl.PluralRules(App.locales[code].tag));
 
@@ -47,7 +48,15 @@ App.i18n = (function () {
 
   /** Picks the UI language (call once after the saved state is loaded). */
   function init() {
-    const want = App.P.settings.lang;
+    const s = App.P.settings;
+    // first run (the wizard not finished, no language ever picked or dismissed): start in the OS language when we have it,
+    // so a Polish Windows opens in Polish. A choice made with setLang (or the hint's ✕) sets langHint and is kept.
+    if (!s.onboarded && !s.langHint) {
+      const d = detect() || "en";
+      if (d !== s.lang) { s.lang = d; App.persist(); }
+      auto = d !== "en";
+    }
+    const want = s.lang;
     lang = App.locales[want] ? want : "en";
     document.documentElement.lang = App.locales[lang].tag;   // also makes CSS uppercase right for Turkish
     installFonts(lang);
@@ -68,6 +77,7 @@ App.i18n = (function () {
   /** The language to suggest, or null (already handled, already using it, or nothing to suggest). */
   const suggestion = () => {
     if (App.P.settings.langHint) return null;
+    if (auto) return lang !== "en" ? "en" : null;   // started in the Windows language: English stays one click away
     const d = detect();
     return d && d !== lang ? d : null;
   };
@@ -94,12 +104,14 @@ App.i18n = (function () {
     return h("div", { class: "langhint inline" },
       h("button", { class: "linkbtn lime", text: App.tIn(code, "lang.switchTo"), onClick: () => setLang(code) }),
       App.locales[code].ai ? h("span", { class: "muted", title: App.tIn(code, "lang.aiTip"), text: App.tIn(code, "lang.ai") }) : null,
+      // started in a machine-translated Windows language: say so, as the link did before
+      auto && App.locales[lang].ai ? h("span", { class: "muted", title: App.t("lang.aiTip"), text: App.t("lang.ai") }) : null,
       h("button", { class: "linkbtn", text: "✕", onClick: (e) => { dismissHint(); e.currentTarget.parentElement.remove(); onDone?.(); } }));
   }
 
   /** Top-bar chip suggesting the system language (null when there is nothing to suggest). Click switches; ✕ dismisses for good. */
   function topbarChip() {
-    const code = suggestion();
+    const code = auto ? null : suggestion();         // the wizard's link offers English; no chip on top of it
     if (!code) return null;
     const h = App.h;
     const L = App.locales[code];

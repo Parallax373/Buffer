@@ -782,11 +782,10 @@
                 await api.invoke("rgb_stop").catch(() => {});
                 App.toast(App.t("rgb.stopped"), "ok"); App.Settings.render(true);
               } }) : null,
-              h("button", { class: "btn", text: App.t("rgb.remove"), title: App.t("rgb.removeTip"), onClick: async (e) => {
-                e.currentTarget.disabled = true;
+              U.sure(App.t("rgb.remove"), App.t("rgb.removeTip"), async () => {
                 try { await api.invoke("rgb_uninstall"); App.toast(App.t("rgb.removed"), "ok"); } catch (err) { App.toast(App.t("rgb.err", { err }), "err"); }
                 App.Settings.render(true);
-              } }))))) : null,
+              }))))) : null,
       // Fans: the same way out (turn off = every fan goes back to the BIOS; remove = also uninstall the helper)
       fans && fans.installed ? h("div", null, U.cap(App.t("nav.fans")),
         h("div", { class: "card2 pad stackrows" },
@@ -797,11 +796,10 @@
                 await api.invoke("fans_disable").catch(() => {});
                 App.toast(App.t("fans.offDone"), "ok"); App.Settings.render(true);
               } }) : null,
-              h("button", { class: "btn", text: App.t("fans.removeHelper"), title: App.t("fans.removeTip"), onClick: async (e) => {
-                e.currentTarget.disabled = true;
+              U.sure(App.t("fans.removeHelper"), App.t("fans.removeTip"), async () => {
                 try { await api.invoke("fans_uninstall"); App.toast(App.t("fans.removed"), "ok"); } catch (err) { App.toast(App.t("fans.err", { err }), "err"); }
                 App.Settings.render(true);
-              } }))))) : null));
+              }))))) : null));
   }
 
   // fill the version label once the settings page is on screen

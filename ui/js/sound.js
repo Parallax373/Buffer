@@ -369,7 +369,7 @@
 
   function noRecorder() {
     stop();
-    page.replaceChildren(App.emptyState(App.t("eq.noRec"), App.t("eq.noRecD"), App.t("eq.startRec"), async () => {
+    page.replaceChildren(App.emptyState(App.t("eq.noRec"), App.t("snd.noRecD"), App.t("eq.startRec"), async () => {
       await api.invoke("recorder_launch").catch(() => {});
       setTimeout(() => App.Sound.render(), 1500);
     }));
@@ -416,7 +416,7 @@
       detail = h("section", { class: "card2 sdetail" });
       trayBox = h("div", { class: "strayopt" });
       page.replaceChildren(h("div", { class: "snd" },
-        h("div", { class: "eqhead" }, h("h1", { text: "SoundSwitcher" }), h("span", { class: "sp" }), trayBox),
+        h("div", { class: "eqhead" }, h("h1", { text: App.t("snd.title") }), h("span", { class: "sp" }), trayBox),
         h("div", { class: "sbody" }, h("div", { class: "sleft" }, list, opts), detail)));
       await App.RecUI.ensureLoaded().catch(() => {});
       drawOpts();

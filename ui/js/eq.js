@@ -856,6 +856,7 @@
         if (S.view === "eq") draw();
       });
       el.classList.add("eqempty");
+      el.querySelector("button")?.setAttribute("title", App.t("eq.installTip"));   // the UAC prompt and the audio gap, before the click
       if (busy) el.append(h("div", { class: "eqprog" }, h("div", { class: "muted", text: App.t("eq.installing") }), scanBusy()));
       else if (err) el.append(h("div", { class: "eqerr", text: err }));
       box.replaceChildren(el);
