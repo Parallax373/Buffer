@@ -726,7 +726,7 @@
               } }) : null,
               h("button", { class: "btn", text: App.t("rgb.remove"), title: App.t("rgb.removeTip"), onClick: async (e) => {
                 e.currentTarget.disabled = true;
-                try { await api.invoke("rgb_uninstall"); App.toast(App.t("rgb.removed"), "ok"); } catch (err) { App.toast(App.t("rgb.err", { err }), "err"); }
+                try { await api.invoke("rgb_uninstall"); App.toast(App.t("rgb.removed"), "ok"); } catch (e) { const err = App.installError(e); if (err) App.toast(App.t("rgb.err", { err }), "err"); }
                 App.Settings.render(true);
               } }))))) : null,
       // Fans: the same way out (turn off = every fan goes back to the BIOS; remove = also uninstall the helper)
@@ -741,7 +741,7 @@
               } }) : null,
               h("button", { class: "btn", text: App.t("fans.removeHelper"), title: App.t("fans.removeTip"), onClick: async (e) => {
                 e.currentTarget.disabled = true;
-                try { await api.invoke("fans_uninstall"); App.toast(App.t("fans.removed"), "ok"); } catch (err) { App.toast(App.t("fans.err", { err }), "err"); }
+                try { await api.invoke("fans_uninstall"); App.toast(App.t("fans.removed"), "ok"); } catch (e) { const err = App.installError(e); if (err) App.toast(App.t("fans.err", { err }), "err"); }
                 App.Settings.render(true);
               } }))))) : null));
   }

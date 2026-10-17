@@ -287,7 +287,7 @@
         if (!st.installed) await api.invoke("fans_install");
         await api.invoke("fans_enable");
         await render();
-      } catch (e) { gate(null, false, String(e)); }
+      } catch (e) { gate(null, false, App.installError(e) || null); }   // a declined UAC prompt: back to the gate, no error
     }));
     const b = page.querySelector(".empty button");
     if (b) b.title = App.t("fans.tip");

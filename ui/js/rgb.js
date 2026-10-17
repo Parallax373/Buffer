@@ -211,7 +211,7 @@
       try {
         if (!(await api.invoke("rgb_status")).installed) await api.invoke("rgb_install");
         await start();
-      } catch (e) { gate(String(e), false); }
+      } catch (e) { gate(App.installError(e) || null, false); }   // a declined UAC prompt: back to the gate, no error
     }));
     const b = page.querySelector(".empty");
     if (b && !busy) b.querySelector("button")?.setAttribute("title", App.t("rgb.tip"));

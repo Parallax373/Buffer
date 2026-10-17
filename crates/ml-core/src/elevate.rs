@@ -28,11 +28,12 @@ pub fn sha256(path: &Path) -> Result<String, String> {
         .lines()
         .map(|l| l.replace(' ', "").to_lowercase())
         .find(|l| l.len() == 64 && l.chars().all(|c| c.is_ascii_hexdigit()))
-        .ok_or_else(|| "cannot hash the download".to_string())
+        .ok_or_else(|| "hash_failed".to_string())
 }
 
 /// Downloads `url` to `dest` and checks the hash. Returns the file held open for reading only, so it cannot be
-/// swapped or rewritten until the guard is dropped.
+/// swapped or rewritten until the guard is dropped. Errors are short codes the UI translates (`download_failed`,
+/// `hash_mismatch`, `hash_failed`), like every error of the install flows built on this module.
 pub fn fetch(url: &str, dest: &Path, sha: &str) -> Result<std::fs::File, String> {
     let _ = std::fs::remove_file(dest);
     let ok = Command::new("curl.exe")
@@ -44,11 +45,11 @@ pub fn fetch(url: &str, dest: &Path, sha: &str) -> Result<std::fs::File, String>
         .map_err(|e| e.to_string())?
         .success();
     if !ok {
-        return Err("download failed".into());
+        return Err("download_failed".into());
     }
     let hold = std::fs::OpenOptions::new().read(true).share_mode(1).open(dest).map_err(|e| e.to_string())?; // FILE_SHARE_READ
     if sha256(dest)? != sha {
-        return Err("the download does not match the expected hash".into());
+        return Err("hash_mismatch".into());
     }
     Ok(hold)
 }
@@ -104,7 +105,7 @@ pub fn elevated(script: &str) -> Result<i32, String> {
         .creation_flags(NO_WINDOW)
         .status()
         .map_err(|e| e.to_string())?;
-    st.code().ok_or_else(|| "the elevated step was interrupted".to_string())
+    st.code().ok_or_else(|| "interrupted".to_string())
 }
 
 #[cfg(test)]

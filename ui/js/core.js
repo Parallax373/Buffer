@@ -253,6 +253,18 @@ const App = {};
       h("span", { class: "toggle lg" + (on ? " on" : "") })),
   };
 
+  /** Words for an error of the RGB / Fans install (ml-core `elevate`): those send short codes (`hash_mismatch`,
+   *  `install_failed:12`, ...). A declined UAC prompt is the user's own "no", a quiet cancel: "" (show nothing).
+   *  Anything else (a raw system message) is passed through. */
+  App.installError = (e) => {
+    const s = String(e && e.message ? e.message : e), i = s.indexOf(":");
+    const code = i < 0 ? s : s.slice(0, i), n = i < 0 ? "" : s.slice(i + 1);
+    if (code === "uac_declined") return "";
+    if (code === "install_failed" || code === "uninstall_failed") return App.t("inst." + code, { code: n });
+    const known = ["download_failed", "hash_mismatch", "hash_failed", "pawnio_check", "pawnio_failed", "unpack_failed", "task_failed", "not_in_place", "interrupted", "no_build"];
+    return known.includes(code) ? App.t("inst." + code) : s;
+  };
+
   /* ───── toast ───── */
   /** `action` = { label, run }: a button in the toast (e.g. "Undo"); the toast then stays a little longer */
   App.toast = (msg, kind = "", action = null) => {
