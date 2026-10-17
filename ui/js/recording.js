@@ -12,6 +12,8 @@ App.RecUI = (function () {
   ];
   const CHAT_APPS = () => [["", App.t("chat.none")], ["discord", "Discord"], ["teamspeak", "TeamSpeak"], ["ts3client_win64", "TeamSpeak 3"],
     ["teams", "Microsoft Teams"], ["zoom", "Zoom"], ["telegram", "Telegram"], ["skype", "Skype"]];
+  /** A program's name from its exe stem ("discord" → "Discord"). */
+  const appName = (stem) => (stem && CHAT_APPS().find(([v]) => v === stem)?.[1]) || stem || "";
   const BASE = {
     output_dir: "", per_game_folders: true, post_roll_seconds: 15, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, quality: "std", monitor: 0,
@@ -200,7 +202,7 @@ App.RecUI = (function () {
   /** Name of the device a source will use, plus a short note when something needs attention. */
   function deviceLabel(c, key, kind) {
     const list = kind === "render" ? devices.render : devices.capture;
-    if (key === "chat" && c.chat_app) return { text: App.t("dev.sep", { app: c.chat_app }), note: "" };
+    if (key === "chat" && c.chat_app) return { text: App.t("dev.sep", { app: appName(c.chat_app) }), note: "" };
     const p = c[key].primary;
     let text = App.t("dev.unset");
     if (p && p.id === FOLLOW) text = nameOf(list, defaultFor(kind, key)) || App.t("dev.winDef");
@@ -619,7 +621,7 @@ App.RecUI = (function () {
     const clock = (sec) => `${sec >= 3600 ? Math.floor(sec / 3600) + ":" : ""}${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
     if (paint.wasLong && !lg) setTimeout(() => App.Lib.load(), 6000);   // the finished MP4 appears after the remux
     paint.wasLong = !!lg;
-    const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
+    const down = r ? r.sources.filter(App.srcFaulty).map((s) => s.name) : [];
     let state = "on", t = App.t("st.on"), l = "";
     if (!r) { state = "off"; t = App.t("st.off"); l = App.t("st.offL"); }
     else if (r.idle) { state = "idle"; t = App.t("st.idle"); l = App.t("st.idleL"); }
@@ -690,8 +692,26 @@ App.RecUI = (function () {
       }
       if (!src || !dev) continue;
       const base = dev.firstChild ? dev.firstChild.textContent : "";
-      const note = !src.live ? src.status.replace(/^down: /, App.t("src.missing")) : (src.role === "secondary" ? App.t("src.backup") : "");
-      dev.replaceChildren(...[src.device || base, note ? h("em", { class: src.live ? "" : "bad", text: note }) : null].filter(Boolean));   // replaceChildren(null) would print "null"
+      const st = srcState(src);
+      const name = st.name || (src.role === "appx" ? App.t("src.allBut", { app: appName(src.device) }) : src.role === "app" && src.device ? appName(src.device) : src.device) || base;
+      const note = st.note ? h("em", { class: App.srcFaulty(src) ? "bad" : "", text: st.note, title: st.tip || null }) : null;
+      dev.replaceChildren(...[name, note].filter(Boolean));   // replaceChildren(null) would print "null"
+    }
+  }
+
+  /** What a source's status code means, in words: the note after its device name, and a device name to show instead
+   *  when it waits for one. The recorder sends codes (`wait_device:<name>`, `wait_app:<stem>`, ...), never text. */
+  function srcState(src) {
+    if (src.live) return { note: src.role === "secondary" ? App.t("src.backup") : "" };
+    const s = String(src.status || ""), i = s.indexOf(":");
+    const code = i < 0 ? s : s.slice(0, i), arg = i < 0 ? "" : s.slice(i + 1);
+    switch (code) {
+      case "wait_device": return { note: App.t("src.waitDev"), name: arg };
+      case "wait_app": return { note: App.t("src.waitApp", { app: appName(arg) }), tip: App.t("src.waitTip") };
+      case "wait_game": return { note: App.t("src.waitGame") };
+      case "no_device": return { note: App.t("src.noDevice"), tip: App.t("src.noDeviceTip") };
+      case "starting": return { note: App.t("src.starting") };
+      default: return { note: App.t("src.error"), tip: arg || s };
     }
   }
 
@@ -703,6 +723,7 @@ App.RecUI = (function () {
     await load();
     const found = await api.invoke("detect_clip_folders").catch(() => []);
     const apoNow = await api.invoke("eq_apo_status").catch(() => null);
+    const discord = await api.invoke("discord_installed").catch(() => false);
     const fresh = !App.P.settings.onboarded;
     const w = {
       step: 0, dir: cfg.output_dir, cfg: JSON.parse(JSON.stringify(cfg)), autostart: true, adv: false,
@@ -717,8 +738,9 @@ App.RecUI = (function () {
     if (!w.cfg.mic.primary) w.cfg.mic.primary = follow;
     const presets = presetsFor(w.cfg);
     if (fresh) Object.assign(w.cfg, presets[1][3]);
-    // One shared output is the common case: split a chat app out of the game track by default.
-    if (sharedOutput(w.cfg) && !w.cfg.chat_app) w.cfg.chat_app = "discord";
+    // One shared output is the common case: split Discord out of the game track by default, but only when it is
+    // installed (otherwise the Chat track would wait for a program that never starts).
+    if (sharedOutput(w.cfg) && !w.cfg.chat_app && discord) w.cfg.chat_app = "discord";
 
     const overlay = h("div", { class: "wz" });
     document.body.append(overlay);
@@ -801,8 +823,12 @@ App.RecUI = (function () {
       const bleed = bleedWarn();
       const paintNotes = () => {
         for (const [key, , , kind] of SRC) {
-          const n = deviceLabel(w.cfg, key, kind).note;
+          // the chat app split is said in the Chat row itself: its sound goes to a track of its own
+          const split = key === "chat" && w.cfg.chat_app;
+          const n = split ? deviceLabel(w.cfg, key, kind).text : deviceLabel(w.cfg, key, kind).note;
           notes[key].textContent = n;
+          if (split) notes[key].title = App.t("wz.splitTip", { app: appName(w.cfg.chat_app) });
+          else notes[key].removeAttribute("title");     // an empty title would hide the row's own tooltip
           notes[key].hidden = !n;
         }
       };

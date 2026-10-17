@@ -51,8 +51,13 @@ pub struct Sink {
     /// Peak of the last chunk, in thousandths of full scale.
     pub level: AtomicU32,
     pub live: AtomicBool,
+    /// Down for a reason worth a warning (a chosen device is missing, the capture died). A source that only waits for
+    /// an app that is not running, or for a kind of device this PC does not have, is down but not faulty.
+    pub fault: AtomicBool,
     pub device_name: Mutex<String>,
     pub role: Mutex<&'static str>,
+    /// A short code for the UI to translate: `live`, `starting`, `wait_device:<name>`, `wait_app:<stem>`, `wait_game`,
+    /// `no_device` or `error:<details>`.
     pub status: Mutex<String>,
     /// Bumped when the configuration changes so the capture thread re-evaluates immediately.
     pub generation: AtomicU32,
@@ -70,6 +75,7 @@ impl Sink {
             buf: Mutex::new(VecDeque::new()),
             level: AtomicU32::new(0),
             live: AtomicBool::new(false),
+            fault: AtomicBool::new(false),
             device_name: Mutex::new(String::new()),
             role: Mutex::new("waiting"),
             status: Mutex::new("starting".into()),
@@ -96,9 +102,22 @@ impl Sink {
         }
     }
 
-    fn set_status(&self, live: bool, text: impl Into<String>) {
-        self.live.store(live, Ordering::Relaxed);
-        *self.status.lock().unwrap() = text.into();
+    fn set_live(&self) {
+        self.live.store(true, Ordering::Relaxed);
+        self.fault.store(false, Ordering::Relaxed);
+        *self.status.lock().unwrap() = "live".into();
+    }
+
+    fn set_down(&self, err: &str) {
+        let (code, fault) = down_status(err);
+        self.live.store(false, Ordering::Relaxed);
+        self.fault.store(fault, Ordering::Relaxed);
+        *self.status.lock().unwrap() = code;
+    }
+
+    /// Down and worth a warning (see `fault`).
+    pub fn faulty(&self) -> bool {
+        !self.live.load(Ordering::Relaxed) && self.fault.load(Ordering::Relaxed)
     }
 
     fn direction(&self) -> Direction {
@@ -232,8 +251,16 @@ fn capture_once(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
         role == Role::Primary && raw_cfg.primary.as_ref().is_some_and(|d| d.id == FOLLOW_DEFAULT);
     let Some(chosen) = chosen else {
         *sink.role.lock().unwrap() = Role::Waiting.label();
-        let wanted = cfg.primary.as_ref().map(|d| d.name.clone()).unwrap_or_default();
-        return Err(format!("waiting for device {wanted}").trim().to_string());
+        // nothing of this kind in Windows (a PC without a microphone) and no particular device asked for: not a fault
+        let chosen_by_user = [&raw_cfg.primary, &raw_cfg.secondary]
+            .into_iter()
+            .flatten()
+            .any(|d| !d.id.is_empty() && d.id != FOLLOW_DEFAULT);
+        if list.is_empty() && !chosen_by_user {
+            return Err("no_device".into());
+        }
+        let wanted = cfg.primary.as_ref().map(|d| d.name.trim().to_string()).unwrap_or_default();
+        return Err(format!("wait_device:{wanted}"));
     };
 
     let device = en.get_device(&chosen.id).map_err(|e| e.to_string())?;
@@ -249,7 +276,7 @@ fn capture_once(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let event = client.set_get_eventhandle().map_err(|e| e.to_string())?;
     let capture = client.get_audiocaptureclient().map_err(|e| e.to_string())?;
     client.start_stream().map_err(|e| e.to_string())?;
-    sink.set_status(true, "live");
+    sink.set_live();
 
     let mut scratch: VecDeque<u8> = VecDeque::new();
     let mut last_check = Instant::now();
@@ -309,17 +336,18 @@ fn capture_once(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
 /// Per-application capture (Windows 10 2004+): only one program's sound, or everything except one.
 fn capture_app_once(sink: &Sink, stop: &AtomicBool, src: &AppSource) -> Result<(), String> {
     let generation = sink.generation.load(Ordering::Relaxed);
+    // the label is the program's stem (the UI names it and words "everything except"); empty for the detected game
     let (pid, include, label) = match src {
         AppSource::IncludeStem(s) => (crate::win::find_root_pid(s), true, s.clone()),
         AppSource::ExcludeStem(s) => (crate::win::find_root_pid(s), false, s.clone()),
-        AppSource::IncludePid(p) => (crate::win::pid_alive(*p).then_some(*p), true, "gra".to_string()),
+        AppSource::IncludePid(p) => (crate::win::pid_alive(*p).then_some(*p), true, String::new()),
         AppSource::None => return Err("no application source".into()),
     };
     let Some(pid) = pid else {
         *sink.role.lock().unwrap() = Role::Waiting.label();
-        return Err(format!("waiting for {label}"));
+        return Err(if label.is_empty() { "wait_game".into() } else { format!("wait_app:{label}") });
     };
-    *sink.device_name.lock().unwrap() = if include { label.clone() } else { format!("wszystko poza {label}") };
+    *sink.device_name.lock().unwrap() = label;
     *sink.role.lock().unwrap() = if include { "app" } else { "appx" };
 
     let mut client = wasapi::AudioClient::new_application_loopback_client(pid, include).map_err(|e| e.to_string())?;
@@ -329,7 +357,7 @@ fn capture_app_once(sink: &Sink, stop: &AtomicBool, src: &AppSource) -> Result<(
     let event = client.set_get_eventhandle().map_err(|e| e.to_string())?;
     let capture = client.get_audiocaptureclient().map_err(|e| e.to_string())?;
     client.start_stream().map_err(|e| e.to_string())?;
-    sink.set_status(true, "live");
+    sink.set_live();
 
     let mut scratch: VecDeque<u8> = VecDeque::new();
     let mut last_check = Instant::now();
@@ -397,7 +425,7 @@ pub fn spawn_capture(sink: Arc<Sink>, stop: Arc<AtomicBool>) {
                     Err(e) if e == "reconfigured" => {}
                     Err(e) => {
                         sink.level.store(0, Ordering::Relaxed);
-                        sink.set_status(false, format!("down: {e}"));
+                        sink.set_down(&e);
                         // Poll quickly while waiting so a reconnect is picked up within about a second.
                         let seen = sink.generation.load(Ordering::Relaxed);
                         for _ in 0..4 {
@@ -411,4 +439,31 @@ pub fn spawn_capture(sink: Arc<Sink>, stop: Arc<AtomicBool>) {
             }
         })
         .expect("spawn capture thread");
+}
+
+/// The status code a down source reports, and whether it is a fault. Waiting for an app that is not running (the
+/// chat app, the game) or for a kind of device the PC does not have is expected, not a fault; a missing chosen device
+/// or a failed capture is. Anything that is not one of our codes is a raw error and becomes `error:<details>`.
+fn down_status(err: &str) -> (String, bool) {
+    if err.starts_with("wait_app:") || err == "wait_game" || err == "no_device" {
+        (err.to_string(), false)
+    } else if err.starts_with("wait_device:") {
+        (err.to_string(), true)
+    } else {
+        (format!("error:{err}"), true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::down_status;
+
+    #[test]
+    fn only_real_problems_count_as_faults() {
+        assert_eq!(down_status("wait_app:discord"), ("wait_app:discord".to_string(), false), "chat app not running");
+        assert_eq!(down_status("wait_game"), ("wait_game".to_string(), false), "the game just exited");
+        assert_eq!(down_status("no_device"), ("no_device".to_string(), false), "a PC without a microphone");
+        assert_eq!(down_status("wait_device:Headset"), ("wait_device:Headset".to_string(), true), "a chosen device is gone");
+        assert_eq!(down_status("0x88890004"), ("error:0x88890004".to_string(), true), "the capture died");
+    }
 }

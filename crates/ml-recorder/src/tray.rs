@@ -299,7 +299,7 @@ fn state_of(shared: &session::Shared) -> (State, String) {
     let down: Vec<String> = shared
         .sinks
         .iter()
-        .filter(|s| !s.live.load(Ordering::Relaxed))
+        .filter(|s| s.faulty())
         .map(|s| source_label(s.name))
         .collect();
     if !down.is_empty() {
@@ -375,7 +375,7 @@ fn health_of(shared: &session::Shared, state: State) -> Health {
         State::Idle | State::Starting | State::SaveFailed => Health::Neutral,
         State::Problem => {
             let down: Vec<String> =
-                shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| source_label(s.name)).collect();
+                shared.sinks.iter().filter(|s| s.faulty()).map(|s| source_label(s.name)).collect();
             Health::Warn(down.join(", "))
         }
         State::Stopped => Health::Down(shared.last_error.lock().unwrap().chars().take(90).collect()),
@@ -525,7 +525,7 @@ fn announce_due(recording: bool, seen_for: std::time::Duration, has_error: bool)
 
 fn announce_game(shared: &session::Shared, game: &str) {
     let cfg = shared.cfg.lock().unwrap().clone();
-    let down: Vec<&str> = shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| s.name).collect();
+    let down: Vec<&str> = shared.sinks.iter().filter(|s| s.faulty()).map(|s| s.name).collect();
     let len = if cfg.buffer_seconds >= 60 && cfg.buffer_seconds % 60 == 0 {
         format!("{} min", cfg.buffer_seconds / 60)
     } else {

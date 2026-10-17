@@ -23,6 +23,7 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
                 "device": *s.device_name.lock().unwrap(),
                 "role": *s.role.lock().unwrap(),
                 "live": s.live.load(Ordering::Relaxed),
+                "fault": s.faulty(),
                 "level": s.level.load(Ordering::Relaxed) as f64 / 1000.0,
                 "status": *s.status.lock().unwrap(),
             })

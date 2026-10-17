@@ -19,6 +19,11 @@ no bloat, no launcher/update breakage, a richer editor, and a size-targeted expo
   (game = executable name of the foreground window, or `Desktop`; map names in `recorder.json: game_names`).
 - Reliability: supervisor restarts ffmpeg with back-off; audio sources reconnect every 2 s; single-instance mutex;
   ffmpeg lives in a kill-on-close job object; tray icon is green (all live) / amber (a source is down) / red (stopped).
+  A source that only waits for its chat app (not running) or for a kind of device the PC does not have (no mic at all)
+  is down but not a fault (`Sink::fault`, status `fault: false`): no amber pill or tray, no health popup. A chosen device
+  that is gone or a failed capture is a fault. Source statuses are codes (`wait_device:<name>`, `wait_app:<stem>`,
+  `wait_game`, `no_device`, `error:<details>`) that the UI translates. The wizard splits Discord out of the game track
+  only when `%LOCALAPPDATA%\Discord` exists (`discord_installed`).
 - Config: `%APPDATA%\moments-lite\recorder.json` (UI: Ustawienia â†’ Nagrywanie). fps, width, bitrate, buffer length,
   monitor, hotkey, devices, audio offset (ms). Control: `ml-recorder status|save|reload|quit` on 127.0.0.1:47821.
 - Autostart: HKCU Run key (`ml-recorder install-autostart`), done by the installer and by Settings.

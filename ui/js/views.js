@@ -125,10 +125,13 @@
   App.focusSearch = () => App.$("#topSearch")?.focus();
 
   const fmtBuf = (s) => `${Math.floor(s / 60)}:${String(Math.round(s) % 60).padStart(2, "0")}`;
+  /** A source worth a warning: down for a real reason. One that waits for a chat app that is not running, or for a
+   *  kind of device the PC does not have, is down but fine (an older recorder has no `fault`: then down = fault). */
+  const faulty = (App.srcFaulty = (s) => (s.fault ?? !s.live));
 
   function paintRec() {
     const r = S.recorder;
-    const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
+    const down = r ? r.sources.filter(faulty).map((s) => s.name) : [];
     let cls, text;
     if (!r) { cls = "off"; text = App.t("rec.pill.off"); }
     else if (r.saving) { cls = "saving"; text = App.t("rec.pill.saving"); }
@@ -165,7 +168,7 @@
     if (!r) return App.t("rec.tip.off");
     if (r.idle) return App.t("rec.tip.idle");
     if (!r.recording) return r.last_error || App.t("rec.tip.stopped");
-    const down = r.sources.filter((s) => !s.live).map((s) => s.name);
+    const down = r.sources.filter(faulty).map((s) => s.name);
     const base = down.length ? App.t("rec.tip.down", { list: down.join(", ") }) : App.t("rec.tip.on", { cur: r.buffer_s, target: r.buffer_target_s });
     return App.t("rec.tip.save", { base });
   }
