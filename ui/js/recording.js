@@ -371,13 +371,6 @@ App.RecUI = (function () {
     return rows;
   }
 
-  /** All the video rows in one list; `set(patch)` applies a change. Used by the wizard's "Dostosuj". */
-  function videoRows(c, set) {
-    const pic = pictureRows(c, set);
-    const screen = monitors.length ? pic.pop() : null;
-    return [...pic, ...clipRows(c, set), screen].filter(Boolean);
-  }
-
   /** The encoder the recorder would pick right now, for the status next to the encoder choice. */
   const encoderName = () => ({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync", libx264: App.t("enc.cpu") })[tools && tools.encoder] || App.t("enc.unknown");
 
@@ -696,17 +689,21 @@ App.RecUI = (function () {
 
   /* ───────────── first-run wizard ───────────── */
 
-  const STEPS = ["start", "audio", "picture", "eq", "done"];
+  /* Four steps, about a minute, no permission prompt: Start (everything detected, shown as values), Sound (the three
+   * tracks with live meters), Picture (three profiles; its button starts recording) and Shortcut (press it, see the
+   * clip that was really saved). The step is remembered while the wizard is unfinished, so a closed window resumes there. */
+  const STEPS = ["start", "audio", "picture", "key"];
+  const KEY_STEP = 3;
 
   async function wizard() {
     await load();
     const found = await api.invoke("detect_clip_folders").catch(() => []);
-    const apoNow = await api.invoke("eq_apo_status").catch(() => null);
+    const others = found.filter((f) => f.source !== "Buffer");     // clip folders of other programs
     const fresh = !App.P.settings.onboarded;
+    const resumeAt = fresh ? Math.min(KEY_STEP, Math.max(0, +App.P.settings.wizStep || 0)) : 0;
     const w = {
-      step: 0, dir: cfg.output_dir, cfg: JSON.parse(JSON.stringify(cfg)), autostart: true, adv: false,
-      checks: [], checksDone: false, running: false, hits0: null, tested: false, editKey: false,
-      eq: false, apo: apoNow, hp: null, eqMsg: "",
+      step: resumeAt, dir: cfg.output_dir, cfg: JSON.parse(JSON.stringify(cfg)), autostart: true, adv: false,
+      checks: [], checksDone: resumeAt > 0, running: false, hits0: null, saved0: null, tested: false, clip: null, editKey: false,
     };
     // First choices: follow the Windows default output, a dedicated "chat" endpoint if there is one, the default mic.
     const hasChat = devices.render.find((d) => /chat|czat|communic/i.test(d.name));
@@ -715,9 +712,12 @@ App.RecUI = (function () {
     if (!w.cfg.chat.primary) w.cfg.chat.primary = hasChat ? { id: hasChat.id, name: hasChat.name } : follow;
     if (!w.cfg.mic.primary) w.cfg.mic.primary = follow;
     const presets = presetsFor(w.cfg);
-    if (fresh) Object.assign(w.cfg, presets[1][3]);
-    // One shared output is the common case: split a chat app out of the game track by default.
-    if (sharedOutput(w.cfg) && !w.cfg.chat_app) w.cfg.chat_app = "discord";
+    // a resumed wizard already saved the user's picks: only a new start takes the recommended profile and the chat split
+    if (fresh && !resumeAt) {
+      Object.assign(w.cfg, presets[1][3]);
+      // One shared output is the common case: split a chat app out of the game track by default.
+      if (sharedOutput(w.cfg) && !w.cfg.chat_app) w.cfg.chat_app = "discord";
+    }
 
     const overlay = h("div", { class: "wz" });
     document.body.append(overlay);
@@ -725,12 +725,13 @@ App.RecUI = (function () {
     let statusTimer = 0;
     const close = () => { stopMeters(); clearInterval(statusTimer); overlay.remove(); };
     const presetOf = () => presets.find((p) => p[3].width === w.cfg.width && p[3].fps === w.cfg.fps && p[3].quality === w.cfg.quality);
+    const lenText = (s) => (LEN().find(([v]) => v === s) || [0, fmtBuf(s)])[1];
 
     /* ----- pieces ----- */
     const rail = () => h("div", { class: "wzrail" }, STEPS.map((step, i) => h("div", { class: "wzstep" },
-      h("div", { class: "bars" }, Array.from({ length: 6 }, (_, j) => h("i", { style: {
-        opacity: i < w.step ? 0.5 : i === w.step ? 1 : 0.12, transitionDelay: `${j * 0.04}s` } }))),
-      h("span", { text: App.t("wz.step." + step), style: { color: i === w.step ? "#c6f432" : i < w.step ? "#8e9484" : "#4a5040" } }))));
+      h("div", { class: "bars" }, Array.from({ length: 10 }, (_, j) => h("i", { style: {
+        opacity: i < w.step ? 0.45 : i === w.step ? (0.4 + j * 0.066).toFixed(2) : 0.1, transitionDelay: `${j * 0.03}s` } }))),
+      h("span", { text: App.t("wz.step." + step), style: { color: i === w.step ? "#c6f432" : i < w.step ? "#8e9484" : "#6f7566" } }))));
 
     const bigLogo = () => {
       const tails = [30, 10, 38, 18, 26, 6, 34, 14, 40, 22, 8, 32, 16];
@@ -742,42 +743,44 @@ App.RecUI = (function () {
       }));
     };
 
+    /* Step 1: nothing to answer. What was detected is shown as values; each row explains itself in its tooltip. */
     const stepStart = () => {
+      const enc = tools && tools.encoder;
+      const gpu = !!(enc && enc !== "libx264");
+      const nDev = (devices.render.length ? 2 : 0) + (devices.capture.length ? 1 : 0);
+      const mon = monitors.find((m) => m.index === w.cfg.monitor) || monitors.find((m) => m.primary) || monitors[0];
+      // [label, value, note, tooltip, ok]
       const rows = [
-        ["ffmpeg", () => tools?.ffmpeg_found ? ["ok", tools.ffmpeg_bundled ? App.t("wz.bundled") : App.t("wz.system")] : ["warn", App.t("wz.noFfmpeg")]],
-        [App.t("enc.label"), () => {
-          const e = tools?.encoder;
-          return e && e !== "libx264"
-            ? ["ok", `✓ ${({ h264_nvenc: "NVIDIA NVENC", h264_amf: "AMD AMF", h264_qsv: "Intel QuickSync" })[e] || e}`]
-            : ["warn", App.t("wz.useCpu")];
-        }],
-        [App.t("wz.devices"), () => {
-          const n = (devices.render.length ? 2 : 0) + (devices.capture.length ? 1 : 0);
-          return n >= 3 ? ["ok", App.t("wz.sources3")] : n ? ["warn", App.t("wz.nOf3", { n })] : ["warn", App.t("wz.noneDet")];
-        }],
-      ];
-      const els = rows.map(([label]) => {
-        const dot = h("span", { class: "cdot" }), val = h("span", { class: "mono cval" });
-        return { dot, val, row: h("div", { class: "crow wait" }, dot, h("span", { text: label }), val) };
+        tools && !tools.ffmpeg_found ? ["ffmpeg", App.t("wz.noFfmpeg"), "", "", false] : null,
+        [App.t("adv.encoder"), gpu ? encoderName() : App.t("enc.cpu"), App.t(gpu ? "wz.gpu" : "wz.cpu"), App.t("wz.encTip"), gpu],
+        [App.t("wz.audio"), App.t("wz.tracks"), App.t("wz.nOfM", { n: nDev, m: 3 }), App.t("wz.soundTip"), nDev >= 3],
+        mon ? [App.t("wz.monitor"), `${mon.width}×${mon.height}` + (mon.primary ? " · " + App.t("wz.main") : ""),
+          monitors.length > 1 ? App.t("wz.nOfM", { n: 1, m: monitors.length }) : "", App.t("wz.monTip"), true] : null,
+        others.length ? [App.t("wz.oldClips"), [...new Set(others.map((f) => f.source))].join(", "), App.t("wz.oldAdd"), App.t("wz.oldTip"), true] : null,
+      ].filter(Boolean);
+      const els = rows.map(([label, , , tip]) => {
+        const dot = h("span", { class: "cdot" }), val = h("span", { class: "mono cval" }), note = h("span", { class: "cnote" });
+        return { dot, val, note, row: h("div", { class: "crow wait", title: tip }, dot, h("span", { class: "clabel", text: label }), val, note) };
       });
+      const count = h("span", { class: "mono faint" });
       const paintRow = (i) => {
-        const st = w.checks[i] || { state: "wait", val: "" };
+        const st = w.checks[i] || { state: w.checksDone ? (rows[i][4] ? "ok" : "warn") : "wait" };
         const e = els[i];
         e.row.className = `crow ${st.state}`;
         e.dot.textContent = st.state === "ok" ? "✓" : st.state === "warn" ? "!" : "";
-        e.val.textContent = st.state === "active" ? App.t("wz.checking") : st.val || "";
+        e.val.textContent = st.state === "active" ? App.t("wz.checking") : st.state === "wait" ? "" : rows[i][1];
+        e.note.textContent = st.state === "ok" || st.state === "warn" ? rows[i][2] : "";
+        count.textContent = App.t("wz.checked", { n: w.checksDone ? rows.length : w.checks.filter((c) => c && c.state !== "active").length, m: rows.length });
       };
       const run = async () => {
         if (w.checksDone || w.running) return;
         w.running = true;
         for (let i = 0; i < rows.length; i++) {
-          w.checks[i] = { state: "active", val: "" };
+          w.checks[i] = { state: "active" };
           paintRow(i);
-          const started = Date.now();
-          const [st, val] = rows[i][1]();
-          await sleep(Math.max(0, 700 - (Date.now() - started)));
+          await sleep(380);
           if (!overlay.isConnected) return;
-          w.checks[i] = { state: st, val };
+          w.checks[i] = { state: rows[i][4] ? "ok" : "warn" };
           paintRow(i);
         }
         w.checksDone = true;
@@ -785,15 +788,16 @@ App.RecUI = (function () {
         if (w.step === 0) renderFooter();
       };
       els.forEach((_, i) => paintRow(i));
-      if (!w.checksDone) setTimeout(run, 900);          // let the logo build first
+      if (!w.checksDone) setTimeout(run, 700);          // let the logo build first
       return h("div", { class: "stack16" },
         h("div", { class: "wzhero" }, bigLogo(),
           h("div", { class: "wzhello" }, h("div", { class: "big", text: App.t("wz.hello") }),
             h("div", { class: "muted", text: App.t("wz.helloD") }))),
-        h("div", { class: "stack8" }, els.map((e) => e.row)),
-        App.i18n.hintLink());
+        h("div", { class: "stack8" }, h("div", { class: "between" }, U.cap(App.t("wz.found")), count), els.map((e) => e.row)),
+        h("div", { class: "between faint" }, h("span", { text: App.t("wz.noInstall") }), App.i18n.hintLink()));
     };
 
+    /* Step 2: the three tracks, already picked, with live meters. */
     const stepAudio = () => {
       // a pick only updates the notes (the meters read w.cfg each round), so the step does not replay its animation
       const notes = {};
@@ -821,129 +825,105 @@ App.RecUI = (function () {
         h("div", { class: "faint", text: App.t("wz.audioHint") }));
     };
 
+    /* Step 3: three profiles (the recommended one marked), how much to keep and what one clip weighs. The rest is folded. */
     const stepPicture = () => {
-      const lenBox = h("div");
-      const dirEl = h("span", { class: "mono path", text: w.dir });
       const cardsBox = h("div", { class: "presets3" });
+      const lenBox = h("div");
+      const sizeVal = h("span", { class: "mono" }), sizeNote = h("span", { class: "muted", title: App.t("wz.fitsTip") });
       const advBox = h("div");
-      const drawLen = () => {
-        const roll = U.srow(App.t("key.roll"), U.segc(POST_ROLL(), w.cfg.post_roll_seconds, (v) => { w.cfg.post_roll_seconds = +v; refresh(); drawAdv(); }));
-        roll.title = App.t("key.rollTip");
-        put(lenBox,
-          U.srow(App.t("v.len"), U.segc(LEN(), w.cfg.buffer_seconds, (v) => { w.cfg.buffer_seconds = +v; refresh(); drawAdv(); })),
-          roll);
-      };
-      const gameBox = h("div");
-      const drawGame = () => put(gameBox, U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), w.cfg.game_only, (v) => { w.cfg.game_only = v; drawGame(); }));
-      drawGame();
       const refresh = () => {
-        drawLen();
+        put(lenBox, U.srow(App.t("v.len"), U.segc(LEN(), w.cfg.buffer_seconds, (v) => { w.cfg.buffer_seconds = +v; refresh(); drawAdv(false); })));
         const cur = presetOf();
         [...cardsBox.children].forEach((c, i) => c.classList.toggle("on", cur === presets[i]));
+        const mb = estimates(w.cfg).clipMb;
+        sizeVal.textContent = "≈ " + fmtMb(mb);
+        sizeNote.textContent = App.t(mb <= 10 ? "wz.fitsD" : mb <= 50 ? "wz.fitsB" : "wz.over");
       };
       presets.forEach((p, i) => {
-        cardsBox.append(h("div", { class: "pcard", style: { animationDelay: `${0.05 + i * 0.07}s` }, onClick: () => { Object.assign(w.cfg, p[3]); refresh(); drawAdv(); } },
-          h("b", { text: App.t(p[1]) + (p[0] === "bal" ? " ★" : "") }), h("div", { class: "muted", text: App.t(p[2]) }), h("div", { class: "mono spec", text: p[4] || `${App.t("res.native").toLocaleLowerCase(App.tag())} · ${p[3].fps} fps` })));
+        cardsBox.append(h("div", { class: "pcard", style: { animationDelay: `${0.05 + i * 0.07}s` }, onClick: () => { Object.assign(w.cfg, p[3]); refresh(); drawAdv(false); } },
+          h("b", null, App.t(p[1]), p[0] === "bal" ? h("span", { class: "recbadge", text: App.t("wz.recommended") }) : null),
+          h("div", { class: "muted", text: App.t(p[2]) }), h("div", { class: "mono spec", text: p[4] || `${App.t("res.native").toLocaleLowerCase(App.tag())} · ${p[3].fps} fps` })));
       });
-      const drawAdv = () => {
+      // "Dostosuj": folder, games only, post-roll, resolution, fps, quality, screen and the encoder
+      const drawAdv = (anim) => {
+        const set = (patch) => { Object.assign(w.cfg, patch); refresh(); drawAdv(false); };
+        const roll = U.srow(App.t("key.roll"), U.segc(POST_ROLL(), w.cfg.post_roll_seconds, (v) => set({ post_roll_seconds: +v })));
+        roll.title = App.t("key.rollTip");
+        const dirEl = h("span", { class: "mono path", text: w.dir });
         put(advBox,
-          h("button", { class: "advlink", text: `${App.t("wz.customize")} ${w.adv ? "▴" : "▾"}`, onClick: () => { w.adv = !w.adv; drawAdv(); } }),
-          w.adv ? h("div", { class: "card2 rise compact" }, ...videoRows(w.cfg, (patch) => { Object.assign(w.cfg, patch); refresh(); drawAdv(); })) : null);
+          h("button", { class: "advlink", "aria-expanded": String(w.adv), text: `${App.t("wz.customize")} ${w.adv ? "▴" : "▾"}`, onClick: () => { w.adv = !w.adv; drawAdv(true); } }),
+          w.adv ? h("div", { class: "card2 compact" + (anim ? " rise" : "") },
+            U.srow(App.t("wz.folder"), h("div", { class: "pathrow" }, dirEl, h("button", { class: "linkbtn", text: App.t("common.change"), onClick: async () => {
+              const d = await api.pickFolder();
+              if (d) { w.dir = d; dirEl.textContent = d; }
+            } }))),
+            U.trow(App.t("beh.gameOnly"), App.t("beh.gameOnlyD"), w.cfg.game_only, (v) => set({ game_only: v })),
+            roll,
+            ...pictureRows(w.cfg, set),
+            U.srow(App.t("adv.encoder"), h("select", { class: "field", title: App.t("adv.encoderTip"), onChange: (e) => { w.cfg.encoder = e.target.value; } },
+              ENCODERS().map(([v, t]) => h("option", { value: v, text: t, selected: (w.cfg.encoder || "auto") === v })))))
+            : h("div", { class: "faint", text: App.t("wz.customizeD") }));
       };
-      refresh(); drawAdv();
+      refresh(); drawAdv(false);
       return h("div", { class: "stack12" },
-        h("div", null, h("div", { class: "big", text: App.t("wz.picQ") }), h("div", { class: "muted", text: App.t("wz.picD") })),
+        h("div", null, h("div", { class: "big", text: App.t("wz.picQ") }), h("div", { class: "muted", text: App.t("wz.picRec") })),
         cardsBox,
-        h("div", { class: "card2" }, lenBox,
-          U.srow(App.t("wz.folder"), h("div", { class: "pathrow" }, dirEl, h("button", { class: "linkbtn", text: App.t("common.change"), onClick: async () => {
-            const d = await api.pickFolder();
-            if (d) { w.dir = d; dirEl.textContent = d; }
-          } }))),
-          gameBox),
+        h("div", { class: "card2" }, lenBox, U.srow(App.t("sum.clip"), h("div", { class: "pathrow" }, sizeVal, sizeNote))),
         advBox);
     };
 
-    /** The headphone model to search for: from the default output's name, else from any output that names one. */
-    const hpGuess = () => {
-      const def = devices.render.find((d) => d.id === devices.default.render);
-      const dev = [def, ...devices.render].filter(Boolean).find((d) => App.EQ.guessModel(d.name));
-      w.hpDev = dev ? dev.id : "";              // the profile goes on the headphones it was guessed from
-      return dev ? App.EQ.guessModel(dev.name) : "";
-    };
-
-    /* Optional live EQ: off by default; switching it on installs Equalizer APO (UAC) if it isn't there yet. */
-    const stepEq = () => {
-      const box = h("div", { class: "stack12" });
-      const install = () => {
-        w.eqMsg = App.t("eq.installing"); draw();
-        // finish() waits for this, so "Next / Finish" during the install can't drop the user's choice
-        w.installing = api.invoke("eq_install_apo").then((apo) => {
-          w.apo = apo;
-          w.eqMsg = !apo.installed || apo.restart_pending ? App.t("eq.restart") : "";
-        }, (e) => { w.eq = false; w.eqMsg = App.t("eq.err", { err: e }); })
-          .finally(() => { w.installing = null; if (overlay.isConnected) draw(); });
+    /* Step 4, the finish line: recording already runs; press the shortcut and see the clip that was really saved. */
+    const stepKey = () => {
+      const bufBars = Array.from({ length: 20 }, () => h("i"));
+      const bufText = h("span");
+      const keysBox = h("div", { class: "wzkeys" });
+      const strip = h("div", { class: "keystrip" });
+      const clipBox = h("div");
+      const drawKeys = () => {
+        if (w.editKey) {
+          put(keysBox, hotkeyField(w.cfg.hotkey, (c) => { w.cfg.hotkey = c || "Alt+Q"; w.editKey = false; w.tested = false; w.clip = null; paintKey(); drawKeys(); applyKey(); }));
+          keysBox.querySelector("input")?.focus();
+          return;
+        }
+        const first = bindParts(w.cfg.hotkey)[0] || "Alt+Q";
+        const parts = first.replace(/^Pad:/, "").split("+");
+        put(keysBox, ...parts.flatMap((k, i) => [i ? h("span", { class: "plus", text: "+" }) : null, h("kbd", { text: k })]));
       };
-      const draw = () => put(box,
-        h("div", null, h("div", { class: "big", text: App.t("wz.eqQ") }), h("div", { class: "muted", text: App.t("wz.eqD") })),
-        h("div", { class: "card2 tgl" }, U.trow(App.t("wz.eqOn"), App.t(w.apo && w.apo.installed ? "wz.eqHave" : "wz.eqNeed"), w.eq, (v) => {
-          w.eq = v; draw();
-          if (v && !(w.apo && w.apo.installed)) install();
-        })),
-        w.eqMsg ? h("div", { class: "faint", text: w.eqMsg }) : null,
-        w.eq && w.apo && w.apo.installed
-          ? h("div", { class: "card2 eqcard" }, h("div", { class: "cap", text: App.t("eq.headphones"), title: App.t("eq.headphonesTip") }),
-            w.hp ? h("div", { class: "pathrow" }, h("span", { class: "chip on", text: w.hp.name }),
-              h("button", { class: "linkbtn", text: "✕", onClick: () => { w.hp = null; draw(); } }))
-              : App.EQ.hpSearch((p) => { w.hp = p; draw(); }, hpGuess()))
-          : null);
-      draw();
-      return box;
-    };
-
-    /** Turns the EQ on for the default output and mic (with the chosen headphone profile). */
-    async function applyEq() {
-      if (w.installing) await w.installing;
-      if (!w.eq || !(w.apo && w.apo.installed)) return;
-      // a recorder started by finish() needs a moment before it listens: try for ~10 s
-      let r = null;
-      for (let i = 0; i < 10 && !(r && r.ok); i++) {
-        r = await api.invoke("recorder_cmd", { cmd: "eq-get" }).catch(() => null);
-        if (!(r && r.ok)) await sleep(1000);
-      }
-      const d = await api.invoke("recorder_devices").catch(() => null);
-      if (!r || !r.ok || !d) { App.toast(App.t("eq.err", { err: App.t("eq.noRec") }), "err"); return; }
-      const st = r.state;
-      st.enabled = true;
-      if (!st.mic_device) st.mic_device = d.default.capture || "";
-      const out = (w.hp && w.hpDev) || d.default.render;
-      if (out) st.outputs[out] = { ...(st.outputs[out] || { enabled: true, preset: "flat", bands: App.EQ.flat() }), autoeq: w.hp || null };
-      await api.invoke("recorder_cmd", { cmd: "eq-set " + JSON.stringify(st) }).catch(() => {});
-    }
-
-    const stepDone = () => {
-      const e = estimates(w.cfg);
-      const hotVal = h("span", { class: "mono" }), strip = h("div", { class: "keystrip" });
-      const drawKey = () => {
-        hotVal.replaceChildren(...(w.editKey
-          ? [hotkeyField(w.cfg.hotkey, (c) => { w.cfg.hotkey = c; w.editKey = false; w.tested = false; applyKey().then(drawKey); drawKey(); })]
-          : [String(w.cfg.hotkey).replaceAll("+", " + ")]));
-        strip.className = `keystrip${w.tested ? " ok" : ""}`;
-        strip.textContent = w.tested ? App.t("wz.keyOk") : App.t("wz.keyTest", { hk: String(w.cfg.hotkey).replaceAll("+", " + ") });
+      drawKeys();
+      w.paintBuf = () => {
+        const r = S.recorder;
+        const cur = r ? r.buffer_s || 0 : 0, target = r ? r.buffer_target_s || w.cfg.buffer_seconds : w.cfg.buffer_seconds;
+        const lit = Math.round(Math.min(1, cur / Math.max(1, target)) * 20);
+        bufBars.forEach((b, j) => { b.style.opacity = j < lit ? (0.4 + j * 0.03).toFixed(2) : 0.1; });
+        bufText.textContent = r ? App.t("wz.buf", { cur: fmtBuf(cur), target: fmtBuf(target) }) : App.t("wz.starting");
       };
-      const rows = [
-        [App.t("wz.folder"), h("span", { class: "mono", text: w.dir }), h("button", { class: "linkbtn", text: App.t("common.change"), onClick: () => { w.step = 2; renderAll(); } })],
-        [App.t("wz.saveKey"), hotVal, h("button", { class: "linkbtn", text: App.t("common.change"), onClick: () => { w.editKey = true; drawKey(); } })],
-        [App.t("wz.picture"), h("span", { class: "mono", text: App.t("wz.imgRow", { w: e.w, h: e.hgt, fps: w.cfg.fps, len: fmtBuf(w.cfg.buffer_seconds), size: fmtMb(e.clipMb) }) }),
-          h("button", { class: "linkbtn", text: App.t("common.change"), onClick: () => { w.step = 2; renderAll(); } })],
-        [App.t("wz.audio"), h("span", { class: "mono", text: "Game · Chat · Mic ✓" }), h("span")],
-      ];
-      drawKey();
-      return h("div", { class: "stack12" },
-        h("div", { class: "donehead" }, h("span", { class: "tickc", text: "✓" }), h("div", { class: "big", text: App.t("wz.ready") })),
-        ...rows.map(([label, val, act], i) => h("div", { class: "sumrow", style: { animationDelay: `${0.15 + i * 0.07}s` } },
-          h("span", { class: "muted", text: label }), val, act)),
-        strip,
-        h("div", { class: "faint", text: App.t("wz.doneHint") }));
+      const paintKey = () => {
+        strip.className = "keystrip" + (w.clip ? " ok" : w.tested ? " busy" : "");
+        strip.textContent = w.clip ? "✓ " + App.t("wz.keyOk") : w.tested ? App.t("wz.saving") : App.t("wz.waitKey");
+        if (!w.clip) { put(clipBox); return; }
+        const thumb = h("div", { class: "wzthumb" });
+        const meta = h("span", { class: "mono faint" });
+        put(clipBox, h("div", { class: "wzclip" }, thumb,
+          h("div", { class: "nm" }, h("span", { class: "mono", text: App.baseName(w.clip) }), meta),
+          h("button", { class: "btn", text: App.t("wz.open"), onClick: () => finish(w.clip) })));
+        App.Lib.thumbUrl(w.clip).then((u) => { if (u) thumb.style.backgroundImage = `url("${u}")`; });
+        api.invoke("probe_clip", { path: w.clip }).then((i) => {
+          meta.textContent = App.t("wz.clipMeta", { dur: fmtBuf(i.duration || 0), res: `${i.width}×${i.height} · ${Math.round(i.fps || 0)} fps`, n: (i.audio || []).length });
+        }).catch(() => {});
+      };
+      w.paintKey = paintKey;
+      w.paintBuf();
+      paintKey();
+      return h("div", { class: "stack16" },
+        h("div", { class: "wzbuf mono faint" }, h("span", { class: "livedot" }), h("span", { class: "muted", text: App.t("wz.recBg") }),
+          h("span", { class: "bufbars" }, bufBars), bufText),
+        h("div", { class: "wztry" },
+          h("div", { class: "big", text: App.t("wz.tryKey") }),
+          keysBox,
+          h("div", { class: "muted" }, App.t("wz.keyD", { len: lenText(w.cfg.buffer_seconds) }), " ",
+            h("button", { class: "linkbtn lime", text: App.t("common.change"), title: App.t("hk.tip"), onClick: () => { w.editKey = true; drawKeys(); } }))),
+        strip, clipBox,
+        h("div", { class: "faint", text: App.t("wz.more") }));
     };
 
     /* ----- shell ----- */
@@ -952,29 +932,39 @@ App.RecUI = (function () {
     const railBox = h("div");
     overlay.append(h("div", { class: "wzcard" }, h("div", { class: "wzsweep" }, h("div")), railBox, body, foot));
 
-    const nextReady = () => w.step !== 0 || w.checksDone;
+    /** Moves to a step. The picks are saved on every move (so a closed window loses nothing) and, while the wizard is
+        unfinished, the step too: the next start resumes there. */
+    function go(step) {
+      w.step = step;
+      if (fresh) { App.P.settings.wizStep = step; App.persist(); }
+      persist().catch(() => {});
+      renderAll();
+    }
+
     function renderFooter() {
-      const last = w.step === STEPS.length - 1;
-      const ready = nextReady();
+      const last = w.step === KEY_STEP;
+      const ready = w.step !== 0 || w.checksDone;
+      const label = last ? App.t("wz.finish") : w.step === 2 ? App.t("wz.startRec") : App.t("wz.next");
       put(foot,
-        h("button", { class: "btn ghost", text: App.t("wz.useDefaults"), onClick: () => finish() }),
+        last ? h("span", { class: "faint", title: App.t("wz.closeOkTip"), text: App.t("wz.closeOk") })
+          : h("button", { class: "btn ghost", text: App.t("wz.skip"), title: App.t("wz.skipTip"), onClick: () => go(KEY_STEP) }),
         h("span", { class: "sp" }),
-        w.step > 0 ? h("button", { class: "btn", text: App.t("wz.back"), onClick: () => { w.step--; renderAll(); } }) : null,
-        h("button", { class: "btn nextbtn" + (ready ? " acc" : " off"), disabled: !ready, text: last ? App.t("wz.finish") : App.t("wz.next"),
-          onClick: () => { if (!ready) return; if (last) finish(); else { w.step++; renderAll(); } } }));
+        w.step > 0 ? h("button", { class: "btn", text: App.t("wz.back"), onClick: () => go(w.step - 1) }) : null,
+        h("button", { class: "btn nextbtn" + (ready ? " acc" : " off"), disabled: !ready, text: label,
+          title: w.step === 2 ? App.t("wz.startRecTip") : "",
+          onClick: () => { if (!ready) return; if (last) finish(); else go(w.step + 1); } }));
     }
 
     function renderStep() {
       stopMeters();
       clearInterval(statusTimer);
-      const el = h("div", { class: "stepbox stepin" }, [stepStart, stepAudio, stepPicture, stepEq, stepDone][w.step]());
+      const el = h("div", { class: "stepbox stepin" }, [stepStart, stepAudio, stepPicture, stepKey][w.step]());
       body.replaceChildren(el);                // a new node each time restarts the animation
-      if (STEPS[w.step] === "done") armRecorder();
+      if (w.step === KEY_STEP) armRecorder();
     }
 
     function renderAll() { railBox.replaceChildren(rail()); renderFooter(); renderStep(); }
 
-    /* The last step arms the recorder with the chosen settings so the shortcut can really be tested. */
     async function persist() {
       const c = JSON.parse(JSON.stringify(w.cfg));
       c.output_dir = w.dir;
@@ -983,46 +973,59 @@ App.RecUI = (function () {
       cfg = { ...cfg, ...c };
       await api.invoke("set_recorder_config", { config: c });
     }
+    /** Remembers where the shortcut count and the last saved clip stand, so the next save is the user's test. */
+    const mark = () => {
+      w.hits0 = S.recorder ? S.recorder.hotkey_hits : null;
+      w.saved0 = S.recorder ? S.recorder.last_saved || "" : null;
+    };
+    /** A new keyboard shortcut needs a recorder restart. */
     async function applyKey() {
       await persist();
       if (S.recorder) { App.Rec.expectDown = Date.now(); await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {}); await sleep(1200); }
       await api.invoke("recorder_launch").catch(() => {});
       await sleep(1500);
       await App.Rec.refresh();
-      w.hits0 = S.recorder ? S.recorder.hotkey_hits : null;
+      mark();
     }
+    /* The last step starts recording with the chosen settings, so the shortcut can really be tested. */
     async function armRecorder() {
       await persist();
       if (S.recorder) await api.invoke("recorder_cmd", { cmd: "reload" }).catch(() => {});
       else { await api.invoke("recorder_launch").catch((e) => App.toast(String(e), "err")); await sleep(1500); }
       await App.Rec.refresh();
-      if (w.hits0 == null) w.hits0 = S.recorder ? S.recorder.hotkey_hits : 0;
+      if (w.hits0 == null) mark();
       clearInterval(statusTimer);
       statusTimer = setInterval(async () => {
         await App.Rec.refresh();
-        if (S.recorder && w.hits0 != null && S.recorder.hotkey_hits > w.hits0 && !w.tested) {
-          w.tested = true;
-          const s = body.querySelector(".keystrip");
-          if (s) { s.className = "keystrip ok"; s.textContent = App.t("wz.keyOk"); }
+        if (w.step !== KEY_STEP || !overlay.isConnected) return;
+        const r = S.recorder;
+        if (r && w.hits0 == null) mark();      // the recorder came up late
+        if (r && w.hits0 != null && r.hotkey_hits > w.hits0 && !w.tested) { w.tested = true; w.paintKey(); }
+        // the clip itself: the recorder names it once the save (and its post-roll) is done
+        if (r && w.saved0 != null && r.last_saved && r.last_saved !== w.saved0 && !/\.rec\./.test(r.last_saved) && r.last_saved !== w.clip) {
+          w.clip = r.last_saved; w.tested = true; w.paintKey();
         }
-      }, 400);
+        w.paintBuf();
+      }, 500);
     }
 
-    async function finish() {
+    /** `open`: the saved clip to open in the editor afterwards. */
+    async function finish(open) {
       w.cfg.output_dir = w.dir;
       await persist();
       App.P.libDirs = [...new Set([w.dir, ...found.map((f) => f.path), ...App.P.libDirs.filter((d) => !fresh || d === w.dir)])].filter(Boolean);
       App.P.settings.onboarded = true;
+      delete App.P.settings.wizStep;
       App.persist();
       await api.invoke("recorder_autostart", { enable: w.autostart }).catch(() => {});
       if (S.recorder) await api.invoke("recorder_cmd", { cmd: "reload" }).catch(() => {});
       else await api.invoke("recorder_launch").catch((e) => App.toast(String(e), "err"));
       setTimeout(App.Rec.refresh, 1500);
-      applyEq();                               // waits for a running APO install and for the recorder to listen
       close();
       App.toast(App.t("wz.toastDone"), "ok");
       await App.Lib.load();
-      if (S.view === "set") App.Settings.render();
+      if (open && S.byPath.has(open)) App.Ed.open(open);
+      else if (S.view === "set") App.Settings.render();
     }
 
     renderAll();

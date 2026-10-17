@@ -677,7 +677,7 @@ body { color: var(--text); }
 .biglogo i { display: block; height: 4px; border-radius: 2px; background: var(--acc); }
 .biglogo .t i { opacity: .3; animation: trail .7s var(--ease) both; }
 .biglogo .w { animation: trail .5s var(--ease) both; }
-.crow { display: grid; grid-template-columns: 22px 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); opacity: .35; transform: translateX(-10px); transition: all .35s var(--ease); }
+.crow { display: grid; grid-template-columns: 22px 130px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); opacity: .35; transform: translateX(-10px); transition: all .35s var(--ease); }
 .crow.active, .crow.ok, .crow.warn { opacity: 1; transform: none; }
 .crow.ok { border-color: #c6f43244; }
 .crow.warn { border-color: #ffb45455; }
@@ -688,6 +688,30 @@ body { color: var(--text); }
 .cval { font-size: 12px; color: var(--muted); }
 .crow.ok .cval { color: var(--acc); }
 .crow.warn .cval { color: var(--warn); }
+.crow .clabel { color: var(--muted); font-size: 13px; }
+.crow .cval { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crow.ok .cval { color: var(--text); }
+.crow .cnote { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.crow.warn .cnote { color: var(--warn); }
+.recbadge { margin-left: 8px; padding: 1px 6px; border: 1px solid #c6f43266; border-radius: 5px; color: var(--acc);
+  font: 500 10px "JetBrains Mono", monospace; letter-spacing: .06em; text-transform: uppercase; vertical-align: 2px; }
+/* the wizard's last step: the buffer filling, the shortcut as keys, the clip that was saved */
+.wzbuf { display: flex; align-items: center; gap: 10px; font-size: 11.5px; }
+.wzbuf .livedot { width: 8px; height: 8px; border-radius: 50%; background: var(--acc); animation: pulse 1.6s infinite; }
+.wzbuf .bufbars { display: flex; gap: 2px; width: 180px; }
+.wzbuf .bufbars i { flex: 1; height: 3px; border-radius: 1px; background: var(--acc); opacity: .1; transition: opacity .3s; }
+.wztry { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+.wztry .big { font-size: 22px; }
+.wzkeys { display: flex; align-items: center; gap: 10px; min-height: 58px; }
+.wzkeys kbd { font: 500 22px "JetBrains Mono", monospace; min-width: 64px; text-align: center; padding: 12px 18px; border-radius: 10px;
+  background: var(--raised); border: 1px solid var(--acc); border-bottom-width: 3px; color: var(--text); }
+.wzkeys .plus { font-size: 18px; color: var(--subtle); }
+.wzkeys .keyfield { width: 260px; text-align: center; }
+.keystrip.busy { border-style: solid; border-color: #c6f43266; color: var(--text); }
+.wzclip { display: flex; align-items: center; gap: 14px; padding: 10px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); animation: rise .4s var(--ease) both; }
+.wzclip .wzthumb { width: 112px; height: 63px; flex-shrink: 0; border-radius: 8px; background: var(--raised) center / cover no-repeat; box-shadow: inset 0 -3px 0 var(--acc); }
+.wzclip .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.wzclip .nm .mono:first-child { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wzaudio { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; grid-template-columns: 8px 110px minmax(0, 1fr) auto; gap: 12px; align-items: center; animation: rise .4s var(--ease) both; }
 .presets3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .pcard { border: 1px solid var(--line); background: var(--panel); border-radius: 13px; padding: 14px; cursor: pointer; transition: border-color .25s ease, background .25s ease; animation: rise .4s var(--ease) both; }

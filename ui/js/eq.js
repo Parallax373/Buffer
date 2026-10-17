@@ -863,7 +863,7 @@
     draw();
   }
 
-  /** Headphone search used by the EQ page and the wizard; `pick(profile)` gets the parsed AutoEQ profile.
+  /** Headphone search of the EQ page; `pick(profile)` gets the parsed AutoEQ profile.
    *  With a `guess` (the model in the device name) the search runs by itself, so usually it is one click. */
   function hpSearch(pick, guess = "") {
     const results = h("div", { class: "eqhits" });
@@ -890,9 +890,6 @@
   }
 
   App.EQ = {
-    hpSearch,
-    guessModel,
-    flat: () => structuredClone(FLAT),
     async render() {
       page = App.$("#v-eq");
       const [status, d, r] = await Promise.all([
