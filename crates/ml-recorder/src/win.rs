@@ -717,6 +717,23 @@ mod hotkey_tests {
     }
 
     #[test]
+    fn windows_key_combos_parse() {
+        use super::parse_hotkey;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_NOREPEAT, MOD_SHIFT, MOD_WIN};
+        assert_eq!(parse_hotkey("Win+F9"), Some((MOD_WIN | MOD_NOREPEAT, 0x78)));
+        assert_eq!(parse_hotkey("Win+Shift+R"), Some((MOD_WIN | MOD_SHIFT | MOD_NOREPEAT, 'R' as u32)));
+        assert_eq!(parse_hotkey("Super+PgDn"), Some((MOD_WIN | MOD_NOREPEAT, 0x22)));
+    }
+
+    /// Takes a Windows-key shortcut for a moment (no other program uses Win+Shift+F9) and gives it back.
+    #[test]
+    #[ignore = "registers a real global hotkey"]
+    fn windows_key_combo_registers() {
+        super::register_hotkey_id("Win+Shift+F9", 77).expect("Win+Shift+F9 can be registered");
+        super::unregister_hotkey_id(77);
+    }
+
+    #[test]
     fn icon_sources_split_path_and_index() {
         assert_eq!(super::icon_source(r"C:\a\b.exe"), (r"C:\a\b.exe".to_string(), 0));
         let (p, i) = super::icon_source(r"@%SystemRoot%\System32\AudioSrv.Dll,-203");
