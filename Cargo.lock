@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "buffer"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "ml-core",
  "ml-eq",
@@ -2305,7 +2305,7 @@ dependencies = [
 
 [[package]]
 name = "ml-cli"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2314,7 +2314,7 @@ dependencies = [
 
 [[package]]
 name = "ml-core"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -2323,7 +2323,7 @@ dependencies = [
 
 [[package]]
 name = "ml-eq"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2332,7 +2332,7 @@ dependencies = [
 
 [[package]]
 name = "ml-fans"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "ml-core",
  "serde",
@@ -2341,7 +2341,7 @@ dependencies = [
 
 [[package]]
 name = "ml-recorder"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "ml-core",
  "ml-eq",
@@ -2357,7 +2357,7 @@ dependencies = [
 
 [[package]]
 name = "ml-rgb"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "hidapi",
  "ml-core",
