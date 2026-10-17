@@ -1576,19 +1576,20 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 /* Fans · Advanced panel: controls first (cards), curves under them, the case and the picked control on the right */
 .fpanel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .fp-heat { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.fheat { --w: 0; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid color-mix(in srgb, var(--warn) calc(25% + var(--w) * 50%), var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--warn) calc(var(--w) * 14%), var(--raised)); }
-.fheat .hd { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); opacity: calc(.25 + var(--w) * .75); box-shadow: 0 0 calc(4px + var(--w) * 10px) var(--warn); }
+.fheat { --w: 0; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid color-mix(in srgb, var(--warn) calc(var(--w) * 75%), var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--warn) calc(var(--w) * 14%), var(--raised)); }
+.fheat .hd { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--warn) calc(var(--w) * 100%), var(--subtle)); box-shadow: 0 0 calc(var(--w) * 12px) var(--warn); }
 .fheat b { font-size: 15px; font-weight: 600; }
 .fheat .fscan { width: 60px; }
 .fsafe { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; }
 .fsafe .field { width: auto; padding: 4px 8px; }
 .fp-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(380px, 1fr); gap: 16px; }
-.fp-left, .fp-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.fp-left, .fp-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.fpanel .fstage .ra-cv { height: clamp(280px, min(46vh, 80cqw), 560px); }
 .fp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; }
-.fcard { display: flex; flex-direction: column; gap: 9px; padding: 12px 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; cursor: pointer; transition: border-color var(--t) ease; }
+.fcard { touch-action: none; user-select: none; display: flex; flex-direction: column; gap: 9px; padding: 12px 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; cursor: pointer; transition: border-color var(--t) ease; }
 .fcard:hover { border-color: var(--subtle); }
 .fcard.sel { border-color: #c6f43299; background: var(--raised); }
-.fcard.drag { opacity: .45; } .fcard.over { border-color: var(--acc); border-style: dashed; }
+.fcard.drag { opacity: .6; transform: scale(1.02); box-shadow: 0 10px 30px #0009; z-index: 2; position: relative; } .fcard.over { border-color: var(--acc); border-style: dashed; }
 .fcard:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 .fc-top { display: flex; gap: 10px; align-items: flex-start; }
 .fc-nm { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
@@ -1604,7 +1605,7 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .fcurve.sel { border-color: #c6f43299; }
 .fcurve.add { align-items: center; justify-content: center; color: var(--muted); border-style: dashed; min-height: 70px; }
 .fcv-top { display: flex; gap: 6px; align-items: baseline; } .fcv-top .mono { font-size: 10.5px; }
-.fcv-src { font-size: 10.5px; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fcv-src { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fminicurve { width: 100%; height: 40px; } .fminicurve polyline { fill: none; stroke: var(--acc); stroke-opacity: .85; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .fp-tab { display: flex; flex-direction: column; gap: 10px; }
 .fleg { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11.5px; color: var(--muted); }
@@ -1622,3 +1623,7 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 @keyframes fspin2 { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .fwiz-spin { animation: none; } }
 @media (max-width: 900px) { .fdlg.fwiz { grid-template-columns: 1fr; } }
+
+/* a chip that is a button ("Close FanControl") must look like one */
+.fans button.chip.warn { cursor: pointer; background: var(--warn); color: #111; border-color: var(--warn); font-weight: 600; }
+.fans button.chip.warn:hover { filter: brightness(1.1); }

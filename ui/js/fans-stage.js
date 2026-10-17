@@ -174,6 +174,7 @@
     const wrap = h("div", { class: "fstage" });
     const vSeg = h("span", { class: "seg ra-s" }, ["3d", "2d"].map((v) => h("button", { text: v.toUpperCase(), onClick: () => { P.view = v; if (v === "3d") fit(); App.persist(); sync(); } })));
     const pSeg = h("span", { class: "seg ra-s" });
+    const pauseB = h("button", { class: "ra-chip", title: t("fans.pauseTip"), onClick: () => { pref.paused = !pref.paused; App.persist(); sync(); } });
     const airB = h("button", { class: "ra-chip", text: t("fans.air"), title: t("fans.airTip"), onClick: () => { pref.air = !pref.air; App.persist(); sync(); } });
     const balB = h("span", { class: "ra-chip fbal", hidden: true });
     const ambB = h("span", { class: "ra-chip fbal", hidden: true });
@@ -183,7 +184,7 @@
       h("span", null, h("i", { class: "c-cool" }), t("fans.legCool")), h("span", null, h("i", { class: "c-warm" }), t("fans.legWarm")), h("span", null, h("i", { class: "c-hot" }), t("fans.legHot")),
       h("span", null, h("i", { class: "c-slot" }), h("span", { class: "fleg-slot", text: t(opts.editing ? "fans.legSlotEdit" : "fans.legSlot") })));
     cv = h("canvas", { class: "ra-cv", "aria-label": t("fans.caseCap") });
-    wrap.append(h("div", { class: "ra-tb" }, vSeg, pSeg, h("button", { class: "btn ra-sm", text: t("ra.fit"), title: t("ra.fitTip"), onClick: () => { fit(); App.persist(); } }), h("span", { class: "sp" }), ...(compact ? [] : [ambB, balB, airB])),
+    wrap.append(h("div", { class: "ra-tb" }, vSeg, pSeg, h("button", { class: "btn ra-sm", text: t("ra.fit"), title: t("ra.fitTip"), onClick: () => { fit(); App.persist(); } }), h("span", { class: "sp" }), ...(compact ? [] : [ambB, balB, airB, pauseB])),
       h("div", { class: "ra-cvwrap" }, cv, ...(compact ? [] : [fsB])), ...(compact ? [] : [legend]));
     host.replaceChildren(wrap);
     ctx = cv.getContext("2d");
@@ -255,6 +256,7 @@
         App.persist(); sync();
       } })));
       airB.classList.toggle("on", !!pref.air);
+      pauseB.textContent = t(pref.paused ? "fans.resume" : "fans.pause"); pauseB.classList.toggle("on", !!pref.paused);
     }
 
     /* the simulation's scene: fans with their real speed, heat volumes with their part's temperature */
@@ -272,7 +274,7 @@
       if (slots.heat.gpu && gpuT != null) heat.push({ ...slots.heat.gpu, t: gpuT, id: "gpu" });
       sim.set({
         ambient: amb.t, heat,
-        fans: list.map(({ f, kind, pct }) => ({ c: f.s.c, r: f.s.r, pct, kind, slot: f.s.id, a: kind === "in" ? f.s.aIn : kind === "out" ? f.s.aIn.map((v) => -v) : (f.s.aInt || f.s.aIn) })),
+        fans: list.map(({ f, kind, pct }) => ({ c: f.s.c, r: f.s.r, pct, kind, slot: f.s.id, spread: !!f.s.gpuFan, a: kind === "in" ? f.s.aIn : kind === "out" ? f.s.aIn.map((v) => -v) : (f.s.aInt || f.s.aIn) })),
       });
       sim.limit(budget);
       sim.scene = list;
@@ -291,9 +293,8 @@
       const paths = Array.from({ length: NB * 3 }, () => new Path2D());
       for (let i = 0; i < n; i++) {
         const f = fill[i]; if (f < 2) continue;
-        // air still on its way in is drawn only for a moment, faintly: the case is where the story is
-        const outside = !inside[i];
-        if (outside && age[i] > 0.6) continue;
+        // air that has left (through an exhaust or a gap) fades out
+        const outside = inside[i] === 2;
         const b = bucketOf(temp[i]);
         let px = 0, py = 0, have = false;
         for (let k = 0; k < f; k++) {
@@ -316,11 +317,11 @@
       for (const [id, T] of parts) {
         const hv = slots.heat[id]; if (!hv || T == null) continue;
         const c = hv.lo.map((v, i) => (v + hv.hi[i]) / 2); if (!proj(c[0], c[1], c[2])) continue;
-        const x = pr[0], y = pr[1], R = Math.max(18, Math.max(...hv.hi.map((v, i) => v - hv.lo[i])) * 0.75 * pr[3]), w = clamp((T - 35) / 50, 0.08, 1);
+        const ds = hv.hi.map((v, i) => v - hv.lo[i]).sort((a, b) => a - b), x = pr[0], y = pr[1], R = Math.max(16, (ds[1] + ds[2]) * 0.28 * pr[3]), w = clamp((T - 35) / 50, 0.05, 1);
         const g = ctx.createRadialGradient(x, y, 0, x, y, R);
         g.addColorStop(0, `rgba(255,150,70,${(0.45 * w).toFixed(3)})`); g.addColorStop(1, "rgba(255,150,70,0)");
         ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fill();
-        ctx.font = MONO; ctx.fillStyle = `rgba(255,180,84,${(0.55 + 0.45 * w).toFixed(2)})`; ctx.fillText(`${id.toUpperCase()} ${Math.round(T)}°`, x - 18, y - R * 0.55);
+        ctx.font = MONO; ctx.fillStyle = `rgba(255,180,84,${(0.55 + 0.45 * w).toFixed(2)})`; ctx.textAlign = "center"; ctx.fillText(`${id.toUpperCase()} ${Math.round(T)}°`, x, y + 3); ctx.textAlign = "start";
       }
     }
     function draw(dt) {
@@ -402,21 +403,22 @@
     function frame(now) {
       if (dead) return;
       if (!wrap.isConnected) { dead = true; return; }
-      if (cv.offsetParent === null || document.hidden || !slots.length) { lastT = now; raf = setTimeout(() => (raf = requestAnimationFrame(frame)), 400); return; }
+      if (cv.offsetParent === null || document.hidden || !document.hasFocus() || !slots.length) { lastT = now; raf = setTimeout(() => (raf = requestAnimationFrame(frame)), 400); return; }
       raf = requestAnimationFrame(frame);
-      if (now - lastDraw < 31) return;          // about 30 frames a second: this runs next to games
+      if (now - lastDraw < 15) return;          // up to 60 frames a second, and nothing at all while the window is not in front
       const dt = Math.min(0.1, (now - lastT) / 1000 || 0.033); lastT = now; lastDraw = now;
       const w = cv.clientWidth, hgt = cv.clientHeight;
       if (w && (w !== CW || hgt !== CH || DPR !== Math.min(2, devicePixelRatio || 1))) { DPR = Math.min(2, devicePixelRatio || 1); CW = w; CH = hgt; cv.width = Math.round(CW * DPR); cv.height = Math.round(CH * DPR); }
       const t0 = performance.now();
       feed();
-      if (sim && pref.air && !compact && !reduced()) sim.step(dt);
-      draw(dt); balance();
+      const frozen = !!pref.paused;
+      if (sim && pref.air && !compact && !reduced() && !frozen) sim.step(dt);
+      draw(frozen ? 0 : dt); balance();
       // the frame budget: a slow machine gets fewer particles (and more back when it keeps up)
       const ms = performance.now() - t0;
       slow = slow * 0.9 + ms * 0.1;
-      if (slow > 9 && budget > 300) budget = Math.round(budget * 0.8);
-      else if (slow < 4 && budget < 2400) budget = Math.min(2400, budget + 40);
+      if (slow > 14 && budget > 300) budget = Math.round(budget * 0.8);
+      else if (slow < 7 && budget < 2400) budget = Math.min(2400, budget + 40);
     }
 
     /* mouse: click a fan to pick its control (or, while placing, a place to add or take away); drag turns (3D) or pans (2D) */

@@ -11,8 +11,9 @@
   const t = (k, v) => App.t(k, v);
 
   function open(K, onDone) {
-    const S = K.setup, FS = App.FansStage;
-    const list = S.controls.filter((c) => !c.hidden);
+    // the page may load a fresh copy of the setup while this is open: always write into the current one (K.setup)
+    const FS = App.FansStage;
+    const list = K.setup.controls.filter((c) => !c.hidden);
     let i = -1, boostT = 0, stage = null, errEl = null;
     const picks = new Map();          // control id -> Set of place ids
     const host = h("div", { class: "fcase2" }), body = h("div", { class: "fstack fwiz-body" });
@@ -75,7 +76,7 @@
       body.replaceChildren(App.ui.cap(t("fans.wiz.doneCap")), h("div", { class: "ftitle sm", text: t("fans.wiz.done") }), ...rows,
         h("div", { class: "rowflex" }, h("button", { class: "btn ghost", text: t("fans.wiz.back"), onClick: () => step(list.length - 1) }), h("span", { class: "sp" }),
           h("button", { class: "btn acc", text: t("fans.wiz.save"), onClick: () => {
-            for (const [id, set] of picks) S.layout[id] = [...set].join(",");
+            for (const [id, set] of picks) K.setup.layout[id] = [...set].join(",");
             K.commit(); close(); App.toast(t("fans.wiz.saved"), "ok"); if (onDone) onDone();
           } })));
     }

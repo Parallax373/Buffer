@@ -48,7 +48,7 @@
   function create(cfg) {
     const MAX = cfg.max || 2400, TR = cfg.trail || 9;
     const pos = new Float32Array(MAX * 3), vel = new Float32Array(MAX * 3), temp = new Float32Array(MAX), age = new Float32Array(MAX);
-    const inside = new Uint8Array(MAX), trail = new Float32Array(MAX * TR * 3), head = new Uint16Array(MAX), fill = new Uint8Array(MAX);
+    const exitAt = new Float32Array(MAX), inside = new Uint8Array(MAX), trail = new Float32Array(MAX * TR * 3), head = new Uint16Array(MAX), fill = new Uint8Array(MAX);
     const box = { lo: cfg.box.lo.slice(), hi: cfg.box.hi.slice() };
     const PAD = 9, G = cfg.grid || 14;     // the grid reaches PAD cm outside the case, so air on its way in or out moves too
     const glo = box.lo.map((v) => v - PAD), ghi = box.hi.map((v) => v + PAD), gsz = [0, 1, 2].map((i) => (ghi[i] - glo[i]) / (G - 1));
@@ -69,14 +69,22 @@
         // the jet: a widening cone downstream, fading over ~4 fan radii; suction upstream over ~1 radius
         const w = f.r * (1 + Math.max(0, t) / (2.4 * f.r));
         const g = Math.exp(-(rho * rho) / (w * w));
-        const along = t >= 0 ? Math.exp(-t / (4 * f.r)) * (f.r / w) * (f.r / w) : Math.exp(t / (2 * f.r));
+        // a card's fans blow into its heatsink, which turns the air out sideways: the jet dies fast and spreads radially
+        const reach = f.spread ? 1.3 * f.r : 5 * f.r;
+        const along = t >= 0 ? Math.exp(-t / reach) * (f.r / w) * (f.r / w) : Math.exp(t / (3 * f.r));
         const j = U * along * g;
         out[0] += f.a[0] * j; out[1] += f.a[1] * j; out[2] += f.a[2] * j;
+        if (rho > 0.01) {
+          // upstream the air converges on the fan's disc; behind a card's fans it is thrown out to the sides
+          const rad = t < 0 ? -0.35 * U * Math.exp(t / (3 * f.r)) * Math.min(1, rho / f.r) * Math.exp(-(rho * rho) / (9 * f.r * f.r))
+            : f.spread ? 0.9 * U * Math.exp(-t / (2 * f.r)) * Math.min(1, rho / f.r) * Math.exp(-(rho * rho) / (6 * f.r * f.r)) : 0;
+          out[0] += (rx / rho) * rad; out[1] += (ry / rho) * rad; out[2] += (rz / rho) * rad;
+        }
         // the case as a whole: intakes are sources, exhausts sinks (softened, so the field stays finite at the fan)
         // (only felt inside the case, so air outside it is never pushed away from an intake)
         if (f.kind !== "int" && inBox(x, y, z, 0)) {
           const sx = dx, sy = dy, sz = dz;
-          const d2 = sx * sx + sy * sy + sz * sz + f.r * f.r, q = (f.kind === "in" ? 1 : -1) * U * f.r * f.r * f.r * 0.9 / (d2 * Math.sqrt(d2));
+          const d2 = sx * sx + sy * sy + sz * sz + f.r * f.r, q = (f.kind === "in" ? 1 : -1) * (f.q ?? 1) * U * f.r * f.r * f.r * 0.9 / (d2 * Math.sqrt(d2));
           out[0] += sx * q; out[1] += sy * q; out[2] += sz * q;
         }
       }
@@ -89,7 +97,7 @@
         flowAt(x, y, z, v);
         const sp = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         curl(x, y, z, 0.09, time * 0.35, c);
-        const T = 2.2 + sp * 0.55;                                                // turbulence grows with the local speed
+        const T = 1.4 + sp * 0.3;                                                // turbulence grows with the local speed
         field[i] = v[0] + c[0] * T; field[i + 1] = v[1] + c[1] * T; field[i + 2] = v[2] + c[2] * T;
       }
     }
@@ -124,12 +132,12 @@
     }
     function spawn(i) {
       const ins = scene.fans.filter((f) => f.kind === "in" && f.pct > 0), p = [0, 0, 0];
-      if (ins.length) onDisc(pick(ins), 0.5 + Math.random() * 2.5, p);
+      if (ins.length) onDisc(pick(ins), 4 + Math.random() * 10, p);   // a little before the intake: the air is drawn in
       else if (scene.fans.some((f) => f.kind === "out" && f.pct > 0)) gap(p);
       else { for (let d = 0; d < 3; d++) p[d] = box.lo[d] + Math.random() * (box.hi[d] - box.lo[d]); }
       pos[i * 3] = p[0]; pos[i * 3 + 1] = p[1]; pos[i * 3 + 2] = p[2];
       vel[i * 3] = vel[i * 3 + 1] = vel[i * 3 + 2] = 0;
-      temp[i] = scene.ambient; age[i] = 0; inside[i] = 0; head[i] = 0; fill[i] = 0;
+      temp[i] = scene.ambient; age[i] = 0; inside[i] = 0; exitAt[i] = 0; head[i] = 0; fill[i] = 0;
     }
     const inBox = (x, y, z, m) => x > box.lo[0] - m && x < box.hi[0] + m && y > box.lo[1] - m && y < box.hi[1] + m && z > box.lo[2] - m && z < box.hi[2] + m;
 
@@ -141,6 +149,9 @@
         for (const f of scene.fans) f.w = f.pct * f.r * f.r;
         const flowIn = scene.fans.filter((f) => f.kind === "in").reduce((a, f) => a + f.w, 0), flowOut = scene.fans.filter((f) => f.kind === "out").reduce((a, f) => a + f.w, 0);
         const flowInt = scene.fans.filter((f) => f.kind === "int").reduce((a, f) => a + f.w, 0);
+        // the case as a whole carries as much as both sides can: the stronger side's surplus leaks through gaps (jets still push it)
+        const Q = Math.min(flowIn, flowOut);
+        for (const f of scene.fans) f.q = !Q ? 1 : f.kind === "in" ? Q / flowIn : f.kind === "out" ? Q / flowOut : 1;
         want = Math.round(clamp((Math.max(flowIn, flowOut) * 26 + flowInt * 6), 0, MAX));
         sinceGrid = 1;
       },
@@ -164,8 +175,11 @@
           x += vel[o] * dt; y += vel[o + 1] * dt; z += vel[o + 2] * dt;
           age[i] += dt;
           const was = inside[i], now = inBox(x, y, z, 0);
-          let dead = age[i] > 14;
-          if (now) inside[i] = 1;
+          let dead = age[i] > 16;
+          if (was === 2) {
+            // already out through an exhaust or a gap: it drifts on a little, then is gone
+            if (age[i] - exitAt[i] > 0.9 || !inBox(x, y, z, PAD)) dead = true;
+          } else if (now) inside[i] = 1;
           else if (was) {
             // leaving the case: through an exhaust's disc, or through a gap when over-pressured; otherwise it bounces back
             let ex = -1;
@@ -177,8 +191,8 @@
             if (ex >= 0) {
               const f = exhausts[ex], idx = scene.fans.indexOf(f), m = outlets.get(idx) || { t: amb, n: 0 };
               m.t += (temp[i] - m.t) * 0.04; m.n++; outlets.set(idx, m);
-              dead = true;
-            } else if (over && Math.random() < 0.08) dead = true;
+              inside[i] = 2; exitAt[i] = age[i];
+            } else if (over && Math.random() < 0.08) { inside[i] = 2; exitAt[i] = age[i]; }
             else {
               for (let d = 0; d < 3; d++) {
                 const c = d === 0 ? x : d === 1 ? y : z;
@@ -186,7 +200,7 @@
                 if (c > box.hi[d]) { vel[o + d] = -Math.abs(vel[o + d]) * 0.4; if (d === 0) x = box.hi[0] - 0.1; else if (d === 1) y = box.hi[1] - 0.1; else z = box.hi[2] - 0.1; }
               }
             }
-          } else if (!inBox(x, y, z, 12)) dead = true;   // never got in
+          } else if (!inBox(x, y, z, 18)) dead = true;   // never got in
           if (dead) { spawn(i); continue; }
           pos[o] = x; pos[o + 1] = y; pos[o + 2] = z;
           // heat: inside a heat volume the air takes up that part's warmth (faster the hotter it is); elsewhere it mixes back

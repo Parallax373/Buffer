@@ -278,22 +278,36 @@
         K.commit(); refreshCurves(); if (c.id === K.sel.ctl) show(c.id, tabId);
       } }, h("option", { value: "auto", text: t("fans.mode.auto"), selected: c.mode === "auto" }), h("option", { value: "manual", text: t("fans.mode.manual"), selected: c.mode === "manual" }),
         S.curves.map((x) => h("option", { value: x.id, text: x.name, selected: c.mode === "curve" && c.curve === x.id })));
-      const card = h("div", { class: "fcard" + (c.id === K.sel.ctl ? " sel" : ""), "data-card": c.id, tabindex: 0, draggable: "true", role: "button", "aria-label": c.name,
+      const card = h("div", { class: "fcard" + (c.id === K.sel.ctl ? " sel" : ""), "data-card": c.id, tabindex: 0, role: "button", "aria-label": c.name,
         onClick: () => show(c.id), onKeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(c.id); } } },
         h("div", { class: "fc-top" }, h("span", { class: "fc-mini" }), h("div", { class: "fc-nm" }, h("b", { text: c.name }), h("span", { class: "mono muted fc-where" })), h("span", { "data-dot": c.id, class: "dot" })),
         sel,
         h("div", { class: "fc-val" }, h("span", { class: "mono big" }, h("span", { "data-pct": c.id, text: "0" }), h("small", { text: "%" })), h("span", { class: "sp" }), h("span", { class: "mono muted" }, h("span", { "data-rpm": c.id, text: "–" }), " rpm")),
         K.scan("ctl", c.id, 18));
-      card.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.id); e.dataTransfer.effectAllowed = "move"; card.classList.add("drag"); });
-      card.addEventListener("dragend", () => card.classList.remove("drag"));
-      card.addEventListener("dragover", (e) => { e.preventDefault(); card.classList.add("over"); });
-      card.addEventListener("dragleave", () => card.classList.remove("over"));
-      card.addEventListener("drop", (e) => {
-        e.preventDefault(); card.classList.remove("over");
-        const from = e.dataTransfer.getData("text/plain"); if (!from || from === c.id) return;
-        const a = S.controls.findIndex((x) => x.id === from), [m] = S.controls.splice(a, 1), b = S.controls.findIndex((x) => x.id === c.id);
-        S.controls.splice(b, 0, m); K.commit();
-        const moving = cards.querySelector(`[data-card="${CSS.escape(from)}"]`); if (moving) cards.insertBefore(moving, card);   // moved, not redrawn
+      // reordering by dragging (pointer events: the window's file drop handling swallows HTML drag and drop)
+      card.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 || e.target.closest("select")) return;
+        const x0 = e.clientX, y0 = e.clientY;
+        let moving = false;
+        const move = (ev) => {
+          if (!moving && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+          if (!moving) { moving = true; card.classList.add("drag"); }
+          const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("[data-card]");
+          if (!over || over === card || over.parentNode !== cards) return;
+          const r = over.getBoundingClientRect(), after = ev.clientX > r.left + r.width / 2;
+          cards.insertBefore(card, after ? over.nextSibling : over);   // moved, not redrawn
+        };
+        const up = () => {
+          window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+          if (!moving) return;
+          card.classList.remove("drag");
+          card.addEventListener("click", (ev) => ev.stopImmediatePropagation(), { capture: true, once: true });   // the drop is not a click
+          const order = [...cards.querySelectorAll("[data-card]")].map((x) => x.dataset.card);
+          S.controls.sort((p, q) => { const i = order.indexOf(p.id), j = order.indexOf(q.id); return (i < 0 ? 1e9 : i) - (j < 0 ? 1e9 : j); });
+          K.commit();
+        };
+        // on the window: moving the card in the page would drop a pointer capture
+        window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
       });
       return card;
     };
