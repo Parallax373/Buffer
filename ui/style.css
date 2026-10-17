@@ -1644,3 +1644,29 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .fsg-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fsg-row .mono { text-align: right; font-size: 11.5px; }
 .fcard.hid { opacity: .5; border-style: dashed; }
+/* Fans · Simple: the status strip and the little turning fans */
+.fsimple2 { display: flex; flex-direction: column; gap: 14px; max-width: 1200px; }
+.fhero { --w: 0; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; align-items: center; padding: 16px 20px; }
+.fh-state { display: flex; gap: 14px; align-items: center; }
+.fh-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; background: color-mix(in srgb, var(--warn) calc(var(--w) * 100%), var(--acc)); box-shadow: 0 0 calc(8px + var(--w) * 14px) color-mix(in srgb, var(--warn) calc(var(--w) * 100%), var(--acc)); animation: fbreathe 3.2s ease-in-out infinite; }
+@keyframes fbreathe { 50% { opacity: .55; transform: scale(.85); } }
+.fh-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fh-word { font-size: 24px; font-weight: 600; }
+.fh-sub { font-size: 12.5px; }
+.fh-hint { font-size: 12px; color: var(--muted); grid-column: 1 / -1; }
+.fh-graph { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fh-chart { width: 100%; height: 92px; display: block; }
+.fh-chart .fh-fan { fill: #c6f43214; } .fh-chart .fh-fanl { fill: none; stroke: #c6f43255; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.fh-chart .fh-cpu { fill: none; stroke: var(--warn); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.fh-chart .fh-gpu { fill: none; stroke: var(--warn); stroke-opacity: .55; stroke-dasharray: 4 3; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.fh-axis { display: flex; gap: 10px; font-size: 10.5px; color: var(--subtle); align-items: center; }
+.fh-k::before { content: ""; display: inline-block; width: 12px; height: 2px; margin-right: 5px; vertical-align: middle; }
+.fh-k.cpu::before { background: var(--warn); } .fh-k.gpu::before { background: repeating-linear-gradient(90deg, var(--warn) 0 4px, transparent 4px 7px); opacity: .7; } .fh-k.fan::before { background: #c6f43288; height: 6px; }
+.fsg-fan { width: 30px; height: 30px; flex: none; animation: fspin2 2s linear infinite; }
+.fsg-fan.still { animation: none; }
+.fsg-fan svg { width: 100%; height: 100%; display: block; }
+.fsg-fan .ring { fill: var(--raised); stroke: var(--line); } .fsg-fan .bl path { fill: var(--acc); fill-opacity: .7; } .fsg-fan .hub { fill: var(--panel); stroke: var(--line); }
+.fsg-row.empty { opacity: .45; }
+@media (prefers-reduced-motion: reduce) { .fsg-fan, .fh-dot { animation: none; } }
+[data-anim="off"] .fsg-fan, [data-anim="off"] .fh-dot { animation: none; }
+@media (max-width: 760px) { .fhero { grid-template-columns: 1fr; } }

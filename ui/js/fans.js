@@ -515,6 +515,62 @@
     commit();
   }
 
+  /** the last few minutes for the Simple view's strip (kept while the app runs): CPU and card temperature, average fan speed */
+  const hist5 = { cpu: [], gpu: [], fan: [], at: 0 };
+  const FAN_SVG = '<svg viewBox="-12 -12 24 24" aria-hidden="true"><circle r="11" class="ring"/><g class="bl">' + [0, 1, 2, 3, 4, 5, 6].map((i) => `<path transform="rotate(${(i * 360) / 7})" d="M0 -2 L-2.4 -9 Q0.4 -10.4 3.2 -8.4 L1.1 -1.7 Z"/>`).join("") + '</g><circle r="2.2" class="hub"/></svg>';
+
+  /** a board header's own name ("NCT6797D · Fan #2") said the way a person would ("Fan 2"); names the user gave stay */
+  const niceName = (c) => { const m = /^(?:\S+ · )?Fan #(\d+)$/.exec(c.name); return m ? App.t("fans.fanN", { n: m[1] }) : c.name; };
+  /** since when each fan has read 0 rpm: only a long run of zeros (not one reading) marks a header without a fan */
+  const zeroSince = new Map();
+
+  /** the strip on top of the Simple view: one word for how warm the PC is, and the last minutes as a calm chart */
+  function simpleHero(members) {
+    const word = h("b", { class: "fh-word" }), sub = h("span", { class: "muted fh-sub" }), hint = h("div", { class: "fh-hint", text: App.t("fans.h.auto") });
+    const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 600 100"); svg.setAttribute("preserveAspectRatio", "none"); svg.classList.add("fh-chart"); svg.setAttribute("aria-hidden", "true");
+    const mk = (tag, cls) => { const e = document.createElementNS(NS, tag); e.setAttribute("class", cls); svg.appendChild(e); return e; };
+    const fanArea = mk("path", "fh-fan"), fanLine = mk("polyline", "fh-fanl"), gpuL = mk("polyline", "fh-gpu"), cpuL = mk("polyline", "fh-cpu");
+    const hero = h("section", { class: "card2 fhero" },
+      h("div", { class: "fh-state" }, h("i", { class: "fh-dot" }), h("div", { class: "fh-txt" }, word, sub)),
+      h("div", { class: "fh-graph" }, svg, h("div", { class: "fh-axis mono" }, h("span", { text: App.t("fans.h.ago") }), h("span", { class: "sp" }),
+        h("span", { class: "fh-k cpu", text: "CPU" }), h("span", { class: "fh-k gpu", text: "GPU" }), h("span", { class: "fh-k fan", text: App.t("fans.h.fans") }), h("span", { class: "sp" }), h("span", { text: App.t("fans.now") }))),
+      hint);
+    const upd = () => {
+      const cpu = temp(primary("cpu")), gpu = temp(primary("gpu"));
+      const fan = members.length ? members.reduce((a, c) => a + pctOf(c), 0) / members.length : 0;
+      if (Date.now() - hist5.at > 900) {
+        hist5.at = Date.now();
+        for (const [k, v] of [["cpu", cpu], ["gpu", gpu], ["fan", fan]]) { if (v != null) hist5[k].push(v); if (hist5[k].length > 300) hist5[k].shift(); }
+      }
+      const hot = Math.max(cpu ?? 0, gpu ?? 0), w = clamp((hot - 40) / 45, 0, 1);
+      hero.style.setProperty("--w", w.toFixed(2));
+      word.textContent = App.t(hot >= 78 ? "fans.h.hot" : hot >= 60 ? "fans.h.warm" : "fans.h.cool");
+      sub.textContent = [cpu != null && App.t("fans.h.cpu", { t: Math.round(cpu) }), gpu != null && App.t("fans.h.gpu", { t: Math.round(gpu) }), App.t("fans.h.fanAvg", { p: Math.round(fan) })].filter(Boolean).join(" · ");
+      // temperatures 20..90 °C and fan speed 0..100 % across the strip; the newest sample sits on the right edge
+      // a short history is stretched over the strip (at least a minute wide), so it is never a sliver at the right edge
+      const X = (i, n) => 600 - (n - 1 - i) * (600 / Math.max(59, n - 1)), Yt = (v) => 96 - ((clamp(v, 20, 90) - 20) / 70) * 90, Yp = (v) => 96 - (clamp(v, 0, 100) / 100) * 60;
+      const pts = (a, Y) => a.map((v, i) => X(i, a.length).toFixed(1) + "," + Y(v).toFixed(1)).join(" ");
+      cpuL.setAttribute("points", pts(hist5.cpu, Yt)); gpuL.setAttribute("points", pts(hist5.gpu, Yt));
+      const fp = pts(hist5.fan, Yp); fanLine.setAttribute("points", fp);
+      fanArea.setAttribute("d", hist5.fan.length > 1 ? `M${X(0, hist5.fan.length)} 100 L${fp.split(" ").join(" L")} L600 100 Z` : "");
+      // nothing set yet: the board and the card are in charge, and one line says what the dials are for
+      hint.hidden = !members.every((c) => c.mode === "auto");
+      // a board header that has read 0 rpm for 15 s has no fan on it: its row fades and says so (a card may sit at 0 rpm on purpose)
+      const now = Date.now();
+      for (const c of members) {
+        const r = rpmOf(c), board = !c.id.startsWith("/gpu");
+        if (board && c.fan && r === 0) { if (!zeroSince.has(c.id)) zeroSince.set(c.id, now); } else zeroSince.delete(c.id);
+        const empty = zeroSince.has(c.id) && now - zeroSince.get(c.id) > 15000;
+        $$(`.fsg-row[data-row="${CSS.escape(c.id)}"]`).forEach((row) => { row.classList.toggle("empty", empty); const rp = row.querySelector("[data-rpm]"); if (!rp) return; if (empty) rp.textContent = App.t("fans.noSpin"); const unit = rp.nextSibling; if (unit && unit.nodeType === 3) unit.nodeValue = empty ? "" : " rpm"; });
+      }
+      // the little fans turn at their group's speed
+      $$(".fsg [data-spin]").forEach((e) => { const g = e.dataset.spin, m = members.filter((c) => groupOf(c) === g), p = m.length ? m.reduce((a, c) => a + pctOf(c), 0) / m.length : 0; e.style.animationDuration = p > 1 ? (4.5 - 3.9 * (p / 100)).toFixed(2) + "s" : "0s"; e.classList.toggle("still", p <= 1); });
+    };
+    upd.host = hero; liveFns.push(upd); upd();
+    return hero;
+  }
+
   function simple() {
     const groups = { cpu: [], gpu: [], case: [] };
     visible().forEach((c) => groups[groupOf(c)].push(c));
@@ -537,16 +593,16 @@
         word.textContent = lv === "auto" ? App.t("fans.autoShort") : lv === "custom" ? App.t("fans.customShort") : App.t("fans.lv." + lv);
         if (typeof lv === "number") dial.set(lv);
       }
-      const rows = members.map((c) => h("div", { class: "fsg-row" }, h("span", { "data-dot": c.id, class: "dot" }), h("span", { class: "nm", text: c.name }), scan("ctl", c.id, 12), h("span", { class: "mono muted" }, h("span", { "data-rpm": c.id, text: "–" }), " rpm")));
+      const rows = members.map((c) => h("div", { class: "fsg-row", "data-row": c.id }, h("span", { "data-dot": c.id, class: "dot" }), h("span", { class: "nm", text: niceName(c), title: c.name }), scan("ctl", c.id, 12), h("span", { class: "mono muted" }, h("span", { "data-rpm": c.id, text: "–" }), " rpm")));
       const card = h("section", { class: "card2 fsg" },
-        h("div", { class: "fsg-top" }, h("div", { class: "fsg-nm" }, h("b", { text: App.t("fans.g." + g) }), h("span", { class: "muted", text: App.t("fans.gCount", { n: members.length }) })),
+        h("div", { class: "fsg-top" }, (() => { const f = h("span", { class: "fsg-fan", "data-spin": g }); f.innerHTML = FAN_SVG; return f; })(), h("div", { class: "fsg-nm" }, h("b", { text: App.t("fans.g." + g) }), h("span", { class: "muted", text: App.t("fans.gCount", { n: members.length }) })),
           h("span", { class: "sp" }), src ? h("span", { class: "fheat", "data-heat": src, title: sensorName(src) }, h("i", { class: "hd" }), h("b", { class: "mono" }, h("span", { "data-temp": src, text: "–" }), "°")) : null),
         h("div", { class: "fsg-mode" }, word, h("span", { class: "sp" }), autoB),
         dialRow, custom, h("div", { class: "fsg-rows" }, ...rows));
       paint();
       return card;
     });
-    bodyEl.append(h("div", { class: "fsgrid" }, ...(cards.length ? cards : [h("div", { class: "muted", text: App.t("fans.none") })])));
+    bodyEl.append(h("div", { class: "fsimple2" }, simpleHero(visible()), h("div", { class: "fsgrid" }, ...(cards.length ? cards : [h("div", { class: "muted", text: App.t("fans.none") })]))));
     tick();
   }
 
