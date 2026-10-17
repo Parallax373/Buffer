@@ -72,6 +72,32 @@ pub async fn fans_profile(action: String, name: String) -> Result<(), String> {
     send(format!("fans-profile {action} {name}")).await.map(|_| ())
 }
 
+/// Ends a conflict with another fan program (one prompt). FanControl only: its service keeps driving the fans with the
+/// tray window closed, so the window is closed, the service stopped and set to start by hand (it would be back after a
+/// reboot otherwise). FanControl itself stays installed and starts again whenever it is opened. The recorder sees the
+/// processes gone within seconds and takes the fans.
+#[tauri::command]
+pub async fn fans_close_conflict(name: String) -> Result<(), String> {
+    if name != "FanControl" {
+        return Err(format!("{name} cannot be closed from Buffer"));
+    }
+    let script = "$ErrorActionPreference = 'Stop'
+try {
+  Get-Process -Name FanControl -ErrorAction SilentlyContinue | Stop-Process -Force
+  if (Get-Service -Name 'FanControl.Service' -ErrorAction SilentlyContinue) {
+    Set-Service -Name 'FanControl.Service' -StartupType Manual
+    Stop-Service -Name 'FanControl.Service' -Force
+  }
+  exit 0
+} catch { exit 1 }";
+    let code = tauri::async_runtime::spawn_blocking(move || ml_core::elevate::elevated(script)).await.map_err(|e| e.to_string())??;
+    match code {
+        0 => Ok(()),
+        99 => Err("the Windows prompt was declined".into()),
+        c => Err(format!("FanControl could not be stopped (exit {c})")),
+    }
+}
+
 /// Starts the pairing probe: each board fan is spun up for a few seconds and paired with the speed sensor that answers.
 /// Progress is in `fans_status().probe`.
 #[tauri::command]

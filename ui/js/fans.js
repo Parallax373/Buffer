@@ -7,7 +7,7 @@
 (function () {
   const { h, S, api } = App;
   const T0 = 30, T1 = 90;
-  let page = null, st = {}, setup = null, timer = 0, saveT = 0, bodyEl = null, chipEl = null;
+  let page = null, st = {}, setup = null, timer = 0, saveT = 0, bodyEl = null, chipEl = null, closeEl = null;
   const sel = { ctl: null, curve: null };
   const liveFns = [];
   let showHidden = false, importPaths = [];
@@ -252,6 +252,15 @@
     chipEl.className = "chip " + (all ? "warn" : "on");
     chipEl.textContent = all ? App.t("fans.paused", { name: all.name }) : gpu ? App.t("fans.pausedGpu", { name: gpu.name }) : st.failed ? App.t("fans.failsafe") : App.t("fans.ready");
     chipEl.title = all || gpu ? App.t("fans.pausedTip") : App.t("fans.tip");
+    // only FanControl can be closed from here (its hidden service is what keeps the conflict alive)
+    if (closeEl) closeEl.hidden = !(all && all.name === "FanControl");
+  }
+
+  async function closeConflict() {
+    closeEl.disabled = true;
+    try { await api.invoke("fans_close_conflict", { name: "FanControl" }); App.toast(App.t("fans.closedOther", { name: "FanControl" })); }
+    catch (e) { toast(e); }
+    finally { closeEl.disabled = false; }
   }
 
   async function poll() {
@@ -309,7 +318,9 @@
 
   function head() {
     chipEl = h("span", { class: "chip on", text: App.t("fans.ready") });
-    return h("div", { class: "eqhead" }, h("h1", { text: App.t("nav.fans") }), chipEl,
+    closeEl = h("button", { class: "chip warn", text: App.t("fans.closeOther", { name: "FanControl" }),
+      title: App.t("fans.closeOtherTip"), hidden: true, onClick: closeConflict });
+    return h("div", { class: "eqhead" }, h("h1", { text: App.t("nav.fans") }), chipEl, closeEl,
       App.ui.segc([["simple", App.t("rgb.simple")], ["adv", App.t("rgb.advanced")]], pref().level, (v) => { pref().level = v; App.persist(); draw(); }),
       h("span", { class: "sp" }),
       importPaths.length ? h("button", { class: "chip", text: App.t("fans.import"), title: App.t("fans.importTip"), onClick: openImport }) : null,

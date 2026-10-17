@@ -28,7 +28,9 @@ Windows clip recorder/editor, live EQ, sound switcher and RGB control. Rust work
 - Test with the user's LIVE state in mind (they edit EQ and lights while testing): back up and restore only what a test
   changed. Hardware tests must put devices back (RGB: "Give back"; keyboard: restore its saved profile).
 - Releases: `scripts\release.ps1 -Local` (~3 min, builds here) or `scripts\release.ps1` (GitHub Actions, ~10 min). Both take
-  `-DryRun`; `bump-version.ps1` sets the version everywhere. Only the latest release is kept. Installed copies read
+  `-DryRun`; `bump-version.ps1` sets the version everywhere. Notes: `release-notes/<version>.md` in the format of
+  `release-notes/TEMPLATE.md` (summary line, then New / Improved / Fixed / Removed / Heads-up bullets), committed first;
+  no free-form `-Notes` any more (`RELEASING.md` "Release notes"). Only the latest release is kept. Installed copies read
   `latest.json` from `releases/latest`; the updater never goes down in version. Builds are unsigned (SignPath Foundation
   rejected the application on 2026-10-16; may reapply once the project has more visibility).
 

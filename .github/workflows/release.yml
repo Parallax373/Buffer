@@ -36,6 +36,11 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.guard.outputs.skip != 'true'
 
+      - name: Release notes are there and in the format
+        if: steps.guard.outputs.skip != 'true'
+        shell: pwsh
+        run: ./scripts/release-notes.ps1 -Version (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version | Out-Null
+
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.skip != 'true'
         with:
@@ -61,15 +66,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: ./build-installer.ps1 -Sign
 
-      - name: Update feed
+      - name: Release notes and update feed (from release-notes/<version>.md)
         if: steps.guard.outputs.skip != 'true'
         shell: pwsh
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $installer = Get-ChildItem target/release/bundle/nsis/*_${version}_*.exe | Select-Object -First 1
-          New-Item -ItemType Directory -Force target/release/bundle/feed | Out-Null
-          Push-Location target/release/bundle/feed
-          & "$env:GITHUB_WORKSPACE/scripts/make-latest-json.ps1" -Version $version -Installer $installer.FullName -Notes "Buffer $version" -Repo "${{ github.repository }}"
+          $feed = New-Item -ItemType Directory -Force target/release/bundle/feed
+          & ./scripts/release-notes.ps1 -Version $version -Installer $installer.FullName `
+            -GithubOut "$feed/release-body.md" -AppOut "$feed/app-notes.txt"
+          Push-Location $feed
+          & "$env:GITHUB_WORKSPACE/scripts/make-latest-json.ps1" -Version $version -Installer $installer.FullName -NotesFile "$feed/app-notes.txt" -Repo "${{ github.repository }}"
           Pop-Location
 
       - name: Publish release
@@ -80,10 +87,9 @@ jobs:
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $installer = Get-ChildItem target/release/bundle/nsis/*_${version}_*.exe | Select-Object -First 1
-          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
           gh release create "${{ github.ref_name }}" $installer.FullName "$($installer.FullName).sig" target/release/bundle/feed/latest.json `
-            --title "Buffer ${{ github.ref_name }}" `
-            --notes "SHA-256 of $($installer.Name): $hash"
+            --title "Buffer $version" `
+            --notes-file target/release/bundle/feed/release-body.md
 
       - uses: actions/upload-artifact@v4
         if: steps.guard.outputs.skip != 'true'

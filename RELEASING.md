@@ -18,11 +18,38 @@
 
 ## Shipping a version
 ```
-.\scripts\bump-version.ps1 0.2.0        # tauri.conf.json, Cargo workspace, package.json
-git commit -am "Release 0.2.0"
-.\scripts\publish.ps1 -Notes "What changed"      # local: build, sign, create the GitHub release
+# write release-notes/0.2.0.md first (see "Release notes" below) and commit it
+.\scripts\release.ps1 0.2.0 -DryRun     # every check, including the notes, without changing anything
+.\scripts\release.ps1 0.2.0             # bump, commit, push, tag; GitHub builds (-Local builds here)
 ```
-or push a tag `v0.2.0` and let `.github/workflows/release.yml` do it.
+`bump-version.ps1` and `publish.ps1` are the steps `release.ps1` runs; `publish.ps1` alone publishes the committed
+version from this machine.
+
+## Release notes
+Every version has `release-notes/<version>.md`, committed before the release. All three release paths (local,
+GitHub, `-DryRun`) read it through `scripts/release-notes.ps1` and refuse to release without it or when it is not
+in the format. Copy `release-notes/TEMPLATE.md`:
+
+```
+One sentence about what this version brings.
+
+## New
+- **Fans:** a Fans page with fan curves.
+
+## Improved
+## Fixed
+## Removed
+## Heads-up
+```
+
+- Line 1 is a one-sentence summary; it is what the update popover shows first.
+- Sections are only those five, each with `- **Area:** ...` bullets; leave out the empty ones. They always come
+  out in that order. Heads-up is for what the user must do or know (admin prompt, reinstall).
+- Write for users: what they can now do or what was wrong, no internals or commit hashes.
+
+From the file the script makes the GitHub body (Markdown, plus the install note and the installer's SHA-256) and the
+plain-text notes in `latest.json` for the in-app popover (no Markdown, `•` bullets). Check both without releasing:
+`.\scripts\release-notes.ps1 -Version 0.2.0`.
 
 A release contains the installer, its `.sig`, and `latest.json`. Installed copies read
 `https://github.com/<repo>/releases/latest/download/latest.json`, compare versions, verify the `.sig` against the

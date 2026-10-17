@@ -4,7 +4,8 @@
 #   .\scripts\release.ps1 0.3.0      # a specific version
 #   .\scripts\release.ps1 -DryRun    # run every check and show what would happen, change nothing
 #   .\scripts\release.ps1 -Local     # build here (tests, thin LTO, ~3 min) and publish from this machine instead of GitHub
-param([string]$Version = "", [switch]$DryRun, [switch]$Local, [string]$Notes = "", [switch]$Ask)
+#   The notes are release-notes/<version>.md (format: release-notes/TEMPLATE.md), committed before releasing.
+param([string]$Version = "", [switch]$DryRun, [switch]$Local, [switch]$Ask)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -49,6 +50,10 @@ Check ($Version -match '^\d+\.\d+\.\d+$') "version '$Version' looks right"
 $tag = "v$Version"
 Check (-not (git tag --list $tag)) "tag $tag does not exist yet"
 Check (-not (git ls-remote --tags origin $tag)) "tag $tag is not on GitHub yet"
+$notesOk = $true; $notesErr = ""
+try { & "$root\scripts\release-notes.ps1" -Version $Version -GithubOut "$env:TEMP\buffer-notes-check.md" | Out-Null }
+catch { $notesOk = $false; $notesErr = $_.Exception.Message }
+Check $notesOk "release notes release-notes/$Version.md are in the format" $notesErr
 Check ((Test-Path "$env:USERPROFILE\.buffer-release\updater.key") -or $true) "signing is done by GitHub (secrets set)"
 $secrets = (gh secret list 2>$null) -join " "
 Check ($secrets -match "TAURI_SIGNING_PRIVATE_KEY") "GitHub signing secrets exist" "run: gh secret set TAURI_SIGNING_PRIVATE_KEY"
@@ -70,7 +75,7 @@ if ($Local) {
     # build and publish from this machine; the release creates the tag (the workflow sees the release and stops)
     Write-Host ""
     Write-Host "Building locally (tests, then thin LTO) and publishing $tag ..." -ForegroundColor Cyan
-    & "$root\scripts\publish.ps1" -Notes $Notes
+    & "$root\scripts\publish.ps1"
     if ($LASTEXITCODE -ne 0) { Fail "publish failed after the version commit was pushed; run scripts\publish.ps1 to retry" }
     git fetch origin --tags --quiet
     Write-Host ""
