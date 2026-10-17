@@ -725,7 +725,10 @@ App.RecUI = (function () {
     document.body.append(overlay);
     let stopMeters = () => {};
     let statusTimer = 0;
-    const close = () => { stopMeters(); clearInterval(statusTimer); overlay.remove(); };
+    // it can always be closed (✕ or Esc): every step already saved its picks, and a first run resumes at that step next time
+    const onEsc = (e) => { if (e.key === "Escape") close(); };
+    const close = () => { stopMeters(); clearInterval(statusTimer); document.removeEventListener("keydown", onEsc); overlay.remove(); };
+    document.addEventListener("keydown", onEsc);
     const presetOf = () => presets.find((p) => p[3].width === w.cfg.width && p[3].fps === w.cfg.fps && p[3].quality === w.cfg.quality);
     const lenText = (s) => (LEN().find(([v]) => v === s) || [0, fmtBuf(s)])[1];
 
@@ -932,7 +935,7 @@ App.RecUI = (function () {
     const body = h("div", { class: "wzbody" });
     const foot = h("div", { class: "wzfoot" });
     const railBox = h("div");
-    overlay.append(h("div", { class: "wzcard" }, h("div", { class: "wzsweep" }, h("div")), railBox, body, foot));
+    overlay.append(h("div", { class: "wzcard" }, h("div", { class: "wzsweep" }, h("div")), h("button", { class: "wzx", text: "✕", title: App.t("common.close"), "aria-label": App.t("common.close"), onClick: close }), railBox, body, foot));
 
     /** Moves to a step. The picks are saved on every move (so a closed window loses nothing) and, while the wizard is
         unfinished, the step too: the next start resumes there. */

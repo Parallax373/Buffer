@@ -1701,3 +1701,5 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 @media (prefers-reduced-motion: reduce) { .fsg-fan, .fh-dot { animation: none; } }
 [data-anim="off"] .fsg-fan, [data-anim="off"] .fh-dot { animation: none; }
 @media (max-width: 760px) { .fhero { grid-template-columns: 1fr; } }
+.wzx { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; border-radius: 8px; border: 1px solid transparent; background: none; color: var(--muted); cursor: pointer; font-size: 14px; z-index: 2; }
+.wzx:hover { border-color: var(--line); color: var(--text); background: var(--raised); }
