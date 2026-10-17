@@ -154,6 +154,11 @@ struct St {
     test: Option<([u8; 3], Instant)>,
     /// bumped when the calibration changes (the worker sends every device again)
     calib_rev: u64,
+    /// the effect's clock as the worker last set it (seconds), when, and how fast it runs (0 = stopped): the page's
+    /// preview takes its time from here, so what it draws is what the devices show
+    clock_t: f64,
+    clock_at: Option<Instant>,
+    clock_rate: f64,
 }
 
 /// A scene from `rgb-scene-set`. The devices' own looks (`simple`) and the given-back list (`free`) are edited by their
@@ -305,6 +310,7 @@ impl Hub {
             "game_profiles": st.file.game_profiles, "game_profile": st.game_profile,
             "hidden": st.file.hidden,
             "conflicts": crate::away::conflicts(&crate::away::snapshot()),
+            "t": st.clock_t + st.clock_at.map_or(0.0, |a| a.elapsed().as_secs_f64() * st.clock_rate),
         })
     }
 
@@ -654,6 +660,87 @@ struct Conn {
     cbuf: Vec<[u8; 3]>,
     /// the test pattern shown last (colour, calibration revision), so it is sent only when something changes
     test_last: Option<([u8; 3], u64)>,
+    stats: Stats,
+}
+
+/// What the stream did lately, written to recorder.log while it plays: every 10 s for the first minute after it starts or
+/// the scene changes, then every 5 minutes. Sends are fire-and-forget (OpenRGB applies them on a thread per device), so a
+/// device that looks slow on the desk although it gets every frame here is slow in its driver or its hardware, not here.
+struct Stats {
+    started: Instant,
+    since: Instant,
+    frames: u32,
+    late: u32,
+    work: Duration,
+    work_max: Duration,
+    send_max: Duration,
+    /// frames sent and the first LED's colour last sent, per device index
+    sends: Vec<u32>,
+    last: Vec<Option<[u8; 3]>>,
+}
+
+impl Stats {
+    fn new(n: usize) -> Self {
+        let now = Instant::now();
+        Stats { started: now, since: now, frames: 0, late: 0, work: Duration::ZERO, work_max: Duration::ZERO, send_max: Duration::ZERO, sends: vec![0; n], last: vec![None; n] }
+    }
+
+    /// The scene or the device list changed: counting starts over, and the next minute is logged in detail again.
+    fn restart(&mut self, n: usize) {
+        *self = Stats::new(n);
+    }
+
+    fn sent(&mut self, i: usize, colors: &[[u8; 3]], took: Duration) {
+        if let Some(c) = self.sends.get_mut(i) {
+            *c += 1;
+        }
+        if let Some(l) = self.last.get_mut(i) {
+            *l = colors.first().copied();
+        }
+        self.send_max = self.send_max.max(took);
+    }
+
+    fn frame(&mut self, spent: Duration, budget: Duration) {
+        self.frames += 1;
+        self.work += spent;
+        self.work_max = self.work_max.max(spent);
+        if spent > budget {
+            self.late += 1;
+        }
+    }
+
+    /// Time for a line in recorder.log: every 10 s in the first minute after the stream started or the scene changed,
+    /// then every 5 minutes.
+    fn is_due(&self) -> bool {
+        let every = if self.started.elapsed() < Duration::from_secs(60) { Duration::from_secs(10) } else { Duration::from_secs(300) };
+        self.frames > 0 && self.since.elapsed() >= every
+    }
+
+    /// The line for recorder.log (`driven`: device index and name), then the counters start over.
+    fn take_line(&mut self, driven: &[(usize, String)], fps: u32) -> String {
+        let secs = self.since.elapsed().as_secs_f64().max(0.001);
+        let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+        let per: Vec<String> = driven
+            .iter()
+            .map(|(i, name)| {
+                let c = self.last.get(*i).copied().flatten().map_or("-".to_string(), |c| format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]));
+                format!("{name} {:.1}/s {c}", self.sends.get(*i).copied().unwrap_or(0) as f64 / secs)
+            })
+            .collect();
+        let line = format!(
+            "rgb stream: {secs:.0} s, {:.1} fps (target {fps}), work avg {:.1} ms max {:.1} ms, {} late, slowest send {:.1} ms | {}",
+            self.frames as f64 / secs,
+            ms(self.work) / self.frames.max(1) as f64,
+            ms(self.work_max),
+            self.late,
+            ms(self.send_max),
+            per.join(", ")
+        );
+        let (n, started) = (self.sends.len(), self.started);
+        *self = Stats::new(n);
+        self.started = started;
+        line
+    }
 }
 
 /// Device indices after the list changed: each index names the same device (by key) as before, devices that left are dropped.
@@ -855,6 +942,8 @@ impl Worker {
             cal_rev: u64::MAX,
             cbuf: Vec::new(),
             test_last: None,
+            // sized on the first plan (it restarts the counting with the device list)
+            stats: Stats::new(0),
         })
     }
 
@@ -1062,7 +1151,12 @@ impl Worker {
             Some(k) => out.extend(colors.iter().map(|&x| calibrate(x, k))),
             None => out.extend_from_slice(colors),
         }
-        let r = if c.taken.insert(i) { c.c.set_colors(i as u32, &out) } else { c.c.frame(i as u32, &out) };
+        let r = if c.taken.insert(i) {
+            log(&format!("rgb: driving {} ({} LEDs, Direct mode)", key(&c.devs, i), out.len()));
+            c.c.set_colors(i as u32, &out)
+        } else {
+            c.c.frame(i as u32, &out)
+        };
         c.cbuf = out;
         r
     }
@@ -1237,6 +1331,7 @@ impl Worker {
             }
             c.replan = false;
             c.dirty = true;
+            c.stats.restart(c.devs.len());
         }
         // one scene, whatever view is open: the effect moves on devices that follow it, looks with an effect move on theirs,
         // each on its own clock (a look carries its own speed, the effect uses the scene's)
@@ -1282,10 +1377,12 @@ impl Worker {
                 if c.native_on.remove(&p.index) {
                     c.taken.remove(&p.index); // back from a device mode: take over again (Direct mode) before streaming
                 }
+                let t0 = Instant::now();
                 r = self.take_over(c, p.index, &p.buf);
                 if r.is_err() {
                     break;
                 }
+                c.stats.sent(p.index, &p.buf, t0.elapsed());
                 p.last.clear();
                 p.last.extend_from_slice(&p.buf);
             }
@@ -1296,6 +1393,9 @@ impl Worker {
         {
             let mut st = self.hub.lock();
             st.streaming = animated;
+            st.clock_t = c.ts;
+            st.clock_at = Some(now);
+            st.clock_rate = if advanced { c.scene.speed.clamp(0.0, 3.0) as f64 } else { 0.0 };
         }
         // an unused socket is the first sign of a dead server: ask something small now and then (this also drains
         // packets the server pushed on its own)
@@ -1314,6 +1414,11 @@ impl Worker {
         } else if animated {
             let frame = Duration::from_secs_f64(1.0 / c.scene.fps() as f64);
             let spent = now.elapsed();
+            c.stats.frame(spent, frame);
+            if c.stats.is_due() {
+                let driven: Vec<(usize, String)> = c.plan.iter().map(|p| (p.index, key(&c.devs, p.index))).collect();
+                log(&c.stats.take_line(&driven, c.scene.fps()));
+            }
             self.nap(frame.saturating_sub(spent));
         } else {
             // with lights that follow the lock screen, the idle time or the clock the loop looks twice a second-ish
@@ -1327,6 +1432,29 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stream_log_says_what_each_device_got() {
+        let mut st = Stats::new(3);
+        assert!(!st.is_due(), "nothing streamed yet");
+        let budget = Duration::from_millis(33);
+        for k in 0..60u8 {
+            st.frame(Duration::from_millis(if k == 5 { 50 } else { 2 }), budget);
+            st.sent(0, &[[k, 0, 0]], Duration::from_micros(30));
+            if k % 2 == 0 {
+                st.sent(2, &[[0, 255, 60]], Duration::from_micros(80));
+            }
+        }
+        st.since -= Duration::from_secs(10);   // ten seconds of it
+        assert!(st.is_due());
+        let line = st.take_line(&[(0, "Corsair#0".into()), (2, "MSI#0".into())], 30);
+        assert!(line.contains("6.0 fps (target 30)"), "{line}");
+        assert!(line.contains("1 late"), "{line}");
+        assert!(line.contains("Corsair#0 6.0/s #3b0000"), "{line}");
+        assert!(line.contains("MSI#0 3.0/s #00ff3c"), "{line}");
+        assert!(!st.is_due(), "the counters start over");
+        assert_eq!(st.sends, vec![0, 0, 0]);
+    }
 
     #[test]
     fn indices_follow_their_device_when_the_list_changes() {

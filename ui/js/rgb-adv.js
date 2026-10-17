@@ -326,6 +326,7 @@
   function placeDev(d) {
     const parts = d.parts ? d.parts.map((p) => ({ s: slotById(p.slot), n: Math.max(1, p.n | 0) })).filter((p) => p.s) : d.slot && slotById(d.slot) ? [{ s: slotById(d.slot), n: d.n }] : [];
     if (!parts.length) { delete d.slot; delete d.parts; return false; }
+    delete d.box;   // in a place it is drawn by the place's outline
     const o = parts[0].s.c;
     let world = [];
     for (const p of parts) world = world.concat(slotShape(p.s, p.n) || (d.pts || []).map((q) => [o[0] + q[0], o[1] + q[1], o[2] + q[2]]));   // a spot keeps the device's own layout
@@ -1023,7 +1024,14 @@
     const cf = $("#cflip"); if (cf) cf.onclick = () => { flipCase(); renderDevInsp(); };
   }
   /** a device moved by hand leaves its place(s) */
-  function moved(d) { if (d.slot || d.parts) { delete d.slot; delete d.parts; rowLabel(d); root.querySelectorAll("#slc .on").forEach((c) => c.classList.remove("on")); } persist(); }
+  /** the outline a device keeps from the place it left (local cm, [lo, hi]), when it is a sane one */
+  const boxOf = (d) => (Array.isArray(d.box) && d.box.length === 2 && d.box.every((c) => Array.isArray(c) && c.length === 3 && c.every(Number.isFinite)) ? d.box : null);
+  function moved(d) { if (d.slot || d.parts) {
+    // the place's outline stays with it: a card taken out of its slot keeps looking the way it sat (its model would
+    // otherwise be the generic card, lying the other way)
+    const ps = !d.parts && slotById(d.slot);
+    if (ps && ps.boxW && ps.c) d.box = [[0, 1, 2].map((k) => r2(Math.min(...ps.boxW.map((p) => p[k])) - ps.c[k])), [0, 1, 2].map((k) => r2(Math.max(...ps.boxW.map((p) => p[k])) - ps.c[k]))];
+    delete d.slot; delete d.parts; rowLabel(d); root.querySelectorAll("#slc .on").forEach((c) => c.classList.remove("on")); } persist(); }
   function updInsp() {
     const d = selDev(); if (d) { setRange($("#i-x"), d.x); setRange($("#i-y"), d.y); setRange($("#i-z"), d.z); setRange($("#i-rot"), d.rot); setRange($("#i-sc"), d.sc); }
     if (S.sel === "case") { setRange($("#c-x"), S.caseAt[0]); setRange($("#c-z"), S.caseAt[1]); }
@@ -1334,6 +1342,7 @@
   function modelCorners(d) {
     if (!d.pts || !d.pts.length) return [];
     for (const id of placesOf(d)) { const s = slotById(id); if (s && s.boxW && ["gpu", "ram", "header", "strip"].includes(d.type)) return s.boxW; }
+    if (boxOf(d)) return corners(boxOf(d)).map((p) => W(d, p));
     const lo = [0, 1, 2].map((k) => Math.min(...d.pts.map((p) => p[k]))), hi = [0, 1, 2].map((k) => Math.max(...d.pts.map((p) => p[k])));
     const box = (a, z) => corners([a, z]).map((p) => W(d, p)), cx = (lo[0] + hi[0]) / 2, cz = (lo[2] + hi[2]) / 2;
     switch (d.type) {
@@ -1474,6 +1483,7 @@
     const lo = [0, 1, 2].map((k) => Math.min(...d.pts.map((p) => p[k]))), hi = [0, 1, 2].map((k) => Math.max(...d.pts.map((p) => p[k])));
     const pad = (p) => [lo.map((v, k) => v - p[k]), hi.map((v, k) => v + p[k])];
     const boxL = (b) => edges(corners(b).map((p) => W(d, p)));
+    if (boxOf(d)) { boxL(boxOf(d)); return; }   // the outline it took along from a place
     if (d.type === "fan") boxL(pad(lo.map((v, k) => (hi[k] - v < 1 ? 1.2 : 1.5))));
     else if (d.type === "keyboard") { const b = pad([1, 0, 1]); b[0][1] = lo[1] - 1.2; b[1][1] = lo[1] + 0.2; boxL(b); }
     else if (d.type === "gpu") {   // a card about 28 x 11 x 5 cm, its LED edge on top (a card with one LED is still a card)
@@ -1944,7 +1954,7 @@
         const dropped = drag && drag.k === "gz" ? drag : null;
         drag = null; cv.style.cursor = "default";
         if (dropped && dropped.d && dropped.cand && dropped.moved > 3) { placeIn(dropped.d, dropped.cand); renderDevInsp(); }
-        else if (dropped && dropped.d && dropped.back && !dropped.d.slot && !dropped.d.parts) {   // barely moved: back into its place
+        else if (dropped && dropped.d && dropped.moved <= 3 && dropped.back && !dropped.d.slot && !dropped.d.parts) {   // barely moved: back into its place
           const s = slotById(dropped.back);
           if (s && !taken(s, dropped.d)) { placeIn(dropped.d, s); renderDevInsp(); }
         }
@@ -1980,6 +1990,18 @@
     else if (e.key === "Escape") closePop();
   }
 
+  /* The preview runs on the recorder's clock: every few seconds it takes the effect time the lights are at (rgb-status
+     "t"), so the drawing and the devices show the same moment. Paused or scrubbed by hand, it keeps its own time. */
+  let clockBusy = false, clockAt = 0;
+  async function syncClock() {
+    if (clockBusy || !S.playing) return;
+    clockBusy = true; clockAt = performance.now();
+    try {
+      const t0 = performance.now(), st = await api.invoke("rgb_status"), half = (performance.now() - t0) / 2000;
+      if (st && st.streaming && Number.isFinite(st.t) && S.playing) S.t = st.t + half * S.speed;
+    } catch (_) { /* keep our own time */ } finally { clockBusy = false; }
+  }
+
   /* ---------------- loop: one rAF, capped at 60 fps; it stops by itself when paused and nothing changed ---------------- */
   function wake() {
     if (raf || !cv || !cv.isConnected || document.hidden) return;
@@ -1994,6 +2016,7 @@
     last = now;
     stepCam();
     if (S.playing) S.t += Math.min(0.1, dt) * S.speed;
+    if (S.playing && now - clockAt > 3000) syncClock();
     if (!(S.playing || D.view || D.geom || D.fx)) return;   // idle: no more frames until wake()
     if (D.geom) { rebuildGeom(); D.view = true; }
     if (D.view) { if (S.view === "3d") setupCam(); projectAll(); drawStatic(); }
