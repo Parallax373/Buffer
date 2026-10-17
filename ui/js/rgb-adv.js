@@ -369,6 +369,13 @@
     return { n, left };
   }
   /** is a world point inside the case as it stands now (its footprint, any height)? */
+  /** a loose device that stands inside the case (its footprint and its height): it moves, turns and flips with the case.
+      Something on the desk above a case under the desk is not in it. */
+  function insideCase(d) {
+    if (placesOf(d).length || !inCase([d.x, d.y, d.z])) return false;
+    const ys = caseCorners().map((q) => q[1]);
+    return d.y >= Math.min(...ys) - 2 && d.y <= Math.max(...ys) + 2;
+  }
   function inCase(p) {
     const cc = caseCorners(); if (!cc) return false;
     const xs = cc.map((q) => q[0]), zs = cc.map((q) => q[2]);
@@ -398,9 +405,7 @@
   /** the case on the floor under the desk, or back on it: what stands in it comes along */
   function lowerCase(on) {
     if (!!S.caseLow === on || !caseBox(S.tpl)) return;
-    // only what stands inside the case (its height too: a keyboard on the desk above it stays on the desk)
-    const ys = caseCorners().map((q) => q[1]), y0 = Math.min(...ys) - 2, y1 = Math.max(...ys) + 2;
-    const loose = S.devices.filter((d) => !d._hid && !placesOf(d).length && inCase([d.x, d.y, d.z]) && d.y >= y0 && d.y <= y1);
+    const loose = S.devices.filter((d) => !d._hid && insideCase(d));   // a keyboard on the desk above it stays on the desk
     S.caseLow = on;
     for (const d of loose) d.y = r2(d.y + (on ? -DESK_H : DESK_H));
     for (const d of S.devices) if (placesOf(d).length) placeDev(d);
@@ -408,7 +413,7 @@
   }
   function flipCase() {
     const b = caseBox(S.tpl); if (!b) return;
-    const loose = S.devices.filter((d) => !d._hid && !placesOf(d).length && inCase([d.x, d.y, d.z]));
+    const loose = S.devices.filter((d) => !d._hid && insideCase(d));
     const c0 = caseXf([b.xm, 0, 0]), a = (S.caseRot || 0) * Math.PI / 180, n = [Math.cos(a), 0, -Math.sin(a)];
     for (const d of loose) { const k = (d.x - c0[0]) * n[0] + (d.z - c0[2]) * n[2]; d.x = r2(d.x - 2 * k * n[0]); d.z = r2(d.z - 2 * k * n[2]); }
     S.caseFlip = !S.caseFlip;
@@ -418,7 +423,7 @@
   /** moves / turns the case; what stands in it (slotted or loose inside) comes along */
   function moveCase(dx, dz, drot) {
     const b = caseBox(S.tpl); if (!b) return;
-    const loose = S.devices.filter((d) => !placesOf(d).length && inCase([d.x, d.y, d.z]));
+    const loose = S.devices.filter(insideCase);
     const c0 = caseXf([b.xm, 0, 0]);
     S.caseAt = [r2(clamp(S.caseAt[0] + dx, -60, 130)), r2(clamp(S.caseAt[1] + dz, -40, 40))];
     S.caseRot = (((S.caseRot || 0) + (drot || 0)) % 360 + 360) % 360;
