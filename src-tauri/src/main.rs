@@ -485,12 +485,12 @@ fn rename_clip(path: String, title: String) -> Result<String, String> {
     Ok(dst.to_string_lossy().into_owned())
 }
 
-/// Opens one of a few known pages in the browser: Buffer's new-issue page ("Missing something?") and the web
-/// configurators of keyboard makers (a link on the keyboard's card). Nothing else.
+/// Opens one of a few known pages in the browser: Buffer's own GitHub pages (new issue, releases, license, About tab)
+/// and the web configurators of keyboard makers (a link on the keyboard's card). Nothing else.
 #[tauri::command]
 fn open_issue_page(url: String) -> Result<(), String> {
-    const ALLOWED: [&str; 2] = ["https://github.com/Wheatlay/Buffer/issues/new", "https://software.darkproject.eu/"];
-    if !ALLOWED.iter().any(|p| url.starts_with(p)) {
+    const ALLOWED: [&str; 2] = ["https://github.com/Wheatlay/Buffer/", "https://software.darkproject.eu/"];
+    if url != "https://github.com/Wheatlay/Buffer" && !ALLOWED.iter().any(|p| url.starts_with(p)) {
         return Err("this page cannot be opened from Buffer".into());
     }
     // rundll32 hands the address straight to the default browser (explorer.exe would open a folder window)

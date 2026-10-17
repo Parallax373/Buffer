@@ -1332,8 +1332,8 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rnat { max-width: 100%; }
 .rcol2 { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .rnum { width: 84px; }
-.arow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
-.arow > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agpop .arow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.agpop .arow > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asched { display: inline-flex; align-items: center; gap: 8px; }
 .rauto summary { cursor: pointer; list-style: none; padding: 2px 0; display: flex; align-items: center; gap: 8px; }
 .rauto { transition: border-color var(--t) ease; }
@@ -1345,7 +1345,7 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .agames { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
 .rmiss { align-self: flex-start; margin: 2px 4px 8px; font-size: 12px; }.rrow > .seg { align-self: flex-start; }
 
-.arow { flex-wrap: wrap; row-gap: 6px; }
+.agpop .arow { flex-wrap: wrap; row-gap: 6px; }
 .rplus { align-self: flex-start; }
 .rauto .cap.sub { margin: 2px 0 4px; }
 .rauto .arow:first-of-type { padding-top: 2px; }

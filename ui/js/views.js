@@ -500,7 +500,7 @@
   const Settings = (App.Settings = { tab: "rec" });
   const U = App.ui;
   Settings.paintRecorder = () => App.RecUI.paint();   // called by the recorder poll while the tab is open
-  const TABS = ["rec", "aud", "keys", "|", "lib", "exp", "gen", "adv"];   // "|" = the line between recording and the rest
+  const TABS = ["rec", "aud", "keys", "|", "lib", "exp", "gen", "adv", "about"];   // "|" = the line between recording and the rest
   /** Tabs whose content follows the recorder (status bar, meters, diagnostics): the poll runs faster there. */
   Settings.live = () => ["rec", "aud", "keys", "adv"].includes(Settings.tab);
   const THEMES = [["ink", "#0b0c0a"], ["oled", "#000000"]];
@@ -530,7 +530,7 @@
     } else {
       // the other tabs wait for their data (tools, cache size, clips) and are swapped in finished, in one go:
       // attaching an empty pane first showed as the whole panel blinking on every edit
-      const build = { lib: renderLibraryTab, exp: renderExportTab, gen: renderGeneralTab, adv: renderAdvancedTab }[Settings.tab];
+      const build = { lib: renderLibraryTab, exp: renderExportTab, gen: renderGeneralTab, adv: renderAdvancedTab, about: renderAboutTab }[Settings.tab];
       await build(pane);
       if (mine !== renderSeq) return;                                     // a newer render took over meanwhile
       mount();
@@ -659,14 +659,33 @@
           onClick: () => { s.theme = k; App.persist(); App.applyTheme(); App.RecUI.syncLang().catch(() => {}); Settings.render(); } },
           h("div", { class: "pv2", style: { background: bg } }, h("i", { style: { width: "60%", background: "#1a1d16" } }), h("i", { style: { width: "30%", background: "#c6f432" } })),
           h("div", { class: "nm", text: App.t("theme." + k) }))))),
-      h("div", null, U.cap(App.t("cap.notify")), blocks.notify),
+      h("div", null, U.cap(App.t("cap.notify")), blocks.notify)));
+  }
+
+  /* O programie: version and updates, where the project lives, license. */
+  async function renderAboutTab(pane) {
+    const s = App.P.settings;
+    const REPO = "https://github.com/Wheatlay/Buffer";
+    const link = (key, path) => h("button", { class: "linkbtn", text: App.t(key) + " ↗",
+      onClick: () => api.invoke("open_issue_page", { url: REPO + path }).catch((e) => App.toast(String(e), "err")) });
+    pane.append(h("div", { class: "setcol" },
       h("div", null, U.cap(App.t("cap.version")),
         h("div", { class: "card2" },
+          U.srow("Buffer", h("span", { class: "muted", text: App.t("about.tag") })),
           U.srow(App.t("ver.label"), h("div", { class: "pathrow" },
             h("span", { class: "mono", id: "appVersion", text: "…" }),
             h("button", { class: "linkbtn", id: "updBtn", text: App.Update.hasUpdate() ? App.t("ver.install") : App.t("ver.check"),
               onClick: () => (App.Update.hasUpdate() ? App.Update.install() : App.Update.check(true)) }))),
-          U.trow(App.t("ver.auto"), App.t("ver.autoD"), s.autoUpdate !== false, (on) => { s.autoUpdate = on; App.persist(); Settings.render(); })))));
+          U.trow(App.t("ver.auto"), App.t("ver.autoD"), s.autoUpdate !== false, (on) => { s.autoUpdate = on; App.persist(); Settings.render(); }))),
+      h("div", null, U.cap(App.t("about.links")),
+        h("div", { class: "card2" },
+          U.srow(App.t("about.github"), link("about.open", "")),
+          U.srow(App.t("about.releases"), link("about.open", "/releases")),
+          U.srow(App.t("about.issues"), link("about.open", "/issues/new")))),
+      h("div", null, U.cap(App.t("about.legal")),
+        h("div", { class: "card2" },
+          U.srow(App.t("about.license"), link("about.open", "/blob/main/LICENSE")),
+          U.srow(App.t("about.notices"), link("about.open", "/blob/main/THIRD-PARTY-NOTICES.md"))))));
   }
 
   /* Zaawansowane: what is normally left alone: tools, the recorder's own status, the cache. */
