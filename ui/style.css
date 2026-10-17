@@ -1331,6 +1331,7 @@ input.rline { height: 4px; border-radius: 2px; background: linear-gradient(90deg
 .rpname { width: 150px; padding: 4px 10px; }
 .rgb > .eqhead .chip.warn { border-color: var(--warn); color: var(--warn); background: transparent; cursor: default; }
 .rgb > .eqhead .chip.warn.act { cursor: pointer; }
+.ra-gcap { display: flex; justify-content: space-between; margin: 2px 2px 6px; font-size: 10.5px; color: var(--muted); letter-spacing: .02em; }
 .rgb > .eqhead .chip.warn.act:hover { background: #ffb02e1f; }
 .rgb > .eqhead .chip.warn.act:disabled { opacity: .5; cursor: default; }
 .rfx { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }

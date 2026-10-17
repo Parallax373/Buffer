@@ -1,7 +1,7 @@
 //! The persisted RGB scene: the JSON the Advanced page keeps, plus what the recorder needs to render it (RGB-SCENE.md).
 //! Unknown keys are carried along untouched, so UI-only state (camera, saved effects, ...) can live in the same object.
 
-use crate::engine::{Layer, TAU32};
+use crate::engine::{scan_extent, Layer, TAU32};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -303,6 +303,21 @@ impl Scene {
         self.layers.iter().any(|l| l.on)
     }
 
+    /// Tells every Scan layer where the driven devices are along its direction (its own layers and the copies in the
+    /// plans), so a sweep covers the whole layout and not a fixed 160 cm around the origin. Run after `plan`.
+    pub fn fit(&mut self, plans: &mut [DevPlan]) {
+        let positions: Vec<[f32; 3]> = plans.iter().filter(|p| p.fixed.is_none()).flat_map(|p| p.pos.iter().copied()).collect();
+        let origin = self.origin;
+        for l in self.layers.iter_mut() {
+            l.ext = scan_extent(l, origin, &positions);
+        }
+        for p in plans.iter_mut() {
+            for l in p.layers.iter_mut().flatten() {
+                l.ext = scan_extent(l, origin, &positions);
+            }
+        }
+    }
+
     fn has_look(&self, key: &str) -> bool {
         self.simple.iter().any(|l| dev_key(&l.name, l.nth) == key)
     }
@@ -405,7 +420,7 @@ impl Scene {
                     if let Some(index) = resolve(devs, &link.name, link.nth) {
                         let layers = self.layers.iter().any(|l| l.skip.contains(&d.id)).then(|| self.layers.iter().filter(|l| !l.skip.contains(&d.id)).cloned().collect());
                         let gain = (d.trim / 100.0).clamp(0.0, 1.0);
-                        add(DevPlan { index, fixed: None, look: None, pos: d.world(devs[index].1), layers, gain, delay: (d.delay.clamp(0.0, 5000.0) / 1000.0) as f64 });
+                        add(DevPlan { index, fixed: None, look: None, pos: d.world(devs[index].1), layers, gain, delay: (d.delay.clamp(-1000.0, 5000.0) / 1000.0) as f64 });
                     }
                 }
             }

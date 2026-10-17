@@ -102,6 +102,10 @@ pub struct Layer {
     /// follows the layer when layers are reordered, copied or deleted
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skip: Vec<u32>,
+    /// Scan: where the devices lie along the layer's direction, relative to the origin, [lowest, highest] in cm.
+    /// Worked out when the scene is planned (`Scene::fit`), never saved; the sweep covers exactly that.
+    #[serde(skip)]
+    pub ext: Option<[f32; 2]>,
 }
 
 fn yes() -> bool {
@@ -120,6 +124,36 @@ pub struct Env {
     pub origin: [f32; 3],
     pub level: f32,
     pub bright: f32,
+}
+
+/// The layer's direction of travel (a unit vector) from its axis and rotation.
+fn direction(p: &Params) -> [f64; 3] {
+    let an = p.rot as f64 * std::f64::consts::PI / 180.0;
+    let (ca, sa) = (an.cos(), an.sin());
+    match p.axis {
+        0 => [ca, 0.0, sa],
+        1 => [sa, ca, 0.0],
+        _ => [sa, 0.0, ca],
+    }
+}
+
+/// Where `positions` (cm) lie along a Scan layer's direction, relative to `origin`: [lowest, highest]. None for any
+/// other kind of layer or without positions. A mirrored scan measures the distance from the origin.
+pub fn scan_extent(l: &Layer, origin: [f32; 3], positions: &[[f32; 3]]) -> Option<[f32; 2]> {
+    if l.kind != Gen::Scan || positions.is_empty() {
+        return None;
+    }
+    let u = direction(&l.p);
+    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+    for p in positions {
+        let s0 = (p[0] - origin[0]) as f64 * u[0] + (p[1] - origin[1]) as f64 * u[1] + (p[2] - origin[2]) as f64 * u[2];
+        let s = if l.p.mirror { s0.abs() } else { s0 };
+        if s.is_finite() {
+            lo = lo.min(s);
+            hi = hi.max(s);
+        }
+    }
+    (lo <= hi).then_some([lo as f32, hi as f32])
 }
 
 fn clamp(v: f64, a: f64, b: f64) -> f64 {
@@ -190,13 +224,7 @@ fn gen_value(l: &Layer, pos: [f64; 3], t: f64, env: &Env) -> f64 {
     let tl = t * speed;
     let o = env.origin;
     let (dx, dy, dz) = (pos[0] - o[0] as f64, pos[1] - o[1] as f64, pos[2] - o[2] as f64);
-    let an = p.rot as f64 * std::f64::consts::PI / 180.0;
-    let (ca, sa) = (an.cos(), an.sin());
-    let (ux, uy, uz) = match p.axis {
-        0 => (ca, 0.0, sa),
-        1 => (sa, ca, 0.0),
-        _ => (sa, 0.0, ca),
-    };
+    let [ux, uy, uz] = direction(p);
     let s0 = dx * ux + dy * uy + dz * uz;
     let s = if p.mirror { s0.abs() } else { s0 };
     let mut v = match l.kind {
@@ -223,10 +251,18 @@ fn gen_value(l: &Layer, pos: [f64; 3], t: f64, env: &Env) -> f64 {
         // quantised into 3 cm bars: head plus a faded trail behind it, like the logo
         Gen::Scan => {
             let sg = if speed >= 0.0 { 1.0 } else { -1.0 };
-            let (span, lo) = if p.mirror { (80.0, 0.0) } else { (160.0, -80.0) };
-            let head = lo + span * fract(tl * 0.3);
-            let back = ((head - s) * sg / 3.0).floor() * 3.0;
             let w = p.width as f64;
+            // the sweep covers the devices: from just before the first one until the faded tail has left the last one.
+            // Without positions (a bare layer) it is the old fixed 160 cm around the origin. The head moves at the same
+            // speed either way (48 cm per second at 1x, 24 mirrored), so a bigger layout takes longer to cross.
+            let (lo, hi) = match l.ext {
+                Some([a, b]) => (a as f64 - 2.0, b as f64 + w + (p.trail as f64 * 45.0 + 1.0) * 1.5),
+                None if p.mirror => (0.0, 80.0),
+                None => (-80.0, 80.0),
+            };
+            let span = (hi - lo).max(40.0);
+            let head = lo + (tl * if p.mirror { 24.0 } else { 48.0 }).rem_euclid(span);
+            let back = ((head - s) * sg / 3.0).floor() * 3.0;
             if back < 0.0 {
                 0.0
             } else if back <= w {
@@ -326,7 +362,37 @@ mod tests {
 
     fn layer(kind: Gen, p: Params, a: &str, b: &str, blend: Blend, opacity: f32) -> Layer {
         let col = |s: &str| serde_json::from_value::<Color>(serde_json::json!(s)).unwrap();
-        Layer { on: true, kind, p, stops: vec![Stop { p: 0.0, c: col(a) }, Stop { p: 1.0, c: col(b) }], blend, opacity, skip: Vec::new() }
+        Layer { on: true, kind, p, stops: vec![Stop { p: 0.0, c: col(a) }, Stop { p: 1.0, c: col(b) }], blend, opacity, ext: None, skip: Vec::new() }
+    }
+
+    /// Brightest the layer gets at `pos` over `secs` seconds (the white of a black-to-white gradient).
+    fn peak_at(l: &Layer, pos: [f32; 3], secs: f64) -> f32 {
+        let env = Env { origin: [0.0, 0.0, 0.0], level: 0.0, bright: 1.0 };
+        (0..(secs * 20.0) as usize).map(|i| color_at(std::slice::from_ref(l), pos, i as f64 / 20.0, &env)[0]).fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn a_scan_sweeps_over_the_whole_layout() {
+        let scan = |p: Params| layer(Gen::Scan, p, "#000000", "#ffffff", Blend::Add, 1.0);
+        let far = [100.0, 0.0, 0.0];   // 100 cm from the origin: outside the old fixed +-80 cm
+        let base = scan(Params { width: 6.0, trail: 0.3, ..Params::default() });
+        assert!(peak_at(&base, far, 12.0) < 1.0, "without positions the sweep stops at 80 cm");
+        // the devices lie from -20 to 100 cm along the axis: the sweep reaches the last one
+        let mut fitted = base.clone();
+        fitted.ext = scan_extent(&fitted, [0.0, 0.0, 0.0], &[[-20.0, 0.0, 0.0], [100.0, 0.0, 0.0], [40.0, 5.0, 3.0]]);
+        let e = fitted.ext.expect("a scan with positions has an extent");
+        assert!((e[0] + 20.0).abs() < 0.01 && (e[1] - 100.0).abs() < 0.01, "{e:?}");
+        assert!(peak_at(&fitted, far, 12.0) > 200.0, "the head passes the far device");
+        assert!(peak_at(&fitted, [-20.0, 0.0, 0.0], 12.0) > 200.0, "and the near one");
+        // other kinds of layer have no extent, and no positions give none
+        assert!(scan_extent(&layer(Gen::Wave, Params::default(), "#000000", "#ffffff", Blend::Add, 1.0), [0.0; 3], &[[1.0, 2.0, 3.0]]).is_none());
+        assert!(scan_extent(&base, [0.0; 3], &[]).is_none());
+        // the speed does not change with the size of the layout: the head is 48 cm further after one second
+        let at = |l: &Layer, x: f32, t: f64| color_at(std::slice::from_ref(l), [x, 0.0, 0.0], t, &Env { origin: [0.0; 3], level: 0.0, bright: 1.0 })[0];
+        let probe = scan(Params { width: 3.0, trail: 0.0, ..Params::default() });
+        let (t0, t1) = (0.5, 1.5);
+        let head = |t: f64| (-80..=80).map(|x| x as f32).filter(|x| at(&probe, *x, t) > 250.0).fold(f32::MIN, f32::max);
+        assert!((head(t1) - head(t0) - 48.0).abs() <= 4.0, "{} -> {}", head(t0), head(t1));
     }
 
     fn all() -> Vec<Layer> {

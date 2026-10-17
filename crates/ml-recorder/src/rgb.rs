@@ -1209,7 +1209,7 @@ impl Worker {
             let names: Vec<(&str, usize)> = c.devs.iter().map(|d| (d.name.as_str(), d.led_names.len())).collect();
             // lights out: every device black (the ones the scene does not drive too), the earlier modes come back afterwards
             let hidden = self.hub.lock().file.hidden.clone();
-            let plans: Vec<DevPlan> = if c.away.is_some() {
+            let mut plans: Vec<DevPlan> = if c.away.is_some() {
                 (0..names.len()).map(|index| DevPlan::fixed(index, [0; 3], None)).collect()
             } else {
                 c.scene.plan(&names)
@@ -1217,6 +1217,8 @@ impl Worker {
             .into_iter()
             .filter(|p| !hidden.contains(&key(&c.devs, p.index)))
             .collect();
+            // a Scan sweeps over exactly the devices that are driven
+            c.scene.fit(&mut plans);
             c.plan = plans
                 .into_iter()
                 .filter(|p| names[p.index].1 > 0)

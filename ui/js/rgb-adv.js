@@ -49,6 +49,15 @@
     return L(L(L(h3(ix, iy, iz), h3(ix + 1, iy, iz), fx), L(h3(ix, iy + 1, iz), h3(ix + 1, iy + 1, iz), fx), fy),
              L(L(h3(ix, iy, iz + 1), h3(ix + 1, iy, iz + 1), fx), L(h3(ix, iy + 1, iz + 1), h3(ix + 1, iy + 1, iz + 1), fx), fy), fz);
   }
+  /** Where a Scan's head is at layer time `tl`: it sweeps from just before the first driven device until its faded tail
+      has left the last one (L.ext, see fitScan), or without devices over a fixed 160 cm around the origin; 48 cm per
+      second at 1x (24 mirrored). The same maths as ml-rgb engine.rs. */
+  function scanHead(L, tl) {
+    const P = L.p, ex = L.ext, w = P.width;
+    const lo = ex ? ex[0] - 2 : P.mirror ? 0 : -80, hi = ex ? ex[1] + w + (P.trail * 45 + 1) * 1.5 : 80;
+    const span = Math.max(hi - lo, 40), v = tl * (P.mirror ? 24 : 48);
+    return lo + (((v % span) + span) % span);
+  }
   // one layer's generator: position (cm) + time (s) -> 0..1
   function genValue(L, pos, tm, env) {
     const P = L.p, o = env.origin, tl = tm * P.speed, sc = P.scale;
@@ -74,8 +83,7 @@
         v = clamp((n - 0.25) * 1.8, 0, 1); break;
       }
       case "scan": {   // quantised into 3 cm bars: head + faded trail behind it, like the logo
-        const sg = P.speed >= 0 ? 1 : -1, span = P.mirror ? 80 : 160, lo = P.mirror ? 0 : -80;
-        const head = lo + span * fract(tl * 0.3), back = Math.floor((head - s) * sg / 3) * 3;
+        const sg = P.speed >= 0 ? 1 : -1, head = scanHead(L, tl), back = Math.floor((head - s) * sg / 3) * 3;
         v = back < 0 ? 0 : back <= P.width ? 1 : Math.exp(-(back - P.width) / (P.trail * 45 + 1)) * 0.85; break;
       }
       case "sparkle": {
@@ -128,7 +136,7 @@
     { name: "Aurora", key: "ra.pre.aurora", layers: () => [
       mkL("wave", { axis: 1, rot: 25, speed: 0.5, scale: 0.7 }, [[0, "#06241c"], [0.5, "#2ee6a8"], [1, "#38b6ff"]], "mix"),
       mkL("noise", { axis: 1, speed: 0.4, scale: 0.8, ease: 0.6 }, [[0, "#000000"], [1, "#8a6bff"]], "add", 0.6)] },
-    { name: "Rain", key: "ra.pre.rain", layers: () => [mkL("noise", { axis: 1, speed: -1.6, scale: 2.2, ease: 0.9 }, RAIN, "mix")] },
+    { name: "Rain", key: "ra.pre.rain", layers: () => [mkL("noise", { axis: 1, rot: 180, speed: 1.6, scale: 2.2, ease: 0.9 }, RAIN, "mix")] },
     { name: "Buffer now/trail", key: "ra.pre.buffer", layers: () => [
       mkL("solid", { speed: 0 }, [[0, "#c6f432"], [1, "#c6f432"]], "add", 0.05),
       mkL("scan", { speed: 0.8, width: 3, trail: 0.8 }, [[0, "#c6f432"], [1, "#c6f432"]])] },
@@ -448,7 +456,7 @@
     // own brightness, white balance (0..100) and delay (ms), as the recorder reads them
     d.trim = Number.isFinite(+d.trim) && d.trim !== null ? clamp(+d.trim, 0, 100) : 100;
     delete d.wb;   // colour balance is the hardware calibration now (recorder, per device), not part of the scene
-    d.delay = Number.isFinite(+d.delay) && d.delay !== null ? clamp(+d.delay, 0, 1000) : 0;
+    d.delay = Number.isFinite(+d.delay) && d.delay !== null ? clamp(+d.delay, -500, 1000) : 0;
     d.led0 = (d.led0 | 0) % d.n; d.rev = !!d.rev;
     if (typeof d.slot !== "string") delete d.slot;
     if (d.parts && !(Array.isArray(d.parts) && d.parts.length > 1 && d.parts.every((p) => p && typeof p.slot === "string" && p.n > 0))) delete d.parts;
@@ -539,6 +547,13 @@
     } });
   }
 
+  /** Negative speeds are gone (the direction arrow turns an effect): a layer saved with one now runs forward, turned the
+      other way. Radial and Solid have no direction, a mirrored scan would change from inwards to outwards: only the sign goes. */
+  function forward(L) {
+    const p = L && L.p; if (!p || !(p.speed < 0)) return;
+    p.speed = -p.speed;
+    if (["scan", "wave", "rainbow", "noise"].includes(L.gen) && !(L.gen === "scan" && p.mirror)) p.rot = ((p.rot || 0) + 180) % 360;
+  }
   /** a layer from outside (a share code): only known generators and blends, numbers inside their ranges, real colours */
   function cleanLayer(l) {
     if (!l || typeof l !== "object" || !GENS.includes(l.gen)) return null;
@@ -547,7 +562,9 @@
       mirror: !!q.mirror, ease: num(q.ease, 0, 1, 0), trail: num(q.trail, 0, 1, d.trail), width: num(q.width, 1, 30, d.width) };
     const stops = (Array.isArray(l.stops) ? l.stops : []).filter((s) => s && /^#[0-9a-f]{6}$/i.test(s.c)).slice(0, 16).map((s) => ({ p: num(s.p, 0, 1, 0), c: s.c.toLowerCase() })).sort((a, b) => a.p - b.p);
     if (stops.length < 2) return null;
-    return { on: l.on !== false, gen: l.gen, p, stops, blend: BLENDS.includes(l.blend) ? l.blend : "add", opacity: num(l.opacity, 0, 1, 1) };
+    const out = { on: l.on !== false, gen: l.gen, p, stops, blend: BLENDS.includes(l.blend) ? l.blend : "add", opacity: num(l.opacity, 0, 1, 1) };
+    forward(out);
+    return out;
   }
   /** a layer's skip list: scene device ids it does not act on (kept on the layer, so it moves with it) */
   const skips = (L, id) => !!L.skip && L.skip.includes(id);
@@ -559,9 +576,9 @@
     raw = o && typeof o === "object" ? o : {};
     syncDrive();
     if (Array.isArray(raw.devices)) { S.devices = raw.devices.filter(okDev); nextId = Math.max(0, ...S.devices.map((d) => d.id)) + 1; }
-    if (okL(raw.layers) && raw.layers.length) S.layers = raw.layers;
+    if (okL(raw.layers) && raw.layers.length) { S.layers = raw.layers; S.layers.forEach(forward); }
     if (typeof raw.playing === "boolean") S.playing = raw.playing;
-    if (Array.isArray(raw.mine)) S.mine = raw.mine.filter((m) => m && okL(m.layers));
+    if (Array.isArray(raw.mine)) { S.mine = raw.mine.filter((m) => m && okL(m.layers)); S.mine.forEach((m) => m.layers.forEach(forward)); }
     if (Array.isArray(raw.seen)) S.seen = raw.seen.filter((x) => typeof x === "string");
     for (const k of ["view", "plane", "snap", "sel", "selLayer", "origin", "speed", "bright", "fxName", "cam", "zoom2", "pan2", "tpl", "caseAt", "caseRot", "caseFlip", "field", "slots", "tab", "originDev", "fps"]) if (raw[k] != null) S[k] = raw[k];
     for (const L of S.layers) if (L.skip && !(Array.isArray(L.skip) && L.skip.every(Number.isFinite))) delete L.skip;
@@ -851,7 +868,7 @@
         ${hid.length ? `<div class="ra-grp"><button class="linkbtn ra-hidh" id="hidb">${t("rgb.hidden", { n: hid.length })} ${showHid ? "▴" : "▾"}</button>
           ${showHid ? hid.map((x) => `<div class="ra-dr hid">${icon(x.type)}<span class="ra-dn"><b>${esc(x.name)}</b></span><button class="chip" data-show="${x.id}">${t("rgb.unhide")}</button></div>`).join("") : ""}</div>` : ""}
       </div>`;
-    el.querySelectorAll(".ra-dr[data-id]").forEach((b) => { b.onclick = () => selectDev(b.dataset.id === "case" ? "case" : +b.dataset.id); });
+    el.querySelectorAll(".ra-dr[data-id]").forEach((b) => { b.onclick = () => { selectDev(b.dataset.id === "case" ? "case" : +b.dataset.id); centerSel(); }; });
     $("#arrb").onclick = () => autoArrange();
     const hb = $("#hidb"); if (hb) hb.onclick = () => { showHid = !showHid; renderTree(); };
     el.querySelectorAll("[data-show]").forEach((b) => { b.onclick = () => hideDev(S.devices.find((d) => d.id === +b.dataset.show), false); });
@@ -918,7 +935,7 @@
       <div class="ra-cks">${S.layers.map((L, i) => `<label class="ra-ck"><input type="checkbox" data-lk="${i}" ${skips(L, x.id) ? "" : "checked"}><span>${gName(L.gen)}</span><span class="ra-gp" style="background:${gradCss(L.stops)}"></span></label>`).join("")}</div>` : ""}
       <div class="ra-sep"></div>
       ${rng(t("rgb.brightness"), x.trim, 0, 100, 1, (v) => v + "%", (v) => { x.trim = v; persist(); }, t("ra.trimTip"), "d-tr", 1, 100)}
-      ${rng(t("ra.delay"), x.delay, 0, 1000, 10, (v) => v + " ms", (v) => { x.delay = v; persist(); }, t("ra.delayTip"), "d-dl", 1, 0)}
+      ${rng(t("ra.delay"), x.delay, -500, 1000, 10, (v) => v + " ms", (v) => { x.delay = v; persist(); }, t("ra.delayTip"), "d-dl", 1, 0)}
       <div class="ra-grow"><button class="btn ra-sm" id="calb" title="${t("ra.calTip")}">${t("ra.cal")}</button><span class="sp"></span><button class="btn ra-sm" id="lrest" title="${t("ra.likeRestTip")}">${t("ra.likeRest")}</button></div>`;
     wire(el);
     $("#dfoc").onclick = () => focusSel();
@@ -1028,7 +1045,7 @@
   function renderScene() {
     const el = $("#scp"); if (!el) return;
     el.innerHTML = `<span class="cap">${t("ra.scene")}</span>`
-      + rng(t("ra.speed"), S.speed, 0, 3, 0.05, (v) => Math.round(v * 100) + "%", (v) => { S.speed = v; persist(); }, t("ra.speedTip"), "spd", 1, 1)
+      + rng(t("ra.speed"), S.speed, 0, 3, 0.01, (v) => Math.round(v * 100) + "%", (v) => { S.speed = v; persist(); }, t("ra.speedTip"), "spd", 1, 1)
       + rng(t("rgb.brightness"), S.bright, 0, 100, 1, (v) => v + "%", (v) => { S.bright = v; persist(); }, t("ra.brightTip"), "bri", 1, 100)
       + rng(t("ra.fps"), S.fps, 5, 60, 1, (v) => v + " fps", (v) => { S.fps = v; persist(); }, t("ra.fpsTip"), "fps", 1, 30)
       + `<div class="ra-grow"><span class="sp"></span><button class="btn ra-sm" id="calb2" title="${t("ra.calTip")}">${t("ra.cal")}</button></div>`;
@@ -1038,8 +1055,8 @@
 
   /* ----- effect panel ----- */
   const PDEF = {
-    speed: { k: "ra.speed", min: -3, max: 3, step: 0.05, f: (v) => v.toFixed(2) + "×", tip: "ra.speedFxTip" },
-    scale: { k: "ra.scale", min: 0.25, max: 4, step: 0.05, f: (v) => v.toFixed(2) + "×", tip: "ra.scaleFxTip" },
+    speed: { k: "ra.speed", min: 0, max: 3, step: 0.01, f: (v) => v.toFixed(2) + "×", tip: "ra.speedFxTip" },
+    scale: { k: "ra.scale", min: 0.25, max: 4, step: 0.01, f: (v) => v.toFixed(2) + "×", tip: "ra.scaleFxTip" },
     rot: { k: "ra.rotate", min: 0, max: 359, step: 1, f: (v) => v + "°", tip: "ra.rotFxTip" },
     ease: { k: "ra.ease", min: 0, max: 1, step: 0.01, f: (v) => Math.round(v * 100) + "%", tip: "ra.easeTip" },
     trail: { k: "ra.trail", min: 0, max: 1, step: 0.01, f: (v) => Math.round(v * 100) + "%", tip: "ra.trailTip" },
@@ -1200,7 +1217,8 @@
   function unpin() { if (S.originDev != null) { S.originDev = null; const p = $("#opin"); if (p) p.value = ""; } }
   function mountGrad(el, L) {
     let cur = L.stops[0];
-    el.innerHTML = `<div class="ra-gbar" title="${t("ra.gradTip")}"></div>
+    const caption = L.gen === "scan" || L.gen === "radial" ? [t("ra.gradTail"), t("ra.gradHead")] : MASK[L.gen] ? [t("ra.gradLow"), t("ra.gradHigh")] : null;
+    el.innerHTML = `<div class="ra-gbar" title="${t("ra.gradTip")}"></div>${caption ? `<div class="ra-gcap"><span>${caption[0]}</span><span>${caption[1]}</span></div>` : ""}
       <div class="ra-grow"><input type="color" aria-label="${t("ra.stopColour")}" title="${t("ra.stopColour")}"><span class="ra-val" data-pos></span><span class="sp"></span><button class="btn ra-sm" data-rs title="${t("ra.stopRemove")}">${t("ra.removeBtn")}</button></div>`;
     el.className = "ra-gedit";
     const bar = el.querySelector(".ra-gbar"), ci = el.querySelector("input"), pv = el.querySelector("[data-pos]"), rs = el.querySelector("[data-rs]");
@@ -1311,6 +1329,21 @@
   const DST = [];
   /** world position of a point in a device's own space */
   const W = (d, p) => { const a = d.rot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return [d.x + (p[0] * c + p[2] * s) * d.sc, d.y + p[1] * d.sc, d.z + (-p[0] * s + p[2] * c) * d.sc]; };
+  /** the corners (world space) of the outline drawModel draws for a device, so that a click on a card's body picks the
+      card and not only a click on its single LED */
+  function modelCorners(d) {
+    if (!d.pts || !d.pts.length) return [];
+    for (const id of placesOf(d)) { const s = slotById(id); if (s && s.boxW && ["gpu", "ram", "header", "strip"].includes(d.type)) return s.boxW; }
+    const lo = [0, 1, 2].map((k) => Math.min(...d.pts.map((p) => p[k]))), hi = [0, 1, 2].map((k) => Math.max(...d.pts.map((p) => p[k])));
+    const box = (a, z) => corners([a, z]).map((p) => W(d, p)), cx = (lo[0] + hi[0]) / 2, cz = (lo[2] + hi[2]) / 2;
+    switch (d.type) {
+      case "gpu": { const L = Math.max(28, hi[0] - lo[0] + 4); return box([cx - L / 2, hi[1] - 11, cz - 2.5], [cx + L / 2, hi[1] + 0.5, cz + 2.5]); }
+      case "keyboard": return box([lo[0] - 1, lo[1] - 1.2, lo[2] - 1], [hi[0] + 1, lo[1] + 0.2, hi[2] + 1]);
+      case "ram": return box([lo[0] - 0.5, lo[1] - 1, lo[2] - 0.5], [hi[0] + 0.5, hi[1] + 1, hi[2] + 0.5]);
+      case "mouse": return box([cx - 3.4, lo[1] - 2.5, cz - 6.2], [cx + 3.4, lo[1] + 1.1, cz + 6.2]);
+      default: return [];
+    }
+  }
   function rebuildGeom() {
     let n = 0; for (const d of S.devices) n += d.n;
     if (n !== NL) { NL = n; const m = Math.max(1, n); LP = new Float32Array(m * 3); XS = new Float32Array(m); YS = new Float32Array(m); DS = new Float32Array(m); RS = new Float32Array(m); CR = new Float32Array(m); CG = new Float32Array(m); CB = new Float32Array(m); ORD = new Uint32Array(m); HID = new Uint8Array(m); }
@@ -1346,6 +1379,11 @@
           if (pr[0] < x0) x0 = pr[0]; if (pr[0] > x1) x1 = pr[0]; if (pr[1] < y0) y0 = pr[1]; if (pr[1] > y1) y1 = pr[1];
         } else XS[i] = NaN;   // hidden devices are not drawn and cannot be clicked
       }
+      d._bd = x0 <= x1 ? [x0, y0, x1, y1] : null;   // around the LED dots only: where a dragged device is, for snapping into a place
+      d._bm = null;   // the box of its model (a card's body, a keyboard plate...), when it has one
+      if (x0 <= x1) for (const q of modelCorners(d)) if (proj(q[0], q[1], q[2])) {
+        d._bm = d._bm || [1e9, 1e9, -1e9, -1e9];
+        if (pr[0] < d._bm[0]) d._bm[0] = pr[0]; if (pr[0] > d._bm[2]) d._bm[2] = pr[0]; if (pr[1] < d._bm[1]) d._bm[1] = pr[1]; if (pr[1] > d._bm[3]) d._bm[3] = pr[1]; if (pr[0] < x0) x0 = pr[0]; if (pr[0] > x1) x1 = pr[0]; if (pr[1] < y0) y0 = pr[1]; if (pr[1] > y1) y1 = pr[1]; }
       if (x0 > x1) { b[0] = b[1] = b[2] = b[3] = NaN; return; }
       b[0] = x0 - 8; b[1] = y0 - 8; b[2] = x1 + 8; b[3] = y1 + 8;
     });
@@ -1358,7 +1396,30 @@
       device, its delay, then its brightness. A device with fewer real LEDs than drawn points (a board that OpenRGB sees
       as one LED, spread over three fans) shows each real LED's colour, taken at the middle of its group of points, on
       every point of the group: what the hardware can actually show (the same rule as Device::world in scene.rs). */
+  /** Where the devices that follow the effect lie along each Scan layer's direction, relative to the origin: the sweep covers
+      exactly that (the recorder does the same, ml-rgb Scene::fit). What counts is what the hardware shows: a device with
+      fewer real LEDs than drawn points counts with the middle of each group. Kept on the layer as a hidden property, so
+      it is never saved. */
+  function fitScan() {
+    const o = S.origin;
+    for (const L of S.layers) {
+      if (L.gen !== "scan") continue;
+      const u = dirOf(L); let lo = 1e9, hi = -1e9;
+      const at = (x, y, z) => { const s0 = (x - o[0]) * u[0] + (y - o[1]) * u[1] + (z - o[2]) * u[2], v = L.p.mirror ? Math.abs(s0) : s0; if (v < lo) lo = v; if (v > hi) hi = v; };
+      S.devices.forEach((d, di) => {
+        if (d._hid || drive(d) !== "scene") return;
+        const a = DST[di], P = DST[di + 1] - a, n = d._leds > 0 && d._leds < P ? d._leds : P;
+        for (let k = 0; k < n; k++) {
+          const i0 = a + Math.floor(k * P / n), i1 = a + Math.floor((k + 1) * P / n); let x = 0, y = 0, z = 0;
+          for (let i = i0; i < i1; i++) { x += LP[i * 3] / (i1 - i0); y += LP[i * 3 + 1] / (i1 - i0); z += LP[i * 3 + 2] / (i1 - i0); }
+          at(x, y, z);
+        }
+      });
+      Object.defineProperty(L, "ext", { value: lo <= hi ? [lo, hi] : null, writable: true, enumerable: false, configurable: true });
+    }
+  }
   function colorPass() {
+    fitScan();
     ENV.origin = S.origin; ENV.level = lvAt(S.t); ENV.bright = S.bright / 100;
     const tLook = performance.now() / 1000;
     S.devices.forEach((d, di) => {
@@ -1545,7 +1606,7 @@
         break;
       }
       case "scan": {
-        const sg = q.speed >= 0 ? 1 : -1, span = q.mirror ? 80 : 160, l0 = q.mirror ? 0 : -80, head = l0 + span * fract(tl * 0.3);
+        const sg = q.speed >= 0 ? 1 : -1, head = scanHead(L, tl);
         both(head, top, 0.95, 1.8); both(head - sg * (q.width + 3), top, 0.5);
         for (let j = 1; j <= 4; j++) { const back = q.width + 3 + j * 9; both(head - sg * back, top, 0.45 * Math.exp(-(back - q.width) / (q.trail * 45 + 1)), 0.8); }
         break;
@@ -1696,6 +1757,14 @@
   }
   /** F, double-click, the inspector's button: the selection, or everything when nothing is selected */
   function focusSel() { const b = selBox(); if (b) focusBox(b[0], b[1]); else fitView(); }
+  /** a pick in the device list: the camera moves to the device and keeps its distance (3D); the 2D view pans to it */
+  function centerSel() {
+    const b = selBox(); if (!b) return;
+    const c = [0, 1, 2].map((k) => (b[0][k] + b[1][k]) / 2);
+    if (S.view === "3d") camGoal({ t: c });
+    else { S.pan2 = S.plane === "top" ? [c[0], c[2]] : [c[0], c[1] - 25]; mark("view"); }
+    persist();
+  }
 
   const FS = [];
   const fs = (r, g, b) => { const k = (r >> 3) << 10 | (g >> 3) << 5 | (b >> 3); return FS[k] || (FS[k] = "rgb(" + (r & 248 | 4) + "," + (g & 248 | 4) + "," + (b & 248 | 4) + ")"); };
@@ -1742,19 +1811,44 @@
     const g = gzHit(mx, my); if (g != null) return { gz: g };
     if (Math.hypot(mx - sDir[0], my - sDir[1]) < 13) return { dir: true };
     if (Math.hypot(mx - sOrg[0], my - sOrg[1]) < 14) return { org: true };
+    // A click picks a device when it is on one of its LED dots or inside what is drawn for it (a card's body, a keyboard's
+    // plate, a stick); where several qualify the one that takes the least room wins, so a board spread over the whole case
+    // (dots everywhere, little to see) never swallows the card or the stick in front of it.
     let best = null, ba = 1e12;
+    S.devices.forEach((d, di) => {
+      if (!d._b || !isFinite(d._b[0])) return;
+      const m = d._bm, inModel = !!m && mx >= m[0] && mx <= m[2] && my >= m[1] && my <= m[3];
+      let onDot = false;
+      if (!inModel) for (let i = DST[di]; i < DST[di + 1]; i++) { if (XS[i] === XS[i] && Math.hypot(mx - XS[i], my - YS[i]) < Math.max(7, RS[i] + 3)) { onDot = true; break; } }
+      if (!inModel && !onDot) return;
+      const b = m || d._b, a = (b[2] - b[0]) * (b[3] - b[1]);
+      if (a < ba) { ba = a; best = d; }
+    });
+    if (best) return { dev: best };
+    // nothing on a dot or a model: the box around all of a device's dots (a board's area), the smallest
     for (const d of S.devices) { const b = d._b; if (!b || !isFinite(b[0])) continue; if (mx >= b[0] && mx <= b[2] && my >= b[1] && my <= b[3]) { const a = (b[2] - b[0]) * (b[3] - b[1]); if (a < ba) { ba = a; best = d; } } }
-    return best ? { dev: best } : null;
+    if (best) return { dev: best };
+    return null;
   }
   const clampPos = (v) => [clamp(snap(v[0]), -60, 90), clamp(snap(v[1]), -5, 60), clamp(snap(v[2]), -40, 40)];
   const tipOf = (hh) => (!hh ? App.t("ra.stageTip") : hh.gz != null ? App.t("ra.gzTip") : hh.dir ? App.t("ra.dirTip") : hh.org ? App.t("ra.originTip") : hh.dev.id === S.sel && S.tab === "dev" ? hh.dev.name + ": " + App.t("ra.dragDevTip") : hh.dev.name);
   function bindStage() {
     cv.addEventListener("contextmenu", (e) => e.preventDefault());
+    // the middle button is a camera control: no browser auto-scroll, no click
+    cv.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });
+    cv.addEventListener("auxclick", (e) => { if (e.button === 1) e.preventDefault(); });
     cv.addEventListener("pointerdown", (e) => {
       cv.setPointerCapture(e.pointerId); const m = mpos(e); PT.set(e.pointerId, m);
       if (S.view === "3d") setupCam();
       if (PT.size === 2) { drag = null; const p = [...PT.values()]; pinch = { d: Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]), cx: (p[0][0] + p[1][0]) / 2, cy: (p[0][1] + p[1][1]) / 2 }; return; }
       if (PT.size > 2) return;
+      const mouse = e.pointerType === "mouse";
+      // the middle button only moves the camera, like in Blender: it turns it (Shift: pans), picks nothing, moves nothing
+      if (mouse && e.button === 1) {
+        e.preventDefault();
+        drag = { k: S.view === "3d" && !e.shiftKey ? "orbit" : "pan", lx: m[0], ly: m[1], moved: 0, onDev: true };
+        cv.style.cursor = "grabbing"; return;
+      }
       let hh = hit(m[0], m[1]);
       // dragging the selected device itself moves it on the desk (like the ring); an unselected one is only picked
       if (hh && hh.dev && hh.dev.id === S.sel && S.tab === "dev" && GZ && e.button === 0 && !e.shiftKey) hh = { gz: "free" };
@@ -1763,6 +1857,9 @@
         // a move handle: remember where the selection started, every move is measured from there
         const isCase = S.sel === "case", d = isCase ? null : selDev();
         drag = { k: "gz", axis: hh.gz, d, isCase, m0: m, lx: m[0], ly: m[1], moved: 0, cand: null, arm: GZ.arms.find((a) => a.k === hh.gz),
+          // the places it sits in now (moving a device takes it out of them); a card does not jump into another kind of place
+          fromSlots: d ? placesOf(d).map(slotById).filter(Boolean) : [],
+          back: d && d.slot && !d.parts ? d.slot : null,   // a click that hardly moves it leaves it where it was
           p0: d ? [d.x, d.y, d.z] : [S.caseAt[0], 0, S.caseAt[1]], c0: GZ.c.slice(), done: [0, 0] };
         drag.arms = GZ.arms;
         if (hh.gz === "free") { const p = planePt(m[0], m[1], GZ.c); drag.off = [GZ.c[0] - p[0], GZ.c[2] - p[2]]; }
@@ -1772,9 +1869,10 @@
       else if (hh && hh.org) { const p = planePt(m[0], m[1], S.origin); drag = { k: "org", off: [S.origin[0] - p[0], S.origin[1] - p[1], S.origin[2] - p[2]], lx: m[0], ly: m[1] }; }
       else {
         if (hh && S.sel !== hh.dev.id) selectDev(hh.dev.id);
-        drag = { k: S.view === "3d" ? "orbit" : "pan", lx: m[0], ly: m[1], moved: 0, onDev: !!hh };
+        // the left button picks and moves; it does not turn the camera (a finger has no other button: it still does)
+        drag = { k: mouse ? "none" : S.view === "3d" ? "orbit" : "pan", lx: m[0], ly: m[1], moved: 0, onDev: !!hh };
       }
-      cv.style.cursor = "grabbing";
+      cv.style.cursor = drag && drag.k === "none" ? "default" : "grabbing";
     });
     cv.addEventListener("pointermove", (e) => {
       const m = mpos(e); if (PT.has(e.pointerId)) PT.set(e.pointerId, m);
@@ -1783,11 +1881,12 @@
         if (S.view === "3d") setupCam(); if (nd > 4 && pinch.d > 4) zoomAt(cx, cy, pinch.d / nd); panBy(cx - pinch.cx, cy - pinch.cy); pinch.d = nd; pinch.cx = cx; pinch.cy = cy; return;
       }
       if (!drag) {
-        if (e.pointerType === "mouse") { const hh = hit(m[0], m[1]); cv.style.cursor = hh ? (hh.dev && !(hh.dev.id === S.sel && S.tab === "dev") ? "pointer" : "move") : "grab"; const tt = tipOf(hh); if (cv.title !== tt) cv.title = tt; }
+        if (e.pointerType === "mouse") { const hh = hit(m[0], m[1]); cv.style.cursor = hh ? (hh.dev && !(hh.dev.id === S.sel && S.tab === "dev") ? "pointer" : "move") : "default"; const tt = tipOf(hh); if (cv.title !== tt) cv.title = tt; }
         return;
       }
       const dx = m[0] - drag.lx, dy = m[1] - drag.ly;
-      if (drag.k === "orbit") { drag.moved += Math.abs(dx) + Math.abs(dy); S.cam.yaw -= dx * 0.008; S.cam.pitch = clamp(S.cam.pitch + dy * 0.008, -0.1, 1.5); syncGoal(); mark("view"); }
+      if (drag.k === "none") drag.moved += Math.abs(dx) + Math.abs(dy);
+      else if (drag.k === "orbit") { drag.moved += Math.abs(dx) + Math.abs(dy); S.cam.yaw -= dx * 0.008; S.cam.pitch = clamp(S.cam.pitch + dy * 0.008, -0.1, 1.5); syncGoal(); mark("view"); }
       else if (drag.k === "pan") { drag.moved = (drag.moved || 0) + Math.abs(dx) + Math.abs(dy); panBy(dx, dy); }
       else if (drag.k === "org") {
         const p = planePt(m[0], m[1], S.origin), nv = clampPos([p[0] + drag.off[0], p[1] + drag.off[1], p[2] + drag.off[2]]);
@@ -1826,9 +1925,10 @@
           o.x = nv[0]; o.y = nv[1]; o.z = nv[2]; updInsp(); moved(o);
           // the nearest free slot that fits, if the device is close to it on screen
           let best = null, bd = 34;
-          if (S.slots && o._b && isFinite(o._b[0])) {
-            const cx = (o._b[0] + o._b[2]) / 2, cy = (o._b[1] + o._b[3]) / 2;
-            for (const s of slots()) { if (!fits(o, s) || taken(s, o) || !proj(s.c[0], s.c[1], s.c[2])) continue; const dd = Math.hypot(pr[0] - cx, pr[1] - cy); if (dd < bd) { bd = dd; best = s; } }
+          if (S.slots && o._bd && isFinite(o._bd[0])) {
+            const cx = (o._bd[0] + o._bd[2]) / 2, cy = (o._bd[1] + o._bd[3]) / 2;
+            const hold = (drag.fromSlots || []).filter((s) => s.box).map((s) => s.lab);   // a card, a stick, the I/O: same kind of place only
+            for (const s of slots()) { if (!fits(o, s) || taken(s, o) || (hold.length && !hold.includes(s.lab)) || !proj(s.c[0], s.c[1], s.c[2])) continue; const dd = Math.hypot(pr[0] - cx, pr[1] - cy); if (dd < bd) { bd = dd; best = s; } }
           }
           drag.cand = best;
         }
@@ -1839,10 +1939,15 @@
       PT.delete(e.pointerId);
       if (PT.size < 2) pinch = null;
       if (PT.size === 0) {
-        if (drag && (drag.k === "orbit" || drag.k === "pan") && drag.moved < 4 && !drag.onDev && S.sel != null) selectDev(null);
+        // a click of the left button on empty space lets go of the selection; the other buttons only move the camera
+        if (drag && (drag.k === "orbit" || drag.k === "pan" || drag.k === "none") && drag.moved < 4 && !drag.onDev && e.button === 0 && S.sel != null) selectDev(null);
         const dropped = drag && drag.k === "gz" ? drag : null;
-        drag = null; cv.style.cursor = "grab";
+        drag = null; cv.style.cursor = "default";
         if (dropped && dropped.d && dropped.cand && dropped.moved > 3) { placeIn(dropped.d, dropped.cand); renderDevInsp(); }
+        else if (dropped && dropped.d && dropped.back && !dropped.d.slot && !dropped.d.parts) {   // barely moved: back into its place
+          const s = slotById(dropped.back);
+          if (s && !taken(s, dropped.d)) { placeIn(dropped.d, s); renderDevInsp(); }
+        }
         if (dropped) syncTree();
         if (dropped) mark("view");
         persist();

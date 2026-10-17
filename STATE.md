@@ -169,6 +169,15 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
   fine), the open layer folds by clicking its header again. Share codes (`ui/js/share.js`): "BUF-FX1." / "BUF-EQ1." +
   base64url(deflate-raw(JSON)); the RGB effect menu and the EQ header ("⇄") copy or paste them, pasted ones are cleaned to known
   ranges and become "Mine" / a user preset.
+- **Advanced, controls and effects (2026-10-17):** the stage: the left button picks and moves (a drag on empty space does nothing, a click on empty space lets go),
+  the middle button orbits (Shift: pans) and never picks, the right button pans, the wheel zooms; the browser's auto-scroll on the middle button is off. A pick in the
+  device list centres the camera (distance kept). A click picks a device by its LED dot or by the model drawn for it (card body, keyboard plate, stick), the smallest
+  wins: a board spread over the whole case (dots everywhere) used to swallow every click. A card dragged out of a place only snaps into places of the same kind (the
+  horizontal card does not flip upright; the Place chips do that). Scan sweeps over the driven devices (`Scene::fit` sets `Layer::ext`, never saved; `fitScan` and
+  `scanHead` in `rgb-adv.js` are the same maths): from just before the first device until the tail has left the last, at 48 cm/s at 1x (24 mirrored). A scan, radial,
+  sparkle or audio layer picks its colour by strength: the left stop is the end of the trail, the right one the head (a black last stop makes the head invisible with
+  Add). No negative layer speed in the UI (old ones are turned: speed positive, direction + 180 degrees); a device's delay can be negative (-500..1000 ms) to run ahead
+  of a device that reacts slowly.
 - **Simple + Advanced merged (2026-10-17):** one scene, two views (RGB-SCENE.md "One scene, two views"): per device own look >
   effect > given back (`free`), `mode` is only the open view. Simple has a "Scene" effect choice (device follows the effect) and
   "scene" tags; Advanced has "Colour from: Effect / Own colour / Given back" in the inspector and previews looks with a port of
