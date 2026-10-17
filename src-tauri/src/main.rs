@@ -930,6 +930,7 @@ fn main() {
             rgb::rgb_install,
             rgb::rgb_start,
             rgb::rgb_rescan,
+            rgb::rgb_close_conflicts,
             rgb::rgb_set,
             rgb::rgb_stop,
             rgb::rgb_uninstall,

@@ -52,30 +52,10 @@ pub fn minutes_now() -> u16 {
     }
 }
 
-/// Other lighting programs that are running: (process name, what to call it).
-const OTHERS: &[(&str, &str)] = &[
-    ("signalrgb.exe", "SignalRGB"),
-    ("icue.exe", "iCUE"),
-    ("armourycrate.service.exe", "Armoury Crate"),
-    ("armourycrate.usersessionhelper.exe", "Armoury Crate"),
-    ("lightingservice.exe", "Aura"),
-    ("lghub.exe", "Logitech G HUB"),
-    ("lghub_agent.exe", "Logitech G HUB"),
-    ("razer synapse 3.exe", "Razer Synapse"),
-    ("razercentralservice.exe", "Razer Synapse"),
-    ("nzxt cam.exe", "NZXT CAM"),
-    ("msi.centralserver.exe", "MSI Center"),
-    ("dragoncenter.exe", "Dragon Center"),
-    ("rgbfusion.exe", "RGB Fusion"),
-    ("steelseriesgg.exe", "SteelSeries GG"),
-    ("steelseriesengine.exe", "SteelSeries GG"),
-    ("steelseriesggclient.exe", "SteelSeries GG"),
-];
-
 /// The other lighting programs among `procs`, each named once.
 pub fn conflicts(procs: &[String]) -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
-    for (exe, name) in OTHERS {
+    for (exe, name) in ml_core::others::LIGHTING {
         if procs.iter().any(|p| p == exe) && !out.contains(name) {
             out.push(name);
         }
@@ -83,24 +63,10 @@ pub fn conflicts(procs: &[String]) -> Vec<&'static str> {
     out
 }
 
-/// Other fan controllers that are running: (process name, what to call it, true = they only touch the graphics card).
-/// MSI Afterburner is often left open just for its overlay, so it only takes the GPU fans away from Buffer.
-const FAN_OTHERS: &[(&str, &str, bool)] = &[
-    ("fancontrol.exe", "FanControl", false),
-    ("fancontrol.service.exe", "FanControl", false),
-    ("speedfan.exe", "SpeedFan", false),
-    ("argusmonitor.exe", "Argus Monitor", false),
-    ("msi.centralserver.exe", "MSI Center", false),
-    ("dragoncenter.exe", "Dragon Center", false),
-    ("armourycrate.service.exe", "Armoury Crate", false),
-    ("msiafterburner.exe", "MSI Afterburner", true),
-    ("nvidiaapp.exe", "NVIDIA app", true),
-];
-
 /// The other fan programs among `procs`, each named once: (name, gpu_only).
 pub fn fan_conflicts(procs: &[String]) -> Vec<(&'static str, bool)> {
     let mut out: Vec<(&'static str, bool)> = Vec::new();
-    for (exe, name, gpu) in FAN_OTHERS {
+    for (exe, name, gpu) in ml_core::others::FANS {
         if procs.iter().any(|p| p == exe) && !out.iter().any(|o| o.0 == *name) {
             out.push((name, *gpu));
         }

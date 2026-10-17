@@ -52,6 +52,14 @@ pub async fn rgb_start() -> Result<Value, String> {
     rgb_devices().await
 }
 
+/// Closes the other lighting programs that are in the way (Razer Synapse, SteelSeries GG, ...) and turns their start
+/// with Windows off, so they stop taking the lights from Buffer: one Windows prompt. Only programs the recorder lists
+/// as conflicts can be closed.
+#[tauri::command]
+pub async fn rgb_close_conflicts(names: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ml_core::others::close_lighting(&names)).await.map_err(|e| e.to_string())?
+}
+
 /// Starts OpenRGB again so it looks for hardware from scratch, then returns the devices. A device that was asleep or
 /// busy when OpenRGB started is missing from the list until then; "Scan again" uses this.
 #[tauri::command]

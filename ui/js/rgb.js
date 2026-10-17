@@ -268,7 +268,7 @@
   function head(...extra) {
     return h("div", { class: "eqhead" }, h("h1", { text: "RGB" }), h("span", { class: "chip on", text: "OpenRGB" }),
       App.ui.segc([["simple", App.t("rgb.simple")], ["advanced", App.t("rgb.advanced")]], mode, setMode),
-      h("span", { class: "sp" }), App.RGBAuto.awayChip(), App.RGBAuto.conflictChip(),
+      h("span", { class: "sp" }), App.RGBAuto.awayChip(), App.RGBAuto.conflictChip(reload),
       h("button", { class: "chip", text: App.t("rcal.title"), title: App.t("ra.calTip"), onClick: () => App.RGBCalib.open() }), ...extra);
   }
 

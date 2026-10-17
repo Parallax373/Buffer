@@ -23,10 +23,25 @@
     recent(ms) { return Date.now() - statAt < ms && stat.installed !== undefined ? stat : null; },
 
     /** Other lighting programs that run and may overwrite our colours. */
-    conflictChip() {
+    conflictChip(reload) {
       const c = stat.conflicts || [];
       if (!c.length) return null;
-      return h("span", { class: "chip warn", text: "⚠ " + c[0] + (c.length > 1 ? " +" + (c.length - 1) : ""), title: App.t("rgb.conflictTip", { apps: c.join(", ") }) });
+      const chip = h("span", { class: "chip warn", text: "⚠ " + c[0] + (c.length > 1 ? " +" + (c.length - 1) : ""), title: App.t("rgb.conflictTip", { apps: c.join(", ") }) });
+      // the way out: close them and stop them starting with Windows (one Windows prompt)
+      const btn = h("button", { class: "chip warn act", text: c.length === 1 ? App.t("rgb.closeOther", { name: c[0] }) : App.t("rgb.closeAll"),
+        title: App.t("rgb.closeTip", { apps: c.join(", ") }),
+        onClick: async (e) => {
+          const b = e.currentTarget;
+          b.disabled = true;
+          try {
+            await inv("rgb_close_conflicts", { names: c });
+            App.toast(App.t("rgb.closed", { apps: c.join(", ") }), "ok");
+            await new Promise((r) => setTimeout(r, 2500));   // the recorder looks at the process list every 2 s
+            await A.refresh();
+            if (reload) await reload();
+          } catch (err) { toast(err); b.disabled = false; }
+        } });
+      return [chip, btn];
     },
 
     /** "Lights are out" while a lock / idle / schedule rule holds them off. */
