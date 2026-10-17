@@ -238,13 +238,19 @@
     sceneCol = st && st.length ? st[st.length - 1].c : "#c6f432";
   }
 
-  /** `rescan`: start OpenRGB again so it looks for hardware from scratch (a device it missed is only found that way) */
-  async function start(rescan = false) {
+  /** `rescan`: start OpenRGB again so it looks for hardware from scratch (a device it missed is only found that way).
+   *  `again`: the user asked for that rescan from the "no devices" page; if it finds nothing too, RGB turns itself off. */
+  async function start(rescan = false, again = false) {
     gate(App.t("rgb.starting"), true);
     try {
       adoptDevices(await api.invoke(rescan ? "rgb_rescan" : "rgb_start"));
       // nothing found on the first look: look once more from scratch, before the page says there is nothing
       if (!rescan && !st.devs.length) adoptDevices(await api.invoke("rgb_rescan"));
+      if (again && !st.devs.length) {
+        await api.invoke("rgb_stop").catch(() => {});
+        if (S.view === "rgb") gate(App.t("rgb.autoOff"));
+        return;
+      }
       // the scene and the status do not depend on each other: ask for both at once
       const [sc, status] = await Promise.all([api.invoke("rgb_scene_get"), api.invoke("rgb_status").catch(() => null)]);
       adoptScene(sc);
@@ -305,7 +311,18 @@
       return;
     }
     if (!st.devs.length) {
-      page.replaceChildren(App.emptyState(App.t("rgb.none"), App.t("rgb.noneD"), App.t("rgb.rescan"), () => start(true)));
+      // a way out right here: RGB left on would start OpenRGB at every login for nothing
+      const off = h("button", { class: "btn", text: App.t("rgb.turnOffRgb"), title: App.t("rgb.turnOffTip"), onClick: async (e) => {
+        e.currentTarget.disabled = true;
+        await api.invoke("rgb_stop").catch(() => {});
+        App.toast(App.t("rgb.stopped"), "ok");
+        if (S.view === "rgb") gate();
+      } });
+      const remove = App.ui.sure(App.t("rgb.removeApp"), App.t("rgb.removeTip"), async (b) => {
+        try { await api.invoke("rgb_uninstall"); App.toast(App.t("rgb.removed"), "ok"); } catch (err) { App.toast(App.t("rgb.err", { err }), "err"); b.disabled = false; return; }
+        if (S.view === "rgb") gate();
+      });
+      page.replaceChildren(App.emptyState(App.t("rgb.none"), App.t("rgb.noneD"), App.t("rgb.rescan"), () => start(true, true), [off, remove]));
       return;
     }
     const all = items(), it = all.find((i) => i.key === st.sel) || all[0];
