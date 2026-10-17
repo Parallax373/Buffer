@@ -45,6 +45,14 @@ pub fn start_server() -> Result<(), String> {
     }
 }
 
+/// The task is running right now, i.e. the server that answers is ours even if an earlier recorder started it.
+/// Asked through PowerShell: `schtasks` prints the state in the Windows language, the task's `State` is not translated.
+pub fn task_running() -> bool {
+    run("powershell", &["-NoProfile", "-NonInteractive", "-Command", &format!("(Get-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue).State")])
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "Running")
+        .unwrap_or(false)
+}
+
 pub fn stop_server() {
     let _ = run("schtasks", &["/End", "/TN", TASK]);
 }

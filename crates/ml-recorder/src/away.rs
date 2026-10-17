@@ -63,10 +63,30 @@ pub fn conflicts(procs: &[String]) -> Vec<&'static str> {
     out
 }
 
+/// MSI Afterburner only fights over the fan when its own software curve is on (`SwAutoFanControl=1`: it rewrites the fan
+/// speed every few seconds). Merely running, or with a fixed speed set once, it leaves the fan to others. A config that
+/// cannot be read counts as controlling (the safe side).
+fn afterburner_controls_fan(cfg: Option<&str>) -> bool {
+    let Some(cfg) = cfg else { return true };
+    cfg.lines().any(|l| l.trim().eq_ignore_ascii_case("SwAutoFanControl=1"))
+}
+
+fn afterburner_cfg() -> Option<String> {
+    let pf = std::env::var_os("ProgramFiles(x86)").or_else(|| std::env::var_os("ProgramFiles"))?;
+    std::fs::read_to_string(std::path::Path::new(&pf).join("MSI Afterburner").join("Profiles").join("MSIAfterburner.cfg")).ok()
+}
+
 /// The other fan programs among `procs`, each named once: (name, gpu_only).
 pub fn fan_conflicts(procs: &[String]) -> Vec<(&'static str, bool)> {
+    fan_conflicts_with(procs, || afterburner_controls_fan(afterburner_cfg().as_deref()))
+}
+
+fn fan_conflicts_with(procs: &[String], afterburner: impl Fn() -> bool) -> Vec<(&'static str, bool)> {
     let mut out: Vec<(&'static str, bool)> = Vec::new();
     for (exe, name, gpu) in ml_core::others::FANS {
+        if *exe == "msiafterburner.exe" && procs.iter().any(|p| p == exe) && !afterburner() {
+            continue;
+        }
         if procs.iter().any(|p| p == exe) && !out.iter().any(|o| o.0 == *name) {
             out.push((name, *gpu));
         }
@@ -102,7 +122,11 @@ mod tests {
     #[test]
     fn fan_programs_are_told_apart_by_scope() {
         let p: Vec<String> = ["fancontrol.service.exe", "fancontrol.exe", "msiafterburner.exe"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(fan_conflicts(&p), [("FanControl", false), ("MSI Afterburner", true)]);
+        assert_eq!(fan_conflicts_with(&p, || true), [("FanControl", false), ("MSI Afterburner", true)]);
+        assert_eq!(fan_conflicts_with(&p, || false), [("FanControl", false)], "Afterburner without its software fan curve is no conflict");
+        assert!(afterburner_controls_fan(Some("[Settings]\nSwAutoFanControl=1\n")));
+        assert!(!afterburner_controls_fan(Some("[Settings]\nSwAutoFanControl=0\n")));
+        assert!(afterburner_controls_fan(None), "unreadable config: assume it controls");
         assert!(fan_conflicts(&["explorer.exe".to_string()]).is_empty());
     }
 

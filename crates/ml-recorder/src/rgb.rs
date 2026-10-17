@@ -306,7 +306,7 @@ impl Hub {
             "power": st.file.power, "away": st.away,
             "profiles": st.file.profiles.keys().collect::<Vec<_>>(), "profile": st.file.active_profile,
             "profile_sizes": st.file.profiles.iter().map(|(n, s)| (n.clone(), s.driven_count())).collect::<BTreeMap<_, _>>(),
-            "profile_dirty": st.file.active_profile.as_ref().and_then(|n| st.file.profiles.get(n)).is_some_and(|p| *p != st.file.scene),
+            "profile_dirty": st.file.active_profile.as_ref().and_then(|n| st.file.profiles.get(n)).is_some_and(|p| Scene { mode: st.file.scene.mode, ..p.clone() } != st.file.scene),
             "game_profiles": st.file.game_profiles, "game_profile": st.game_profile,
             "hidden": st.file.hidden,
             "conflicts": crate::away::conflicts(&crate::away::snapshot()),
@@ -383,8 +383,11 @@ impl Hub {
                     return err("no such profile");
                 }
                 self.edit(|f| {
+                    // the open view (Simple | Advanced) stays: a profile holds the lights, not which view was open when it was saved
                     if let Some(s) = f.profiles.get(&name) {
+                        let mode = f.scene.mode;
                         f.scene = s.clone();
+                        f.scene.mode = mode;
                     }
                     f.active_profile = Some(name);
                 })
@@ -765,7 +768,7 @@ struct Worker {
     hub: Arc<Hub>,
     seen: u64,
     backoff: u64,
-    /// we started the server (through the task), so we stop it; one that was already running is left alone
+    /// the server runs from our task (started by us or an earlier recorder), so we stop it; any other one is left alone
     ours: bool,
 }
 
@@ -865,7 +868,12 @@ impl Worker {
     fn connect(&mut self) -> Result<Conn, String> {
         let t0 = Instant::now();
         let mut c = match Client::connect() {
-            Ok(c) => c,
+            // a server from our task (started by an earlier recorder) is ours too: without this, waking from sleep and
+            // "Rescan" left a server that still wrote to the board through a handle the sleep had made stale
+            Ok(c) => {
+                self.ours = install::task_running();
+                c
+            }
             Err(_) => {
                 if !install::installed() {
                     return Err("OpenRGB is not installed".into());
