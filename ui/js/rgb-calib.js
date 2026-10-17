@@ -8,9 +8,9 @@
 
 (function () {
   const { h, api } = App;
-  /** test colours: white first (the usual problem), a dim grey (brightness), the three primaries, a warm white */
-  const TESTS = [["white", [255, 255, 255]], ["grey", [90, 90, 90]], ["red", [255, 0, 0]], ["green", [0, 255, 0]], ["blue", [0, 0, 255]], ["warm", [255, 196, 140]]];
-  let el = null, devs = [], test = TESTS[0][1], level = 100, ref = null;
+  /** test colours: white first (the usual problem), the three primaries, a warm white (dimmer: the level slider) */
+  const TESTS = [["white", [255, 255, 255]], ["red", [255, 0, 0]], ["green", [0, 255, 0]], ["blue", [0, 0, 255]], ["warm", [255, 196, 140]]];
+  let el = null, devs = [], test = TESTS[0][1], level = 100;
   const timers = new Map(), swatches = [];
   const toast = (e) => App.toast(App.t("rgb.err", { err: e }), "err");
   const keyOf = (d) => d.name + "#" + d.nth;
@@ -36,38 +36,67 @@
     return { row: h("div", { class: "rcal-l" }, h("span", { class: "cap", text: label }), inp, out), inp, paint };
   }
 
+  /** The two simple dials and the three channels are one thing: [r,g,b] in percent. Warmth: right lowers blue (more yellow),
+      left lowers red and green (more blue); tint: right lowers green (more pink), left lowers red and blue (more green). */
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  function fromDials(w, t) {
+    let r = 100, g = 100, b = 100;
+    if (w > 0) b -= w * 0.6; else { r += w * 0.6; g += w * 0.6; }
+    if (t > 0) g -= t * 0.6; else { r += t * 0.5; b += t * 0.5; }
+    return [r, g, b].map((v) => Math.round(clamp(v, 0, 100)));
+  }
+  /** the dials that come closest to a calibration made by hand (the brightness part is left out) */
+  function toDials(cal) {
+    const m = Math.max(...cal, 1), n = cal.map((v) => v / m * 100);
+    let best = [0, 0], err = Infinity;
+    for (let w = -100; w <= 100; w += 2) for (let t = -100; t <= 100; t += 2) {
+      const c = fromDials(w, t), e = (c[0] - n[0]) ** 2 + (c[1] - n[1]) ** 2 + (c[2] - n[2]) ** 2;
+      if (e < err) { err = e; best = [w, t]; }
+    }
+    return best;
+  }
+  /** a -100..100 dial with its two ends named; double-click puts it in the middle */
+  function dial(label, left, right, val, cls, onInput) {
+    const inp = h("input", { class: "rline dial " + cls, type: "range", min: -100, max: 100, value: val, "aria-label": label, title: App.t("ra.resetTip") });
+    inp.oninput = () => onInput(+inp.value);
+    inp.ondblclick = () => { inp.value = 0; inp.oninput(); };
+    return { inp, row: h("div", { class: "rcal-dl" }, h("span", { class: "cap", text: label }), h("div", { class: "rcal-dw" }, inp, h("div", { class: "rcal-de" }, h("span", { text: left }), h("span", { text: right })))) };
+  }
+
   /** one device: its name, what it shows now, and its four lines (all channels together, then red, green, blue) */
   function card(d) {
     const sw = h("span", { class: "rcal-sw", title: App.t("rcal.swTip") });
     const paintSw = () => sw.style.setProperty("--c", css(scaled(shown(), d.cal)));
     swatches.push(paintSw);
     const lines = [];
+    let wd, td;
+    const syncDials = () => { const [w, t] = toDials(d.cal); wd.inp.value = w; td.inp.value = t; };
+    const syncLines = () => { all.inp.value = Math.max(...d.cal); all.paint(); lines.forEach((l, i) => { l.inp.value = d.cal[i]; l.paint(); }); };
     const all = line(App.t("rcal.all"), Math.max(...d.cal), (v) => {
       const m = Math.max(...d.cal) || 1;
       d.cal = d.cal.map((c) => Math.min(100, v ? Math.max(1, Math.round(c * v / m)) : 0));
-      lines.forEach((l, i) => { l.inp.value = d.cal[i]; l.paint(); }); paintSw(); sendCal(d);
+      lines.forEach((l, i) => { l.inp.value = d.cal[i]; l.paint(); }); syncDials(); paintSw(); sendCal(d);
     }, "all");
     ["red", "green", "blue"].forEach((c, i) => lines.push(line(App.t("ra." + c), d.cal[i], (v) => {
-      d.cal[i] = v; all.inp.value = Math.max(...d.cal); all.paint(); paintSw(); sendCal(d);
+      d.cal[i] = v; all.inp.value = Math.max(...d.cal); all.paint(); syncDials(); paintSw(); sendCal(d);
     }, c)));
-    const refB = h("button", { class: "chip", text: App.t("rcal.ref"), title: App.t("rcal.refTip") });
+    const [w0, t0] = toDials(d.cal);
+    const setDials = () => { d.cal = fromDials(+wd.inp.value, +td.inp.value); syncLines(); paintSw(); sendCal(d); };
+    wd = dial(App.t("rcal.warmth"), App.t("rcal.cooler"), App.t("rcal.warmer"), w0, "warm", setDials);
+    td = dial(App.t("rcal.tint"), App.t("rcal.greener"), App.t("rcal.pinker"), t0, "tint", setDials);
     const box = h("section", { class: "card2 pad rcal-d" },
       // the number of same-named devices (four RAM sticks) stays visible even when the name is cut
       h("div", { class: "rcal-h" }, App.RGB.icon(d.kind), h("b", { text: d.label || d.name, title: d.name }), d.many && !d.label ? h("small", { text: "#" + (d.nth + 1) }) : null),
-      h("div", { class: "rcal-acts" }, sw, h("span", { class: "sp" }), refB,
+      h("div", { class: "rcal-acts" }, sw, h("span", { class: "sp" }),
         h("button", { class: "chip", text: App.t("rcal.reset"), title: App.t("rcal.resetTip"), onClick: () => {
-          d.cal = [100, 100, 100]; all.inp.value = 100; all.paint(); lines.forEach((l) => { l.inp.value = 100; l.paint(); }); paintSw(); sendCal(d);
+          d.cal = [100, 100, 100]; syncLines(); syncDials(); paintSw(); sendCal(d);
         } })),
-      h("div", { class: "ra-note rcal-refn", text: App.t("rcal.refNote") }),
-      h("div", { class: "rcal-ls" }, all.row, ...lines.map((l) => l.row)));
-    refB.onclick = () => { ref = ref === keyOf(d) ? null : keyOf(d); syncRef(); };
+      h("div", { class: "rcal-ls" }, wd.row, td.row),
+      h("details", { class: "rcal-adv" }, h("summary", { text: App.t("rcal.channels") }), h("div", { class: "rcal-ls" }, all.row, ...lines.map((l) => l.row))));
     box.dataset.k = keyOf(d);
     paintSw();
     return box;
   }
-  /** the reference device is the one the others are matched to: its lines fold away */
-  function syncRef() { el.querySelectorAll(".rcal-d").forEach((b) => { const on = b.dataset.k === ref; b.classList.toggle("ref", on); b.querySelector(".rcal-acts .chip").classList.toggle("on", on); }); }
-
   function draw() {
     swatches.length = 0;
     const lv = line(App.t("rcal.level"), level, (v) => { level = v; sendTest(); });
@@ -84,7 +113,6 @@
       h("div", { class: "rcal-top" }, tests, lv.row),
       h("div", { class: "rcal-list" }, devs.length ? devs.map(card) : h("div", { class: "ra-note", text: App.t("rcal.none") })),
       h("p", { class: "ra-note rcal-foot", text: App.t("rcal.foot") }));
-    syncRef();
   }
 
   async function open() {

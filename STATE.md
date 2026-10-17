@@ -273,7 +273,14 @@ scan bars, the animated logo, the tokens. Read it before adding a screen.
 - Safety lives in the HELPER: heartbeat watchdog (10 s of silence -> every control Buffer touched goes to the fail-safe speed, default 100 %),
   `quit` and normal exit call `SetDefault()`. Never stop it with `schtasks /End` or a kill: LHM keeps the board's original registers only in
   that process (`ml_fans::install::stop` asks for `quit` first). The recorder only ever stops it that way.
-- Conflicts per device: FanControl & co pause every control, MSI Afterburner / NVIDIA app only the GPU ones (`away::fan_conflicts`).
+- Conflicts per device: FanControl & co pause every control, the NVIDIA app only the GPU ones; MSI Afterburner too, but only while its software fan curve is on (`SwAutoFanControl=1` in its `MSIAfterburner.cfg`; merely running is no conflict) (`away::fan_conflicts`).
+- Case view = the RGB page's case as a live stage (`ui/js/fans-stage.js`): same templates and places (`App.RGBAdv.geom`: `slotsOf(tpl, caseState)`,
+  `caseXf`, read-only), same 3D / 2D views and fullscreen, blades turn with the live speed, click picks a fan. The case state (`tpl`, `caseAt`, ...) is READ
+  from `rgb_scene_get` and never written (`rgb-scene-set` replaces the whole scene); no scene key = RGB's defaults. Places: `fans.json` `layout` (control -> slot id;
+  old `rear`/`gpu1`/`gpu2` map to `rear1`/`gpuf1`/`gpuf2`), plus two fan rings on the graphics card. Camera, `air` and per-fan `flow` (in/out) live in `App.P.fans`
+  (the Rust `Setup` drops unknown keys). Airflow = an estimate, not CFD: particles run along curves from the intakes (front/bottom) to the exhausts (rear/top/radiator;
+  CPU cooler and GPU fans move air inside), orange near a hot CPU/GPU; the chip shows positive / negative pressure from fan size x speed. The Detect overlay still
+  draws the old SVG schematic (`FansAdv.caseSVG`).
 - Detect: first connect pairs controls with fans by LHM numbering; the probe (`fans-probe-start`, only on a click, audible) drives each board
   control to 100 % for 7 s and pairs it with the fan whose rpm rose (`ml_fans::pair`, needs +150 rpm and 2x the runner-up). A control that
   did not move anything while its fan reads 0 is hidden; one that answered is shown. A single 0 rpm reading never hides anything.

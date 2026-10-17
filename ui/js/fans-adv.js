@@ -9,7 +9,7 @@
   const TYPES = ["graph", "linear", "flat", "mix", "sync", "trigger", "auto"];
   const MIXFN = ["max", "min", "avg", "sum", "sub"];
   const SRC_TYPES = ["graph", "linear", "trigger", "auto"];
-  let K = null, box = null;
+  let K = null, box = null, stageCtl = null;
   const hist = { cpu: [], gpu: [], fan: [] };
   const t = (k, v) => App.t(k, v);
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -210,44 +210,18 @@
 
   /* ───── view C: case ───── */
 
-  const SLOTS = { front1: [52, 92, 26], front2: [52, 164, 26], front3: [52, 236, 26], rear: [248, 84, 26], top1: [118, 34, 22], top2: [182, 34, 22], cpu: [150, 100, 22], gpu1: [112, 268, 27], gpu2: [192, 268, 27] };
-  const ORDER = ["front1", "front2", "front3", "rear", "top1", "top2", "cpu"];
-
-  /** where each visible control sits: the user's choice, else a guess (cards under the board, the rest along the case) */
-  function layout() {
-    const S = K.setup, out = {}, taken = new Set();
-    S.controls.forEach((c) => { const v = S.layout[c.id]; if (v && SLOTS[v] && !taken.has(v)) { out[c.id] = v; taken.add(v); } });
-    const gpuFree = ["gpu1", "gpu2"].filter((s) => !taken.has(s));
-    S.controls.filter((c) => !c.hidden && !(c.id in out) && !(c.id in S.layout)).forEach((c) => {
-      const isGpu = /^Gpu/.test(((K.st.sensors || []).find((s) => s.id === c.id) || {}).hw_type || "");
-      const free = isGpu ? gpuFree : ORDER.filter((s) => !taken.has(s));
-      const slot = free.shift();
-      if (slot) { out[c.id] = slot; taken.add(slot); }
-    });
-    return out;
-  }
-
-  function caseSVG(lay) {
-    const S = K.setup, bySlot = Object.fromEntries(Object.entries(lay).map(([id, s]) => [s, id]));
-    let s = `<svg class="case" viewBox="0 0 300 350" role="img" aria-label="${t("fans.case")}"><rect class="cs" x="16" y="8" width="268" height="334" rx="16"/><rect class="cs2" x="24" y="16" width="252" height="318" rx="11"/>
-      <rect class="cp" x="86" y="62" width="130" height="74" rx="8"/><text x="151" y="152" text-anchor="middle">${t("fans.board")}</text><rect class="cp" x="68" y="236" width="160" height="64" rx="8"/><text x="148" y="316" text-anchor="middle">GPU</text>`;
-    for (const [slot, [x, y, r]] of Object.entries(SLOTS)) {
-      const id = bySlot[slot];
-      if (!id) { s += `<circle class="empty" cx="${x}" cy="${y}" r="${r}"/>`; continue; }
-      s += `<g class="fanb${id === K.sel.ctl ? " sel" : ""}" data-fan="${id.replace(/"/g, "")}" tabindex="0"><circle class="hit" cx="${x}" cy="${y}" r="${r + 8}"/><circle class="ring" cx="${x}" cy="${y}" r="${r}"/><g class="spin" data-spin="${id.replace(/"/g, "")}">`;
-      for (let i = 0; i < 7; i++) s += `<path class="bl" transform="rotate(${(i * 360) / 7} ${x} ${y})" d="M${x} ${y} L${x - 4} ${y - r + 4} Q${x} ${y - r - 1} ${x + 5} ${y - r + 5} Z"/>`;
-      s += `</g><circle class="hub" cx="${x}" cy="${y}" r="4"/><text x="${x}" y="${y + r + 12}" text-anchor="middle" data-ftxt="${id.replace(/"/g, "")}"></text></g>`;
-    }
-    return s + "</svg>";
-  }
-
   function viewCase(el) {
-    const S = K.setup, lay = layout();
-    const csHost = h("div", { class: "fcase" }), right = h("div", { class: "fstack" }), tab = h("div"), hh = h("div", { class: "card2 fpad" });
-    csHost.innerHTML = caseSVG(lay);
-    const loose = S.controls.filter((c) => !c.hidden && !(c.id in lay));
-    const left = h("div", { class: "fpane fleft" }, App.ui.cap(t("fans.caseCap")), csHost,
-      loose.length ? h("div", { class: "rowflex" }, h("span", { class: "cap", text: t("fans.unplaced") }), ...loose.map((c) => h("button", { class: "chip", text: c.name, onClick: () => show(c.id, "place") }))) : null,
+    const S = K.setup;
+    const csHost = h("div", { class: "fcase2" }), looseEl = h("div"), right = h("div", { class: "fstack" }), tab = h("div"), hh = h("div", { class: "card2 fpad" });
+    // the stage is the RGB page's case (read-only): the places come from its template; a click on a fan picks it
+    const stage = App.FansStage.mount(csHost, K, { onPick: (id) => show(id), onReady: () => { drawLoose(); if (K.control(K.sel.ctl)) show(K.sel.ctl, tabId); } });
+    stageCtl = stage;
+    const lay = () => stage.layout;
+    const drawLoose = () => {
+      const loose = S.controls.filter((c) => !c.hidden && !(c.id in lay()));
+      looseEl.replaceChildren(...(loose.length ? [h("div", { class: "rowflex" }, h("span", { class: "cap", text: t("fans.unplaced") }), ...loose.map((c) => h("button", { class: "chip", text: c.name, onClick: () => show(c.id, "place") })))] : []));
+    };
+    const left = h("div", { class: "fpane fleft" }, App.ui.cap(t("fans.caseCap")), csHost, looseEl,
       App.ui.cap(t("fans.temps")), h("div", { class: "rowflex" }, [["cpu", "CPU"], ["gpu", "GPU"]].map(([k, n]) => K.primary(k) && h("span", { class: "chip" }, n + " ", h("b", { class: "mono", "data-temp": K.primary(k), text: "–" }), "°"))));
     let tabId = "curve";
     const tabs = App.ui.segc([["curve", t("fans.curve")], ["tune", t("fans.tabTune")], ["place", t("fans.tabPlace")]], tabId, (v) => show(K.sel.ctl, v));
@@ -255,10 +229,24 @@
     const histEl = h("div", { "data-hist": 1 });
     hh.append(h("div", { class: "rowflex" }, h("span", { class: "cap", text: t("fans.history") }), h("span", { class: "sp" }), h("span", { class: "chip", text: "CPU" }), h("span", { class: "chip", text: "GPU" }), h("span", { class: "chip on", text: t("fans.thisFan") })), histEl);
     right.append(h("div", { class: "rowflex" }, h("div", { style: { flex: 1, minWidth: 0 } }, App.ui.cap(t("fans.fan")), title), tabs), hh, tab);
+    /** the Placement tab: which place the fan stands in, and (in the case's walls) whether it blows in or out */
+    const placeTab = (c) => {
+      const id = c.id, cur = lay()[id] || "", FS = App.FansStage;
+      const slotSel = h("select", { class: "field", onChange: (e) => {
+        const v = e.target.value;
+        S.layout[id] = v;
+        if (v) Object.entries(S.layout).forEach(([k, o]) => { if (k !== id && FS.norm(o) === v) S.layout[k] = ""; });
+        K.commit(); stage.relayout(); drawLoose(); show(id, "place");
+      } }, h("option", { value: "", text: t("fans.unplaced"), selected: !cur }), stage.slots.map((s) => h("option", { value: s.id, text: FS.slotLabel(s), selected: s.id === cur })));
+      const fl = stage.flow(id), rows = [K.row(t("fans.slot"), slotSel)];
+      if (fl === "in" || fl === "out") rows.push(K.row(t("fans.flow"), App.ui.segc([["in", t("fans.flowIn")], ["out", t("fans.flowOut")]], fl, (v) => { (K.pref().flow ||= {})[id] = v; App.persist(); }), t("fans.flowTip")));
+      rows.push(K.row(t("fans.pair"), h("div", { class: "mono muted", text: (c.fan ? K.sensorName(c.fan) : t("fans.unpaired")) })));
+      return h("div", { class: "card2 fpad fstack" }, ...rows);
+    };
     const show = (id, which = tabId) => {
       const c = K.control(id); if (!c) return;
       K.sel.ctl = id; tabId = which; if (c.curve) K.sel.curve = c.curve;
-      csHost.querySelectorAll("[data-fan]").forEach((e) => e.classList.toggle("sel", e.dataset.fan === id));
+      stage.select(id);
       tabs.querySelectorAll("button").forEach((b, i) => b.classList.toggle("on", ["curve", "tune", "place"][i] === which));
       title.textContent = c.name; hist.fan.length = 0;
       if (which === "curve") {
@@ -267,15 +255,9 @@
         if (cv && cv.type !== "mix" && cv.type !== "sync") K.graph(gh, cv.id, { w: 560, h: 260, edit: true });
         if (cv && (cv.type === "mix" || cv.type === "sync")) tab.append(h("div", { class: "card2 fpad" }, ...curveFields(cv, null)));
       } else if (which === "tune") tab.replaceChildren(h("div", { class: "card2 fpad" }, ...(K.curveOf(c.curve) ? curveFields(K.curveOf(c.curve), null) : []), ...controlFields(c)));
-      else {
-        const cur = lay[id] || "";
-        tab.replaceChildren(h("div", { class: "card2 fpad fstack" }, K.row(t("fans.slot"), h("select", { class: "field", onChange: (e) => { if (e.target.value) S.layout[id] = e.target.value; else S.layout[id] = ""; Object.entries(S.layout).forEach(([k, v]) => { if (k !== id && v && v === e.target.value) S.layout[k] = ""; }); K.commit(); K.redraw(); } },
-          h("option", { value: "", text: t("fans.unplaced"), selected: !cur }), Object.keys(SLOTS).map((sl) => h("option", { value: sl, text: t("fans.slot." + sl), selected: sl === cur })))),
-          K.row(t("fans.pair"), h("div", { class: "mono muted", text: (c.fan ? K.sensorName(c.fan) : t("fans.unpaired")) }))));
-      }
+      else tab.replaceChildren(placeTab(c));
       K.tick();
     };
-    csHost.querySelectorAll("[data-fan]").forEach((e) => { e.onclick = () => show(e.dataset.fan); e.onkeydown = (ev) => ev.key === "Enter" && show(e.dataset.fan); });
     el.append(h("div", { class: "fa-ci" }, left, h("div", { class: "fpane" }, right)));
     show(K.control(K.sel.ctl) ? K.sel.ctl : (S.controls.find((c) => !c.hidden) || {}).id, "curve");
   }
@@ -295,19 +277,15 @@
     hist.cpu.push(cpu == null ? 30 : cpu); hist.gpu.push(gpu == null ? 30 : gpu); hist.fan.push(c ? K.pctOf(c) : 0);
     Object.values(hist).forEach((a) => a.length > 60 && a.shift());
     box.querySelectorAll("[data-hist]").forEach(drawHist);
-    K.setup.controls.forEach((x) => {
-      const p = K.pctOf(x), r = K.rpmOf(x);
-      box.querySelectorAll(`[data-spin="${CSS.escape(x.id)}"]`).forEach((e) => { e.style.animationDuration = p ? (6 - 5.2 * (p / 100)).toFixed(2) + "s" : "0s"; });
-      box.querySelectorAll(`[data-ftxt="${CSS.escape(x.id)}"]`).forEach((e) => { e.textContent = `${p}% · ${r == null ? "–" : r}`; });
-    });
   }
 
   function render(el, kit) {
     K = kit; box = el;
+    if (stageCtl) { stageCtl.destroy(); stageCtl = null; }
     const v = K.pref().adv || "curves";
     el.append(h("div", { class: "fadvhead" }, App.ui.segc([["curves", t("fans.curves")], ["wiring", t("fans.wiring")], ["case", t("fans.case")]], v, (x) => { K.pref().adv = x; App.persist(); K.redraw(); })));
     ({ curves: viewCurves, wiring: viewWiring, case: viewCase }[v] || viewCurves)(el);
   }
 
-  App.FansAdv = { render, tick, bind: (kit) => { K = kit; }, layout, caseSVG };
+  App.FansAdv = { render, tick, bind: (kit) => { K = kit; } };
 })();

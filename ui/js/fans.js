@@ -333,18 +333,19 @@
   async function openDetect() {
     clearTimeout(saveT);
     try { await api.invoke("fans_setup_set", { setup }); } catch (e) { return toast(e); }
-    const A = App.FansAdv, busy = (st.conflicts || []).some((c) => !c.gpu_only);
+    const busy = (st.conflicts || []).some((c) => !c.gpu_only);
     let tm = 0;
-    const close = () => { clearInterval(tm); ov.remove(); render(); };
-    const caseEl = h("div", { class: "fcase" }), rows = h("div", { class: "fpairs" }), prog = scan("none", "", 24, true);
+    const close = () => { clearInterval(tm); stage.destroy(); ov.remove(); render(); };
+    const caseEl = h("div", { class: "fcase2" }), rows = h("div", { class: "fpairs" }), prog = scan("none", "", 24, true);
     const title = h("div", { class: "ftitle sm", text: App.t(busy ? "fans.det.busy" : "fans.det.intro") });
     const startBtn = h("button", { class: "btn acc", text: App.t("fans.det.start"), disabled: busy, onClick: go });
     const closeBtn = h("button", { class: "btn ghost", text: App.t("common.cancel"), onClick: close });
-    const fresh = () => { caseEl.innerHTML = A.caseSVG(A.layout()); caseEl.querySelectorAll(".sel").forEach((e) => e.classList.remove("sel")); };
-    fresh();
+    // the RGB page's case, as on the Case view: the fan being tried spins and glows
+    const stage = App.FansStage.mount(caseEl, kit, { compact: true });
+    const fresh = () => stage.relayout();
     const nameOf = (id) => (control(id) || { name: id }).name;
     function update(p) {
-      caseEl.querySelectorAll("[data-fan]").forEach((e) => e.classList.toggle("lit", e.dataset.fan === p.current));
+      stage.setLit(p.current);
       const lit = p.total ? Math.round((p.index / p.total) * 24) : 0;
       [...prog.children].forEach((c, i) => { c.style.opacity = i < lit ? (0.38 + (0.62 * i) / 23).toFixed(2) : ""; });
       if (p.running) title.textContent = App.t("fans.det.step", { n: p.index + 1, total: p.total });

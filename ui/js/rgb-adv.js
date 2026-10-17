@@ -222,18 +222,19 @@
   /** where a point of the template's case is on the desk: turned about the case's middle, then moved */
   /** how far below the desk top the floor is: a case "under the desk" stands this much lower (cm) */
   const DESK_H = 72;
-  function caseXf(p) {
-    const b = caseBox(S.tpl); if (!b) return p;
-    if (S.caseLow) p = [p[0], p[1] - DESK_H, p[2]];
-    const a = (S.caseRot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = (p[0] - b.xm) * (S.caseFlip ? -1 : 1), dz = p[2];   // flipped: mirrored, glass on the other side
-    return [b.xm + dx * c + dz * s + S.caseAt[0], p[1], -dx * s + dz * c + S.caseAt[1]];
+  /** `cs` is the case state { tpl, caseAt, caseRot, caseFlip, caseLow }: the scene's own (S) unless another page (Fans) passes the saved one */
+  function caseXf(p, cs = S) {
+    const b = caseBox(cs.tpl); if (!b) return p;
+    if (cs.caseLow) p = [p[0], p[1] - DESK_H, p[2]];
+    const a = (cs.caseRot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = (p[0] - b.xm) * (cs.caseFlip ? -1 : 1), dz = p[2];   // flipped: mirrored, glass on the other side
+    return [b.xm + dx * c + dz * s + cs.caseAt[0], p[1], -dx * s + dz * c + cs.caseAt[1]];
   }
   /** a ring's facing after the case is turned (90° and 270° swap x and z) */
-  const ringAx = (ax) => (ax === "y" || (S.caseRot || 0) % 180 === 0 ? ax : ax === "x" ? "z" : "x");
+  const ringAx = (ax, cs = S) => (ax === "y" || (cs.caseRot || 0) % 180 === 0 ? ax : ax === "x" ? "z" : "x");
   /** the 8 corners of the case where it stands now (corners() order), or null */
-  function caseCorners() { const b = caseBox(S.tpl); return b ? corners([[b.x0, 0, b.z0], [b.x1, b.h, b.z1]]).map(caseXf) : null; }
+  function caseCorners() { const b = caseBox(S.tpl); return b ? corners([[b.x0, 0, b.z0], [b.x1, b.h, b.z1]]).map((p) => caseXf(p)) : null; }
   /** the slots of the template (moved and turned with the case) plus the desk's; `lab` + `n` name it (ra.s.<lab>) */
-  function slotsOf(tpl) {
+  function slotsOf(tpl, cs = S) {
     const out = [], b = caseBox(tpl);
     let inCase = true;
     const ring = (id, lab, n, c, ax, r, acc) => out.push({ id, lab, n, k: "ring", c, ax, r: r || FAN_R, acc: acc || ACC.fan, inCase });
@@ -274,9 +275,9 @@
       }
       // the case's slots stand where the case stands now
       for (const s of out) {
-        if (s.box) s.boxW = corners(s.box).map(caseXf);
-        if (s.k === "path") s.pts = s.pts.map(caseXf);
-        else { s.c = caseXf(s.c); if (s.k === "ring") s.ax = ringAx(s.ax); }
+        if (s.box) s.boxW = corners(s.box).map((p) => caseXf(p, cs));
+        if (s.k === "path") s.pts = s.pts.map((p) => caseXf(p, cs));
+        else { s.c = caseXf(s.c, cs); if (s.k === "ring") s.ax = ringAx(s.ax, cs); }
       }
     }
     inCase = false;
@@ -752,6 +753,7 @@
     gen++;
     const pending = saveT ? save() : null;
     cancelAnimationFrame(raf); raf = 0;
+    full = false;
     closePop();
     if (ro) { ro.disconnect(); ro = null; }
     document.removeEventListener("pointerdown", onDocDown);
@@ -781,6 +783,7 @@
             <button class="ra-chip" id="slb" title="${t("ra.slotsTip")}">${t("ra.slots")}</button>
           </div>
           <div class="ra-cvwrap"><canvas class="ra-cv" id="cv" aria-label="${t("ra.stage")}"></canvas>
+            <button class="ra-fsb" id="fs" title="${t("ra.fullTip")}" aria-label="${t("ra.full")}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
             <button class="ra-pip" id="pipb" title="${t("ra.pipTip")}"><canvas id="pip"></canvas><span class="ra-pipl" id="pipl"></span></button></div>
           <div class="ra-legend" id="lgd"></div>
           <div class="ra-tp">
@@ -1024,7 +1027,26 @@
     $("#lrest").onclick = () => {
       x.trim = 100; x.delay = 0; S.layers.forEach((L) => setSkip(L, x.id, false));
       renderDevInsp(); syncAp(); persist();
+      likeRest(x);
     };
+  }
+  /** "Like the rest": the device also takes what most other devices show, the effect or the same own colour
+      (given-back devices and the keyboard do not count; the device's own native mode is not copied) */
+  function likeRest(x) {
+    if (!x.link || !fxable(x)) return;
+    const sig = (d) => { const how = drive(d); if (how !== "look") return how; const l = LOOKS.get(linkKey(d.link)); return "look" + JSON.stringify([l.hue, l.sat, l.br, l.on, l.fx, l.speed, l.c2, l.rev]); };
+    const n = new Map(), first = new Map();
+    for (const d of S.devices) {
+      if (d === x || !d.link || d._hid || !fxable(d) || !["look", "scene"].includes(drive(d))) continue;
+      const s = sig(d); n.set(s, (n.get(s) || 0) + 1); if (!first.has(s)) first.set(s, d);
+    }
+    const top = [...n.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (!top || top[0] === sig(x)) return;
+    const d = first.get(top[0]);
+    if (drive(d) === "scene") { setDrive(x, "scene"); return; }
+    const l = LOOKS.get(linkKey(d.link));
+    api.invoke("rgb_look", { look: { hue: l.hue, sat: l.sat, br: l.br, on: l.on, fx: l.fx, speed: l.speed, c2: l.c2 ?? null, rev: !!l.rev, native: null, name: x.link.name, nth: x.link.nth | 0 } })
+      .then(refreshDrive, (e) => App.toast(App.t("rgb.err", { err: e }), "err"));
   }
   /** the case: its template (changing it asks first), where it stands on the desk and which way it faces */
   function renderCaseInsp(el) {
@@ -1040,7 +1062,7 @@
       ${rng("Z", S.caseAt[1], -40, 40, 0.5, (v) => v.toFixed(1), (v) => { moveCase(0, v - S.caseAt[1], 0); }, t("ra.zTip"), "c-z", 1, 0)}
       <div class="ra-grow"><span class="cap">${t("ra.facing")}</span><span class="ra-val">${S.caseRot || 0}°</span><span class="sp"></span>
         <button class="btn ra-sm ${S.caseFlip ? "on" : ""}" id="cflip" title="${t("ra.flipTip")}" aria-pressed="${!!S.caseFlip}">${t("ra.flip")}</button>
-        <button class="btn ra-sm ${S.caseLow ? "on" : ""}" id="clow" title="${t("ra.underDeskTip")}" aria-pressed="${!!S.caseLow}">${t("ra.underDesk")}</button>
+        <span class="seg ra-s" id="clow" title="${t("ra.underDeskTip")}"><button data-low="0" class="${S.caseLow ? "" : "on"}" aria-pressed="${!S.caseLow}">${t("ra.onDesk")}</button><button data-low="1" class="${S.caseLow ? "on" : ""}" aria-pressed="${!!S.caseLow}">${t("ra.underDesk")}</button></span>
         <button class="btn ra-sm" id="crot" title="${t("ra.caseRotTip")}">${ICO.rot} 90°</button></div>
       <div class="ra-note">${t("ra.caseNote")}</div>` : `<div class="ra-note">${t("ra.noCase")}</div>`}`;
     wire(el);
@@ -1049,7 +1071,7 @@
     if (tplAsk) { $("#tplno").onclick = () => { tplAsk = null; renderDevInsp(); }; $("#tplok").onclick = () => { const v = tplAsk; tplAsk = null; setTpl(v); }; }
     const cr = $("#crot"); if (cr) cr.onclick = () => { moveCase(0, 0, 90); renderDevInsp(); };
     const cf = $("#cflip"); if (cf) cf.onclick = () => { flipCase(); renderDevInsp(); };
-    const cl = $("#clow"); if (cl) cl.onclick = () => { pushUndo(); lowerCase(!S.caseLow); renderDevInsp(); };
+    const cl = $("#clow"); if (cl) cl.onclick = (e) => { const v = e.target.dataset.low; if (v == null || (v === "1") === !!S.caseLow) return; pushUndo(); lowerCase(v === "1"); renderDevInsp(); };
   }
   /** a device moved by hand leaves its place(s) */
   /** the outline a device keeps from the place it left (local cm, [lo, hi]), when it is a sane one */
@@ -1545,7 +1567,7 @@
     const cc = caseCorners(), cb = caseBox(S.tpl);
     if (cc) {   // the case of the chosen template where it stands (an open frame: thicker posts), the motherboard plate inside
       ctx.strokeStyle = S.sel === "case" && S.tab === "dev" ? "#c6f43299" : EDGE; ctx.lineWidth = S.tpl === "open" ? 2 : 1; ctx.beginPath(); edges(cc); ctx.stroke(); ctx.lineWidth = 1;
-      ctx.strokeStyle = "#2a2f22"; ctx.beginPath(); const mx = cb.x0 + 0.5, q = [[mx, 6, cb.z0 + 2], [mx, 6, cb.z1 - 6], [mx, cb.h - 2, cb.z1 - 6], [mx, cb.h - 2, cb.z0 + 2]].map(caseXf);
+      ctx.strokeStyle = "#2a2f22"; ctx.beginPath(); const mx = cb.x0 + 0.5, q = [[mx, 6, cb.z0 + 2], [mx, 6, cb.z1 - 6], [mx, cb.h - 2, cb.z1 - 6], [mx, cb.h - 2, cb.z0 + 2]].map((p) => caseXf(p));
       for (let i = 0; i < 4; i++) lnTo(...q[i], ...q[(i + 1) % 4]); ctx.stroke();
     }
     ctx.strokeStyle = "#262a20"; ctx.beginPath(); edges(corners([[2, 14, -23], [48, 44, -21.5]])); edges(corners([[23, 0, -22.6], [27, 14, -21.9]])); ctx.stroke();   // a monitor on the desk
@@ -2006,6 +2028,7 @@
     $("#vSeg").onclick = (e) => { const v = e.target.dataset.v; if (v) { S.view = v; if (v === "3d") setupCam(); syncTb(); persist(); } };
     $("#pSeg").onclick = (e) => { const v = e.target.dataset.p; if (!v) return; if (S.view === "3d") { camGoal(PRESET_CAMS[v]); } else { S.plane = v; S.pan2 = [0, 0]; syncTb(); } persist(); };
     $("#fit").onclick = fitView;
+    $("#fs").onclick = () => setFull(!full);
     $("#play").onclick = () => { S.playing = !S.playing; syncPlay(); wake(); };
     $("#fldb").onclick = () => { S.field = !S.field; syncTb(); syncTabs(); persist(); };
     $("#slb").onclick = () => { S.slots = !S.slots; syncTb(); persist(); };
@@ -2014,6 +2037,16 @@
     const sc = $("#scrub"); sc.oninput = () => { const v = +sc.value / 10; S.t = Math.floor(S.t / 30) * 30 + v; sc.style.setProperty("--p", (+sc.value / 3) + "%"); mark("fx"); };
     cv.title = App.t("ra.stageTip");
   }
+  /** Fullscreen: the stage (toolbar, 2D/3D view, transport) fills the window under the title bar; Esc or the button leaves. */
+  let full = false;
+  function setFull(on) {
+    const st = mount && mount.querySelector(".ra-stage"); if (!st) return;
+    full = on; closePop();
+    st.style.top = on ? (document.getElementById("topbar")?.getBoundingClientRect().bottom || 0) + "px" : "";
+    st.classList.toggle("full", on);
+    const b = $("#fs"); b.classList.toggle("on", on); b.title = t(on ? "ra.fullExit" : "ra.fullTip");
+  }
+
   function onKey(e) {
     if (!root || root.closest("[hidden]") || (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName) && e.target.type !== "range")) return;
     const d = selDev();
@@ -2021,7 +2054,7 @@
     else if ((e.key === "Delete" || e.key === "Backspace") && d) removeDev(d.id);
     else if ((e.key === "r" || e.key === "R") && d && !e.ctrlKey && !e.metaKey) rotDev(d, S.snap ? 15 : 5);
     else if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey) focusSel();
-    else if (e.key === "Escape") closePop();
+    else if (e.key === "Escape") { if (full) setFull(false); else closePop(); }
     else if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); undoLast(); }
   }
 
@@ -2076,5 +2109,6 @@
     raf = requestAnimationFrame(frame);
   }
 
-  App.RGBAdv = { render, leave };
+  /** read-only geometry for the Fans page's stage: the same case templates and slots, for a saved case state */
+  App.RGBAdv = { render, leave, geom: { CASES, caseBox, caseXf, slotsOf, FAN_R, DESK_H, get corners() { return corners; } } };
 })();

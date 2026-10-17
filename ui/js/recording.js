@@ -531,11 +531,18 @@ App.RecUI = (function () {
       drawAudio();
 
       // SYNCHRONIZACJA
+      // slider and number field show the same value; it is saved once the slider is let go (or the number is entered)
+      const clampOff = (v) => Math.max(-500, Math.min(500, Math.round(+v || 0)));
+      const offFill = (v) => offRange.style.setProperty("--p", (v + 500) / 10 + "%");
+      const offNum = h("input", { class: "field monoin", type: "number", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms, title: App.t("adv.offsetTip"),
+        onChange: (e) => { const v = clampOff(e.target.value); e.target.value = v; offRange.value = v; offFill(v); save({ audio_offset_ms: v }); } });
+      const offRange = h("input", { class: "rline offrange", type: "range", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms || 0, title: App.t("adv.offsetTip"),
+        "aria-label": App.t("adv.offset"),
+        onInput: (e) => { offNum.value = e.target.value; offFill(+e.target.value); },
+        onChange: (e) => save({ audio_offset_ms: clampOff(e.target.value) }) });
+      offFill(cfg.audio_offset_ms || 0);
       const syncBox = h("div", { class: "card2" },
-        U.srow(App.t("adv.offset"), h("div", { class: "pathrow" },
-          h("input", { class: "field monoin", type: "number", min: -500, max: 500, step: 10, value: cfg.audio_offset_ms, title: App.t("adv.offsetTip"),
-            onChange: (e) => save({ audio_offset_ms: Math.max(-500, Math.min(500, +e.target.value || 0)) }) }),
-          h("span", { class: "muted", text: "ms" }))));
+        U.srow(App.t("adv.offset"), h("div", { class: "pathrow" }, offRange, offNum, h("span", { class: "muted", text: "ms" }))));
 
       pane.append(bar, h("div", { class: "setcol" }, group("cap.audio", audioBox, bleed.el), group("cap.sync", syncBox)));
     } else {
