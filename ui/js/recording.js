@@ -412,8 +412,7 @@ App.RecUI = (function () {
       const e = estimates(c);
       const vals = [e.clipMb, e.diskMb, e.ramMb];
       const notes = [
-        e.clipMb <= 10 ? App.t("sum.d10") : e.clipMb <= 50 ? App.t("sum.d50")
-          : e.clipMb <= 500 ? App.t("sum.d500") : App.t("sum.big"),
+        e.clipMb <= 10 ? App.t("sum.d10") : e.clipMb <= 50 ? App.t("sum.d50") : App.t("sum.big"),
         App.t("sum.temp"), App.t("sum.est")];
       refs.forEach((r, i) => {
         r.val.textContent = (i === 2 ? "≈ " : "") + fmtMb(vals[i]);

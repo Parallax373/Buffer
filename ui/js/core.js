@@ -346,7 +346,7 @@ const App = {};
     return Array.isArray(p) && p.length === 3 && p.every((n) => Number.isFinite(n) && n >= 1 && n <= 2000) ? p.map(Math.round) : [10, 50, 500];
   };
   /** Well-known destinations get their name; any other size is just shown in MB. */
-  App.presetName = (mb) => ({ 10: "Discord", 50: "Boost", 500: "Nitro" })[mb] || "";
+  App.presetName = (mb) => ({ 10: "Discord", 50: "Boost" })[mb] || "";
 
   /** Bitrate maths shared by editor panel and batch export; mirrors ml-core's budget. */
   App.kbps = (targetMb, seconds, speed = 1) =>

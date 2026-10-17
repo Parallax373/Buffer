@@ -37,7 +37,7 @@ Small on purpose. No launcher, no account, no overlay, nothing to babysit.
 - **Library.** Every clip, sorted by game or grouped by date (collapse or expand all with one click), with favorites, search and bulk actions. Stays smooth with thousands of clips, and clips from other recorders are filed by their folder.
 - **Editor.** Trim, 16:9 crop, speed, per-track volume and loudness, a zoomable timeline.
 - **Live EQ (optional).** A 7-band parametric EQ for your outputs and your mic, in the style of SteelSeries Sonar: presets for games, voice and music, AutoEQ correction for your headphone model, presets that switch with the game in front, and an output switch on a hotkey. The sound is processed by [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) inside Windows itself, so there is no added delay and it keeps working with Buffer closed. It is not part of the installer: the first-run setup or the EQ page downloads and installs it only if you turn the EQ on. Note that clips recorded from a device include the EQ.
-- **Exports to a size.** Pick Discord (10 MB), Boost (50 MB) or Nitro (500 MB) and drag the result straight into a chat window.
+- **Exports to a size.** Pick Discord (10 MB), Boost (50 MB) or 500 MB and drag the result straight into a chat window.
 - **Updates itself.** Signed updates are checked in the background; installing takes a few seconds, and the bundled FFmpeg is only rewritten when it changed.
 - **Your language.** English, Polski, Deutsch, Español, Français, Українська, Türkçe, 日本語 and 简体中文.
 
