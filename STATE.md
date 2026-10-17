@@ -28,6 +28,17 @@ Library (virtualised grid, lazy thumbnails, categories/games/favourites, bulk ba
 Editor (preview with per-track gain, waveforms, trim, 16:9 crop, speed, loudness, export panel, drag-out),
 Exports (history, drag-out), Settings (Nagrywanie, WyglÄ…d, OgĂłlne, Eksport, SkrĂłty, Zaawansowane).
 Favourites/exports/settings persist in `%APPDATA%\moments-lite\app-state.json`.
+- First-run wizard (`wizard()` in `ui/js/recording.js`, also Settings → "Kreator konfiguracji"): 4 steps, no UAC.
+  Start shows what was detected as values (encoder, the 3 sources, main monitor, other programs' clip folders from
+  `detect_clip_folders`); Sound = the 3 tracks with live meters; Picture = 3 profiles (recommended marked), "keep last",
+  clip size, the rest under "Customize", its button starts recording; Shortcut = press the save shortcut, the clip the
+  recorder really saved (`status.last_saved`) appears with "Open". "Skip, use detected" jumps to Shortcut. Every step
+  change saves the recorder config and, while unfinished, `settings.wizStep`: a closed window resumes there.
+- Sidebar: a right click hides EQ / Sound Switcher / RGB / Fans (`settings.navHidden`; Library and Settings stay) and
+  shows hidden ones again, as does Settings → General → Sidebar. A module never opened has a lime dot
+  (`settings.navSeen`; installs from before it start with all seen).
+- Fans / RGB gates propose taking over: FanControl config found -> "Import from FanControl" (enable + import dialog,
+  which offers to close FanControl); a lighting app running -> "Close {name} and enable".
 
 ## Distribution
 - `build-installer.ps1` fetches a checksum-verified static ffmpeg (vendor/, not committed), builds the recorder and app,
@@ -63,7 +74,7 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
 
 ## Live EQ (Sonar-like, on top of Equalizer APO)
 - Equalizer APO (free, GPL, not bundled) does all DSP inside the Windows audio engine: no added latency, works with
-  Buffer closed. Optional: first-run wizard step "EQ" (off by default) or the EQ page installs the pinned
+  Buffer closed. Optional (not in the first-run wizard): the EQ page installs the pinned
   `EqualizerAPO-x64-1.4.2.exe` (SHA-256 checked, UAC) â€” `src-tauri/src/eq.rs`.
 - `crates/ml-eq`: model (7 bands Ă— 7 shapes, per-output System EQ + one Mic EQ, AutoEQ headphone stage, user and
   per-game presets), `buffer.txt` writer, RBJ curve maths (mirrored in `ui/js/eq.js`), registry detection.

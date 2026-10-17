@@ -21,6 +21,8 @@
     },
     /** takes a status the caller has just fetched, instead of asking the recorder for the same thing again */
     adopt(s) { stat = s || {}; statAt = Date.now(); },
+    /** programs closed elsewhere (the page's gate): the page then still offers to stop their autostart */
+    noteClosed(names) { closedApps = [...new Set([...closedApps, ...names])]; },
     /** the last status if it is younger than `ms`, else null (the caller then asks for a new one) */
     recent(ms) { return Date.now() - statAt < ms && stat.installed !== undefined ? stat : null; },
 

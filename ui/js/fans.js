@@ -243,20 +243,36 @@
 
   /* ───── gate and page ───── */
 
+  /** set by the gate's "take over from FanControl": once the page is up, the import dialog opens by itself */
+  let importAfter = false;
   function gate(msg, busy, error) {
     stop();
     const unavailable = !st.installed && !st.downloadable && !st.dev_build;
-    page.replaceChildren(App.emptyState(App.t("fans.gate"), error || msg || (unavailable ? App.t("fans.noBuild") : App.t("fans.gateD")), busy || unavailable ? null : App.t("fans.enable"), async () => {
+    const enable = async (andImport) => {
+      importAfter = andImport;
       gate(App.t("fans.installing"), true);
       try {
         if (!st.installed) await api.invoke("fans_install");
         await api.invoke("fans_enable");
         await render();
-      } catch (e) { gate(null, false, String(e)); }
-    }));
-    const b = page.querySelector(".empty button");
+      } catch (e) { importAfter = false; gate(null, false, String(e)); }
+    };
+    page.replaceChildren(App.emptyState(App.t("fans.gate"), error || msg || (unavailable ? App.t("fans.noBuild") : App.t("fans.gateD")), busy || unavailable ? null : App.t("fans.enable"), () => enable(false)));
+    const empty = page.querySelector(".empty");
+    const b = empty && empty.querySelector("button");
     if (b) b.title = App.t("fans.tip");
+    if (busy || unavailable || !empty) return;
+    // FanControl on this PC: propose taking over from it (its curves come along) instead of only warning later
+    const seq = ++gateSeq;
+    api.invoke("fans_import_find").catch(() => []).then((paths) => {
+      if (seq !== gateSeq || !empty.isConnected || !(paths && paths.length)) return;
+      importPaths = paths;
+      empty.append(h("div", { class: "gateother", title: App.t("fans.takeTip") },
+        h("span", { class: "muted", text: App.t("fans.foundOther", { name: "FanControl" }) }),
+        h("button", { class: "btn acc", text: App.t("fans.import"), onClick: () => enable(true) })));
+    });
   }
+  let gateSeq = 0;
 
   async function render() {
     page = App.$("#v-fans");
@@ -281,11 +297,13 @@
     // are listed but there is nothing to control. Say so instead of showing an empty list.
     if (!setup.controls.length && !(st.sensors || []).some((x) => x.control)) {
       stop();
+      importAfter = false;
       page.replaceChildren(App.emptyState(App.t("fans.noControl"), App.t("fans.noControlD"), App.t("fans.off"), turnOff));
       return;
     }
     draw();
     start();
+    if (importAfter) { importAfter = false; if (importPaths.length) openImport(); }
   }
 
   function head() {
@@ -458,7 +476,13 @@
         sel.ctl = (visible()[0] || setup.controls[0] || {}).id || null; sel.curve = (control(sel.ctl) || {}).curve || (setup.curves[0] || {}).id || null;
         commit(); close(); draw();
         App.toast(App.t("fans.imp.done"), "ok", { label: App.t("ra.undo"), run: () => { setup = prev; commit(); draw(); } });
-      } }), h("button", { class: "btn ghost", text: App.t("common.cancel"), onClick: close }))));
+      } }),
+      // FanControl still running would keep Buffer paused: offer to close it right here
+      (st.conflicts || []).some((c) => c.name === "FanControl")
+        ? h("button", { class: "btn", text: App.t("fans.closeOther", { name: "FanControl" }), title: App.t("fans.closeOtherTip"),
+          onClick: async (e) => { e.currentTarget.disabled = true; await closeConflict(); } })
+        : null,
+      h("button", { class: "btn ghost", text: App.t("common.cancel"), onClick: close }))));
     page.querySelector(".fans").append(ov);
   }
 

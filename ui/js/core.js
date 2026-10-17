@@ -168,6 +168,8 @@ const App = {};
       theme: "ink", anim: true, lite: false, thumb: "M",
       sub: true, hw: true,
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false, presets: [10, 50, 500], autoCleanDays: 7,
+      // sidebar: modules hidden with a right click, and modules opened at least once (the rest carry a "new" dot)
+      navHidden: [], navSeen: {},
     },
     libDirs: ["E:\\Nagrania"],
     favs: {}, titles: {}, trims: {}, clipGains: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
@@ -188,6 +190,8 @@ const App = {};
         if (s.settings.accent === "#ff6a1f") s.settings.accent = "#c6f432";
         s.settings.brand = 2;
       }
+      // installs from before the "new" dots already know their modules: no dot for them
+      if (s.settings && s.settings.onboarded && !s.settings.navSeen) s.settings.navSeen = { eq: 1, snd: 1, rgb: 1, fans: 1 };
       App.P = { ...DEFAULTS, ...s, settings: { ...DEFAULTS.settings, ...(s.settings || {}) },
         gains: { ...DEFAULTS.gains, ...(s.gains || {}) } };
     } catch { /* first run */ }
@@ -346,7 +350,7 @@ const App = {};
     return Array.isArray(p) && p.length === 3 && p.every((n) => Number.isFinite(n) && n >= 1 && n <= 2000) ? p.map(Math.round) : [10, 50, 500];
   };
   /** Well-known destinations get their name; any other size is just shown in MB. */
-  App.presetName = (mb) => ({ 10: "Discord", 50: "Boost", 500: "Nitro" })[mb] || "";
+  App.presetName = (mb) => ({ 10: "Discord", 50: "Boost" })[mb] || "";
 
   /** Bitrate maths shared by editor panel and batch export; mirrors ml-core's budget. */
   App.kbps = (targetMb, seconds, speed = 1) =>
