@@ -20,6 +20,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 
 mod eq;
+mod fans;
 mod rgb;
 
 const VIDEO_EXT: [&str; 3] = ["mp4", "mkv", "mov"];
@@ -890,6 +891,17 @@ fn main() {
             eq::eq_apo_status,
             eq::eq_install_apo,
             eq::eq_attach_apo,
+            fans::fans_status,
+            fans::fans_install,
+            fans::fans_uninstall,
+            fans::fans_enable,
+            fans::fans_disable,
+            fans::fans_setup_set,
+            fans::fans_detect,
+            fans::fans_profile,
+            fans::fans_probe,
+            fans::fans_import_find,
+            fans::fans_import,
             rgb::rgb_status,
             rgb::rgb_install,
             rgb::rgb_start,

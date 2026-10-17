@@ -32,6 +32,18 @@ Windows clip recorder/editor, live EQ, sound switcher and RGB control. Rust work
   `latest.json` from `releases/latest`; the updater never goes down in version. Builds are unsigned (SignPath Foundation
   rejected the application on 2026-10-16; may reapply once the project has more visibility).
 
+## Fans in short
+- `FANS-SPEC.md` has the decisions and measurements; `STATE.md` "Fans page" the architecture. The helper (`helpers/fans`, C#) runs elevated from
+  the task "Buffer Fans" and owns the safety (watchdog, `SetDefault`). **Never hard-kill it** (`schtasks /End`, `Stop-Process`): ask it to `quit`
+  (`ml_fans::install::stop`, or `fans-disable` / recorder `quit`), otherwise the board's original fan settings are lost until a reboot.
+- **Defender**: a freshly built `buffer-recorder.exe` is blocked for ~20-30 s (cloud first-sight, `Trojan:Win32/Bearfoos.B!ml`) and has been
+  quarantined, and the `BufferRecorder` Run value emptied (`buffer-recorder install-autostart` restores it). After each build wait ~30 s before
+  starting it. The recorder has NO install command on purpose (scripts that register elevated tasks make it look like a dropper): install from
+  the app, or `cargo test -p ml-fans dev_install -- --ignored`. Check a release build against Defender before publishing.
+- The dev app (`buffer.exe`) relaunches a quit recorder, so a recorder rebuild needs both stopped (`rc quit`, stop `buffer.exe`), then
+  `scripts\dev.ps1 -Inspect`. Hardware tests: stop `FanControl.Service` first (Buffer pauses while it runs), start it again afterwards.
+- Never put a single 0 rpm reading to use (Fan #6 read 0 once while spinning). IDs are LibreHardwareMonitor identifiers, never list positions.
+
 ## RGB (OpenRGB) in short
 - OpenRGB (GPL-2.0) is never bundled or linked: installed on request by one elevated, all-or-nothing step into
   `%ProgramFiles%\Buffer\OpenRGB` (admin-only write; an elevated task must never run a user-writable exe), plus an on-demand

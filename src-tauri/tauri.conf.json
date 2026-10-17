@@ -47,6 +47,7 @@
     "resources": {
       "../target/release/buffer-recorder.exe": "buffer-recorder.exe",
       "../vendor/ffmpeg/FFMPEG-LICENSE.txt": "FFMPEG-LICENSE.txt",
+      "../helpers/fans/dist/buffer-fans.zip": "buffer-fans.zip",
       "../LICENSE": "LICENSE.txt",
       "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
     },

@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+ml-core = { path = "../ml-core" }
 
 # Dark Project keyboard driver (darkproject.rs): pure-Rust Windows HID backend, no C build.
 [target.'cfg(windows)'.dependencies]

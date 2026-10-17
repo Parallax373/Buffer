@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ml-core", "crates/ml-cli", "crates/ml-eq", "crates/ml-rgb","crates/ml-recorder", "src-tauri"]
+members = ["crates/ml-core", "crates/ml-cli", "crates/ml-eq", "crates/ml-rgb", "crates/ml-fans", "crates/ml-recorder", "src-tauri"]
 
 [workspace.package]
 version = "0.3.2"

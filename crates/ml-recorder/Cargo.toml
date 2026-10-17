@@ -12,6 +12,7 @@ path = "src/main.rs"
 ml-core = { path = "../ml-core" }
 ml-eq = { path = "../ml-eq" }
 ml-rgb = { path = "../ml-rgb" }
+ml-fans = { path = "../ml-fans" }
 wasapi = "0.26"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

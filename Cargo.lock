@@ -387,6 +387,7 @@ version = "0.3.2"
 dependencies = [
  "ml-core",
  "ml-eq",
+ "ml-fans",
  "ml-rgb",
  "serde",
  "serde_json",
@@ -2330,11 +2331,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ml-fans"
+version = "0.3.2"
+dependencies = [
+ "ml-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ml-recorder"
 version = "0.3.2"
 dependencies = [
  "ml-core",
  "ml-eq",
+ "ml-fans",
  "ml-rgb",
  "serde",
  "serde_json",
@@ -2349,6 +2360,7 @@ name = "ml-rgb"
 version = "0.3.2"
 dependencies = [
  "hidapi",
+ "ml-core",
  "serde",
  "serde_json",
 ]

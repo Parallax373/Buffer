@@ -17,6 +17,7 @@ mod control;
 mod overlay;
 mod perf;
 mod pick;
+mod fans;
 mod rgb;
 mod session;
 mod tray;
@@ -215,6 +216,7 @@ fn run() {
     });
     eq::init(&shared);
     rgb::init(&shared);
+    fans::init();
     {
         let cfg = cfg.clone();
         std::thread::spawn(move || longrec::recover_orphans(&cfg));
@@ -248,6 +250,7 @@ fn run() {
     // closing the recorder must not lose a long recording in progress
     let _ = longrec::stop(&shared);
     rgb::shutdown();
+    fans::shutdown();
     stop_capture.store(true, Ordering::Relaxed);
     let _ = handle.join();
     log("recorder stopped");

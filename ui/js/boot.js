@@ -45,7 +45,7 @@
   App.Update.start();
   await App.Lib.load();
   // launched for a page (the tray flyout's "open" button runs `buffer.exe --view=snd`)
-  const VIEWS_OK = ["lib", "eq", "snd", "rgb", "set"];
+  const VIEWS_OK = ["lib", "eq", "snd", "rgb", "fans", "set"];
   const first = await App.api.invoke("startup_view").catch(() => null);
   App.go(VIEWS_OK.includes(first) ? first : "lib");
   App.api.listen("open-view", (e) => { if (VIEWS_OK.includes(e.payload)) App.go(e.payload); });

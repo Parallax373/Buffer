@@ -249,6 +249,27 @@ scan bars, the animated logo, the tokens. Read it before adding a screen.
 - SoundSwitcher page layout: device cards on the left (the picked one has a lime-tinted border), the picked
   device's apps on the right; the tray-icon switch sits top right where the EQ page has its on/off switch.
 
+## Fans page (LibreHardwareMonitor helper, opt-in)
+- Plan, decisions and what was measured: `FANS-SPEC.md`. Crates: `ml-fans` (model, curve engine, discover, pair, import, client, install),
+  `crates/ml-recorder/src/fans.rs` (hosting), `src-tauri/src/fans.rs` (pass-through), UI `ui/js/fans.js` (Simple + data + live loop)
+  and `ui/js/fans-adv.js` (Advanced: Curves | Wiring | Case). The helper is `helpers/fans` (C#, LibreHardwareMonitorLib 0.9.6),
+  built by `scripts/build-fans-helper.ps1` into `helpers/fans/dist/buffer-fans.zip` (7.5 MB).
+- The recorder owns the loop (1 s): reads the helper over `\\.\pipe\buffer-fans`, `Engine::step`, sends changed speeds. Setup = `%APPDATA%\Buffer\fans.json`
+  (`setup` + named `profiles`); control commands `fans-status|enable|disable|setup-set|detect|probe-start|profile|import-find|import`.
+- Safety lives in the HELPER: heartbeat watchdog (10 s of silence -> every control Buffer touched goes to the fail-safe speed, default 100 %),
+  `quit` and normal exit call `SetDefault()`. Never stop it with `schtasks /End` or a kill: LHM keeps the board's original registers only in
+  that process (`ml_fans::install::stop` asks for `quit` first). The recorder only ever stops it that way.
+- Conflicts per device: FanControl & co pause every control, MSI Afterburner / NVIDIA app only the GPU ones (`away::fan_conflicts`).
+- Detect: first connect pairs controls with fans by LHM numbering; the probe (`fans-probe-start`, only on a click, audible) drives each board
+  control to 100 % for 7 s and pairs it with the fan whose rpm rose (`ml_fans::pair`, needs +150 rpm and 2x the runner-up). A control that
+  did not move anything while its fan reads 0 is hidden; one that answered is shown. A single 0 rpm reading never hides anything.
+- Import: `ml_fans::import` reads FanControl's `userConfig.json`; schema and enum values were taken from FanControl.Library.dll metadata
+  (`MixFunction { Max=0, Sum=1, Average=2, Min=3, Subtract=4 }` for curves, `SensorMixFunction { Average=0, Max=1, Min=2, Sum=3, Subtract=4 }`
+  for Mix sensors). Ids differ from LHM's (`/lpc/nct6797d/control/1` -> `/lpc/nct6797d/0/control/1`; `NVApiWrapper/0-GA102-A/control/0` ->
+  `/gpu-nvidia/0/control/1`). Calibration tables, time-average / file / offset sensors are not imported.
+- Share code `BUF-FAN1.` carries curves and Mix sensors only (control ids are hardware); a pasted code is clamped and its sensors checked.
+- Measured on the dev PC (NCT6797D + RTX 3090): see FANS-SPEC.md "Verified". Not verified: AMD/Intel GPUs, other boards, AIO coolers.
+
 ## Not verified by hand / known gaps
 - The installer itself was built but not run end-to-end on a clean machine (no sandbox available here).
 - Lip-sync of recorded clips (audio vs video) â€” durations match to ~5 ms and there is an `audio_offset_ms` knob.

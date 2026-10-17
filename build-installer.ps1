@@ -16,6 +16,9 @@ if ($Fast) {
 }
 
 & "$PSScriptRoot\scripts\fetch-ffmpeg.ps1"
+# the fan helper (C#, LibreHardwareMonitor) ships inside the installer as a zip: nothing to host or download
+& "$PSScriptRoot\scripts\build-fans-helper.ps1"
+if ($LASTEXITCODE -ne 0) { throw "fan helper build failed" }
 
 # The installer writes ffmpeg.exe itself (hooks.nsh) and skips it when the installed copy is the same build:
 # hand it the hash and the path.

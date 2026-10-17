@@ -99,6 +99,7 @@ fn handle(shared: &Arc<Shared>, stream: TcpStream) {
         let reply = match line.trim() {
             _ if cmd.starts_with("eq-") => crate::eq::command(shared, cmd, arg),
             _ if cmd.starts_with("rgb-") => crate::rgb::command(cmd, arg),
+            _ if cmd.starts_with("fans-") => crate::fans::command(cmd, arg),
             _ if cmd.starts_with("mix-") => crate::mixer::command(shared, cmd, arg),
             "status" => status_json(shared),
             "save" => match save(shared) {

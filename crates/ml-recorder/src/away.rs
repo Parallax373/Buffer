@@ -83,6 +83,31 @@ pub fn conflicts(procs: &[String]) -> Vec<&'static str> {
     out
 }
 
+/// Other fan controllers that are running: (process name, what to call it, true = they only touch the graphics card).
+/// MSI Afterburner is often left open just for its overlay, so it only takes the GPU fans away from Buffer.
+const FAN_OTHERS: &[(&str, &str, bool)] = &[
+    ("fancontrol.exe", "FanControl", false),
+    ("fancontrol.service.exe", "FanControl", false),
+    ("speedfan.exe", "SpeedFan", false),
+    ("argusmonitor.exe", "Argus Monitor", false),
+    ("msi.centralserver.exe", "MSI Center", false),
+    ("dragoncenter.exe", "Dragon Center", false),
+    ("armourycrate.service.exe", "Armoury Crate", false),
+    ("msiafterburner.exe", "MSI Afterburner", true),
+    ("nvidiaapp.exe", "NVIDIA app", true),
+];
+
+/// The other fan programs among `procs`, each named once: (name, gpu_only).
+pub fn fan_conflicts(procs: &[String]) -> Vec<(&'static str, bool)> {
+    let mut out: Vec<(&'static str, bool)> = Vec::new();
+    for (exe, name, gpu) in FAN_OTHERS {
+        if procs.iter().any(|p| p == exe) && !out.iter().any(|o| o.0 == *name) {
+            out.push((name, *gpu));
+        }
+    }
+    out
+}
+
 /// A cached view of the process list: refreshed at most every 2 s, shared by the lock check and the conflict check.
 pub fn snapshot() -> Vec<String> {
     use std::sync::{Mutex, OnceLock};
@@ -106,6 +131,13 @@ mod tests {
         assert_eq!(conflicts(&p), ["SignalRGB", "Logitech G HUB"]);
         assert!(conflicts(&["notepad.exe".to_string()]).is_empty());
         assert!(locked(&["logonui.exe".to_string()]) && !locked(&p));
+    }
+
+    #[test]
+    fn fan_programs_are_told_apart_by_scope() {
+        let p: Vec<String> = ["fancontrol.service.exe", "fancontrol.exe", "msiafterburner.exe"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(fan_conflicts(&p), [("FanControl", false), ("MSI Afterburner", true)]);
+        assert!(fan_conflicts(&["explorer.exe".to_string()]).is_empty());
     }
 
     #[test]

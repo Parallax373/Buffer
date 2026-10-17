@@ -1,0 +1,99 @@
+//! Fans tab backend. The always-on recorder owns the helper and the control loop (crates/ml-recorder/src/fans.rs), so the
+//! fans keep following their curves when this window closes; everything here is a thin pass-through to its control
+//! commands, except the one-time install (download or local build, verify, one elevated step), which lives in ml-fans.
+//! Nothing happens until the user clicks Enable.
+
+use serde_json::{json, Value};
+
+/// One recorder command; `{ok:false,error}` replies become errors.
+async fn send(cmd: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let v: Value = serde_json::from_str(&crate::recorder_send(&cmd)?).map_err(|e| e.to_string())?;
+        if v["ok"] == false {
+            return Err(v["error"].as_str().unwrap_or("fans failed").to_string());
+        }
+        Ok(v)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Everything the page draws: install state, sensors with live values, the setup. Without a recorder only the install
+/// state is known.
+#[tauri::command]
+pub async fn fans_status() -> Value {
+    match send("fans-status".into()).await {
+        Ok(v) => v,
+        Err(_) => json!({
+            "installed": tauri::async_runtime::spawn_blocking(ml_fans::install::installed).await.unwrap_or(false),
+            "enabled": false, "connected": false, "downloadable": ml_fans::install::downloadable(),
+            "dev_build": ml_fans::install::local_zip().is_some(),
+        }),
+    }
+}
+
+/// Installs the fan helper (and the PawnIO driver if it is missing) in one elevated step: one Windows permission prompt.
+#[tauri::command]
+pub async fn fans_install() -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(|| ml_fans::install::install(&crate::local_dir().join("fans")))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(fans_status().await)
+}
+
+/// Hands every fan back, stops the helper and removes it (one prompt). The PawnIO driver stays.
+#[tauri::command]
+pub async fn fans_uninstall() -> Result<Value, String> {
+    let _ = send("fans-disable".into()).await;
+    tauri::async_runtime::spawn_blocking(ml_fans::install::uninstall).await.map_err(|e| e.to_string())??;
+    Ok(fans_status().await)
+}
+
+#[tauri::command]
+pub async fn fans_enable() -> Result<(), String> {
+    send("fans-enable".into()).await.map(|_| ())
+}
+
+/// Turns control off: every fan goes back to the BIOS / the card and the helper stops.
+#[tauri::command]
+pub async fn fans_disable() -> Result<(), String> {
+    send("fans-disable".into()).await.map(|_| ())
+}
+
+/// Replaces the whole setup (curves, controls, mixes); the recorder saves it and applies it within a second.
+#[tauri::command]
+pub async fn fans_setup_set(setup: Value) -> Result<(), String> {
+    send(format!("fans-setup-set {}", serde_json::to_string(&setup).map_err(|e| e.to_string())?)).await.map(|_| ())
+}
+
+/// Saves, loads or deletes a named copy of the whole setup (`action` is save, load or delete).
+#[tauri::command]
+pub async fn fans_profile(action: String, name: String) -> Result<(), String> {
+    send(format!("fans-profile {action} {name}")).await.map(|_| ())
+}
+
+/// Starts the pairing probe: each board fan is spun up for a few seconds and paired with the speed sensor that answers.
+/// Progress is in `fans_status().probe`.
+#[tauri::command]
+pub async fn fans_probe() -> Result<(), String> {
+    send("fans-probe-start".into()).await.map(|_| ())
+}
+
+/// Where a FanControl configuration was found on this PC.
+#[tauri::command]
+pub async fn fans_import_find() -> Result<Value, String> {
+    Ok(send("fans-import-find".into()).await?["paths"].clone())
+}
+
+/// What importing that FanControl configuration would give: `{controls, curves, mixes, hidden, notes, setup}`. Nothing is
+/// changed until the page sends the setup back with `fans_setup_set`.
+#[tauri::command]
+pub async fn fans_import(path: String) -> Result<Value, String> {
+    send(format!("fans-import {path}")).await
+}
+
+/// Looks for controls the setup does not know yet; returns how many were added or paired.
+#[tauri::command]
+pub async fn fans_detect() -> Result<u64, String> {
+    Ok(send("fans-detect".into()).await?["added"].as_u64().unwrap_or(0))
+}

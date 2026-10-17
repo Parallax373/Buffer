@@ -34,6 +34,15 @@ GitHub release, checks its SHA-256, unpacks it into its own data folder and runs
 that Buffer talks to over a local socket (127.0.0.1:6742). It is stopped when Buffer exits. Project and source code:
 https://gitlab.com/CalcProgrammer1/OpenRGB
 
+## LibreHardwareMonitor and PawnIO (fan control; not shipped, installed on request)
+The Fans page reads sensors and sets fan speeds through **LibreHardwareMonitorLib** (Mozilla Public License 2.0), used unmodified inside
+a small helper program, `buffer-fans.exe`, that is built from `helpers/fans` in this repository (C#, .NET 8, published self-contained) and
+installed into `%ProgramFiles%\Buffer\Fans` only when you click "Enable fans". The helper runs as a separate process that Buffer talks to
+over a named pipe only you can open. Hardware access on the motherboard goes through the **PawnIO** driver (GPL-2.0, by namazso), which
+Buffer installs from its official signed installer (SHA-256 checked) only when it is missing and never removes. LibreHardwareMonitor and the
+.NET runtime files are included in the helper's zip with their licences; project and source: https://github.com/LibreHardwareMonitor/LibreHardwareMonitor,
+https://github.com/namazso/PawnIO. Buffer's importer reads (never runs) FanControl's `userConfig.json`.
+
 ## AutoEq headphone profiles (downloaded on request)
 The headphone search reads the results of **AutoEq** by Jaakko Pasanen (MIT) from GitHub when you use it:
 https://github.com/jaakkopasanen/AutoEq
