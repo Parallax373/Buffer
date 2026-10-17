@@ -1062,7 +1062,21 @@ impl Worker {
             Some(k) => out.extend(colors.iter().map(|&x| calibrate(x, k))),
             None => out.extend_from_slice(colors),
         }
-        let r = if c.taken.insert(i) { c.c.set_colors(i as u32, &out) } else { c.c.frame(i as u32, &out) };
+        let r = if c.taken.insert(i) {
+            // OpenRGB cannot read the mode some devices are really in (an Aerox 9 left in its own Rainbow Breathing is
+            // reported as "Direct"), so "switch to Direct" alone is a no-op there and the colours go nowhere: send the
+            // Direct mode itself, which moves the device for certain
+            let entered = match ml_rgb::proto::direct_mode(&c.devs[i].modes) {
+                Some(mi) => {
+                    let raw = c.devs[i].modes[mi].raw.clone();
+                    c.c.set_mode_raw(i as u32, mi as u32, &raw)
+                }
+                None => Ok(()),
+            };
+            entered.and_then(|_| c.c.set_colors(i as u32, &out))
+        } else {
+            c.c.frame(i as u32, &out)
+        };
         c.cbuf = out;
         r
     }
