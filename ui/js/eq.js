@@ -22,6 +22,8 @@
   let st = null;                 // EqState from the recorder
   let apo = null;                // Equalizer APO status
   let attaching = false;         // the "not active" chip is turning APO on (one UAC prompt)
+  let probing = false;           // the "is the EQ heard" test is running
+  const probed = {};             // output id -> "ok" | "bypass" | "quiet" (this session)
   let devs = { render: [], capture: [], default: {} };
   let tab = "sys";               // "sys" | "mic"
   let device = "";               // endpoint id being edited on the System tab
@@ -629,6 +631,7 @@
       isMic() && !st.mic_device ? h("option", { value: "", text: "—", selected: true }) : null,
       list.map((d) => h("option", { value: d.id, text: d.name + (d.id === (isMic() ? devs.default.capture : devs.default.render) ? " ★" : ""), selected: d.id === dev }))),
       dev && apo && !attached ? attachChip() : null,
+      dev && apo && attached && !isMic() ? probeChip(dev) : null,
       apo && apo.restart_pending ? h("span", { class: "chip warn", text: App.t("eq.restartChip"), title: App.t("eq.restart") }) : null,
       h("span", { class: "sp" }),
       presetBox,
@@ -799,6 +802,45 @@
       attaching = false;
       if (S.view === "eq") { apo = await api.invoke("eq_apo_status").catch(() => apo); paintHeader(); }
     } });
+  }
+
+  /** Attached is not the same as heard: some drivers (USB interfaces) hand sound to the hardware without running
+   *  Equalizer APO. The test plays a quiet 1 kHz tone, solos a band far away from it and checks that the tone
+   *  drops; no drop = the driver skips APO. */
+  function probeChip(dev) {
+    if (probing) return h("span", { class: "chip warn busy", title: App.t("eq.probeTip") }, h("span", { text: App.t("eq.probing") }), scanBusy(8, 4));
+    const r = probed[dev];
+    const text = r === "ok" ? App.t("eq.probeOk") : r === "bypass" ? App.t("eq.probeBad") : r === "quiet" ? App.t("eq.probeQuiet") : App.t("eq.probe");
+    const tip = r === "bypass" ? App.t("eq.probeBadTip") : App.t("eq.probeTip");
+    return h("button", { class: "chip " + (r === "ok" ? "on" : r ? "warn" : ""), text, title: tip, onClick: () => probeEq(dev) });
+  }
+
+  async function probeEq(dev) {
+    if (probing) return;
+    probing = true; paintHeader();
+    const cmd = (c) => api.invoke("recorder_cmd", { cmd: c }).catch(() => {});
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let keep = 0;
+    try {
+      await cmd("eq-solo off");
+      await sleep(900);
+      const base = await api.invoke("eq_probe_level", { device: dev, ms: 1400 });
+      if (base < -85) { probed[dev] = "quiet"; return; }
+      // 8 kHz band-pass: with APO running it leaves almost nothing of a 1 kHz tone
+      const solo = () => cmd(`eq-solo ${dev} 8000 2`);
+      await solo();
+      keep = setInterval(solo, 800);
+      await sleep(900);
+      const cut = await api.invoke("eq_probe_level", { device: dev, ms: 1400 });
+      probed[dev] = base - cut >= 10 ? "ok" : "bypass";
+    } catch (e) {
+      if (S.view === "eq") App.toast(App.t("eq.err", { err: e }), "err");
+    } finally {
+      clearInterval(keep);
+      await cmd("eq-solo off");
+      probing = false;
+      if (S.view === "eq") paintHeader();
+    }
   }
 
   function installState(box) {

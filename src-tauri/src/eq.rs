@@ -154,6 +154,104 @@ pub fn eq_spectrum_stop() {
     SPECTRUM_RUN.fetch_add(1, Ordering::Relaxed);
 }
 
+// ───────────────────────── is the EQ heard? ─────────────────────────
+
+const PROBE_HZ: f64 = 1000.0;
+/// -40 dBFS: far above the loopback's floor, quiet enough to be barely noticed at a normal volume.
+const PROBE_AMP: f32 = 0.01;
+
+/// Level (dBFS, amplitude of a sine) of `hz` in `samples`, by Goertzel. Hann-windowed, so a tone that does not
+/// fit the buffer a whole number of periods leaks nothing into a wrong answer.
+pub fn tone_db(samples: &[f32], hz: f64, rate: f64) -> f64 {
+    let n = samples.len();
+    if n < 64 {
+        return -120.0;
+    }
+    let w = 2.0 * std::f64::consts::PI * hz / rate;
+    let (mut re, mut im, mut win_sum) = (0.0, 0.0, 0.0);
+    for (i, s) in samples.iter().enumerate() {
+        let win = 0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / n as f64).cos();
+        let x = *s as f64 * win;
+        re += x * (w * i as f64).cos();
+        im -= x * (w * i as f64).sin();
+        win_sum += win;
+    }
+    let amp = 2.0 * (re * re + im * im).sqrt() / win_sum;
+    20.0 * amp.max(1e-6).log10()
+}
+
+/// Plays a quiet 1 kHz tone on the output `device_id` for `ms` milliseconds and returns its level (dBFS) in that
+/// output's loopback, which is taken after Equalizer APO. The app compares two such levels, with and without a
+/// band-pass solo that must silence 1 kHz: a driver that bypasses APO (some USB interfaces) shows no difference.
+fn probe_level(device_id: &str, ms: u64) -> Result<f64, String> {
+    let _ = wasapi::initialize_mta();
+    let en = DeviceEnumerator::new().map_err(|e| e.to_string())?;
+    let device = en.get_device(device_id).map_err(|e| e.to_string())?;
+    let fmt = WaveFormat::new(32, 32, &SampleType::Float, RATE as usize, 2, None);
+
+    let mut cap = device.get_iaudioclient().map_err(|e| e.to_string())?;
+    let mode = StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: 200_000 };
+    cap.initialize_client(&fmt, &Direction::Capture, &mode).map_err(|e| e.to_string())?;
+    let event = cap.set_get_eventhandle().map_err(|e| e.to_string())?;
+    let capture = cap.get_audiocaptureclient().map_err(|e| e.to_string())?;
+
+    let mut out = device.get_iaudioclient().map_err(|e| e.to_string())?;
+    let mode = StreamMode::PollingShared { autoconvert: true, buffer_duration_hns: 1_000_000 };
+    out.initialize_client(&fmt, &Direction::Render, &mode).map_err(|e| e.to_string())?;
+    let render = out.get_audiorenderclient().map_err(|e| e.to_string())?;
+
+    let mut phase = 0f64;
+    let step = 2.0 * std::f64::consts::PI * PROBE_HZ / RATE as f64;
+    let mut push = |frames: usize| {
+        let mut data = Vec::with_capacity(frames * 8);
+        for _ in 0..frames {
+            let s = (phase.sin() as f32 * PROBE_AMP).to_le_bytes();
+            phase += step;
+            data.extend_from_slice(&s);
+            data.extend_from_slice(&s);
+        }
+        let _ = render.write_to_device(frames, &data, None);
+    };
+    let first = out.get_available_space_in_frames().map_err(|e| e.to_string())? as usize;
+    push(first);
+    cap.start_stream().map_err(|e| e.to_string())?;
+    out.start_stream().map_err(|e| e.to_string())?;
+
+    let begin = Instant::now();
+    let mut raw: VecDeque<u8> = VecDeque::new();
+    let mut mono: Vec<f32> = Vec::new();
+    while begin.elapsed() < Duration::from_millis(ms) {
+        if let Ok(free) = out.get_available_space_in_frames() {
+            if free > 0 {
+                push(free as usize);
+            }
+        }
+        let _ = event.wait_for_event(20);
+        if capture.read_from_device_to_deque(&mut raw).is_err() {
+            break;
+        }
+        while raw.len() >= 8 {
+            let b: Vec<u8> = raw.drain(..8).collect();
+            let l = f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+            let r = f32::from_le_bytes([b[4], b[5], b[6], b[7]]);
+            mono.push((l + r) * 0.5);
+        }
+    }
+    let _ = out.stop_stream();
+    let _ = cap.stop_stream();
+    // the first 300 ms are the stream starting and APO reloading: not measured
+    let skip = (RATE as usize * 3 / 10).min(mono.len());
+    Ok(tone_db(&mono[skip..], PROBE_HZ, RATE as f64))
+}
+
+/// Level of the probe tone on an output, see [`probe_level`]. Runs off the UI thread.
+#[tauri::command]
+pub async fn eq_probe_level(device: String, ms: u64) -> Result<f64, String> {
+    tauri::async_runtime::spawn_blocking(move || probe_level(&device, ms.clamp(600, 3000)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 // ───────────────────────── AutoEQ ─────────────────────────
 
 const AUTOEQ: &str = "https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results";
@@ -428,6 +526,30 @@ mod tests {
         assert!(ml_eq::apo::missing(&st, &want).is_empty(), "still not attached: {:?}", ml_eq::apo::missing(&st, &want));
         // asking again changes nothing and shows no prompt
         assert!(apo_setup().is_ok());
+    }
+
+    #[test]
+    fn tone_level_is_read_in_dbfs() {
+        let rate = RATE as f64;
+        let tone = |amp: f32| -> Vec<f32> { (0..24_000).map(|i| amp * (2.0 * std::f64::consts::PI * 1000.0 * i as f64 / rate).sin() as f32).collect() };
+        assert!((tone_db(&tone(0.01), 1000.0, rate) + 40.0).abs() < 0.3);
+        assert!((tone_db(&tone(0.5), 1000.0, rate) + 6.0).abs() < 0.3);
+        // 8 kHz tone: nothing at 1 kHz
+        let other: Vec<f32> = (0..24_000).map(|i| 0.5 * (2.0 * std::f64::consts::PI * 8000.0 * i as f64 / rate).sin() as f32).collect();
+        assert!(tone_db(&other, 1000.0, rate) < -70.0);
+        assert!(tone_db(&[], 1000.0, rate) <= -120.0);
+    }
+
+    /// Real machine: plays the probe tone on the default output and prints what the loopback hears.
+    #[test]
+    #[ignore]
+    fn probe_default_output() {
+        let _ = wasapi::initialize_mta();
+        let en = DeviceEnumerator::new().unwrap();
+        let id = en.get_default_device(&Direction::Render).unwrap().get_id().unwrap();
+        let db = probe_level(&id, 1500).unwrap();
+        println!("probe level on {id}: {db:.1} dBFS");
+        assert!(db < -20.0 && db > -110.0, "{db}");
     }
 
     #[test]
