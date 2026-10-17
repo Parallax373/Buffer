@@ -958,6 +958,8 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "fans.sensors": "传感器",
   "fans.sensor": "传感器",
   "fans.none": "未找到风扇",
+  "fans.noControl": "此电脑无法控制风扇",
+  "fans.noControlD": "Buffer 可以读取温度，但此电脑不允许应用更改风扇转速。笔记本通常通过厂商软件（MSI Center、Armoury Crate 等）控制风扇。",
   "fans.hiddenN": "已隐藏 ({n})",
   "fans.rename": "重命名",
   "fans.hide": "隐藏",

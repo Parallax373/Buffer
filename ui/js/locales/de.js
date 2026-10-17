@@ -958,6 +958,8 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "fans.sensors": "Sensoren",
   "fans.sensor": "Sensor",
   "fans.none": "Keine Lüfter gefunden",
+  "fans.noControl": "Keine Lüftersteuerung an diesem PC",
+  "fans.noControlD": "Buffer kann hier Temperaturen lesen, aber dieser PC erlaubt Apps nicht, die Lüfterdrehzahl zu ändern. Laptops steuern ihre Lüfter meist über die Software des Herstellers (MSI Center, Armoury Crate …).",
   "fans.hiddenN": "Ausgeblendet ({n})",
   "fans.rename": "Umbenennen",
   "fans.hide": "Ausblenden",

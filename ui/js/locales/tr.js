@@ -958,6 +958,8 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "fans.sensors": "Sensörler",
   "fans.sensor": "Sensör",
   "fans.none": "Fan bulunamadı",
+  "fans.noControl": "Bu bilgisayarda fan denetimi yok",
+  "fans.noControlD": "Buffer burada sıcaklıkları okuyabilir, ancak bu bilgisayar uygulamaların fan hızını değiştirmesine izin vermiyor. Dizüstü bilgisayarlar fanları genellikle üreticinin yazılımıyla (MSI Center, Armoury Crate…) yönetir.",
   "fans.hiddenN": "Gizli ({n})",
   "fans.rename": "Yeniden adlandır",
   "fans.hide": "Gizle",

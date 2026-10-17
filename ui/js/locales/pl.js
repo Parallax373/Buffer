@@ -958,6 +958,8 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "fans.sensors": "Czujniki",
   "fans.sensor": "Czujnik",
   "fans.none": "Nie znaleziono wentylatorów",
+  "fans.noControl": "Brak sterowania wentylatorami na tym komputerze",
+  "fans.noControlD": "Buffer odczyta tu temperatury, ale ten komputer nie pozwala aplikacjom zmieniać prędkości wentylatorów. Laptopy zwykle sterują nimi przez program producenta (MSI Center, Armoury Crate…).",
   "fans.hiddenN": "Ukryte ({n})",
   "fans.rename": "Zmień nazwę",
   "fans.hide": "Ukryj",
