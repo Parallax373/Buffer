@@ -924,6 +924,7 @@ fn main() {
             fans::fans_detect,
             fans::fans_profile,
             fans::fans_probe,
+            fans::fans_boost,
             fans::fans_close_conflict,
             fans::fans_import_find,
             fans::fans_import,

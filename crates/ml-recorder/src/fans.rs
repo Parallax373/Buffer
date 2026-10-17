@@ -83,6 +83,9 @@ struct St {
     /// `fans-probe-start`: the worker spins each control up in turn and pairs it with the fan that answered
     probe_req: bool,
     probe: Probe,
+    /// `fans-boost`: one control held at a speed until then (the setup wizard spins a fan so the user can see which it is);
+    /// it ends by itself, so a page that goes away leaves nothing loud behind
+    boost: Option<(String, f32, Instant)>,
 }
 
 /// Progress of the pairing probe, shown by the page.
@@ -161,7 +164,7 @@ impl Hub {
             "version": st.version, "error": st.error, "downloadable": install::downloadable(), "dev_build": install::local_zip().is_some(),
             "conflicts": st.conflicts.iter().map(|(n, g)| json!({ "name": n, "gpu_only": g })).collect::<Vec<_>>(),
             "sensors": st.sensors.iter().map(|s| json!({ "id": s.id, "name": s.name, "hw": s.hw, "hw_type": s.hw_type, "kind": s.kind, "control": s.control })).collect::<Vec<_>>(),
-            "probe": st.probe, "values": values, "outputs": st.outputs, "taken": st.taken, "failed": st.failed,
+            "probe": st.probe, "boost": st.boost.as_ref().filter(|b| b.2 > Instant::now()).map(|b| &b.0), "values": values, "outputs": st.outputs, "taken": st.taken, "failed": st.failed,
             "setup": st.file.setup, "profiles": st.file.profiles.keys().collect::<Vec<_>>(), "profile": st.file.active_profile,
         })
     }
@@ -252,6 +255,34 @@ impl Hub {
                 }
                 st.probe = Probe { running: true, ..Probe::default() };
                 st.probe_req = true;
+                self.poke(&mut st);
+                json!({ "ok": true })
+            }
+            // `fans-boost <control id> <percent> <seconds>` holds one control at a speed for at most 15 s (the page renews it
+            // while a wizard step is open); `fans-boost off` ends it at once
+            "fans-boost" => {
+                let mut st = self.lock();
+                if arg.trim() == "off" {
+                    st.boost = None;
+                    self.poke(&mut st);
+                    return json!({ "ok": true });
+                }
+                let mut it = arg.trim().rsplitn(3, ' ');
+                let (Some(secs), Some(pct), Some(id)) = (it.next(), it.next(), it.next()) else { return err("usage: fans-boost <id> <percent> <seconds>") };
+                let (Ok(secs), Ok(pct)) = (secs.parse::<f32>(), pct.parse::<f32>()) else { return err("bad number") };
+                if !st.connected {
+                    return err("the fan helper is not running");
+                }
+                if st.probe.running {
+                    return err("the pairing probe is running");
+                }
+                if !st.file.setup.controls.iter().any(|c| c.id == id) {
+                    return err("no such control");
+                }
+                if st.conflicts.iter().any(|(_, gpu_only)| !gpu_only || id.starts_with("/gpu")) {
+                    return err("another fan program is running");
+                }
+                st.boost = Some((id.to_string(), pct.clamp(0.0, 100.0), Instant::now() + Duration::from_secs_f32(secs.clamp(1.0, 15.0))));
                 self.poke(&mut st);
                 json!({ "ok": true })
             }
@@ -409,7 +440,21 @@ impl Worker {
         let procs = crate::away::snapshot();
         let conflicts = crate::away::fan_conflicts(&procs);
         let now = self.started.elapsed().as_secs_f64();
-        let steps = self.engine.step(setup, now, &reading.values);
+        let mut steps = self.engine.step(setup, now, &reading.values);
+        // a wizard boost replaces that one control's curve until it runs out
+        let boost = {
+            let mut st = self.hub.lock();
+            if st.boost.as_ref().is_some_and(|b| b.2 <= Instant::now()) {
+                st.boost = None;
+            }
+            st.boost.clone()
+        };
+        if let Some((bid, pct, _)) = &boost {
+            match steps.iter_mut().find(|(id, _)| id == bid) {
+                Some(s) => s.1 = Out::Set(*pct),
+                None => steps.push((bid.clone(), Out::Set(*pct))),
+            }
+        }
         let (mut set, mut release) = (Vec::new(), Vec::new());
         for (id, out) in steps {
             let blocked = conflicts.iter().any(|(_, gpu_only)| !gpu_only || id.starts_with("/gpu"));

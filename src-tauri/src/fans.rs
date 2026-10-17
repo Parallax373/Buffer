@@ -105,6 +105,17 @@ pub async fn fans_probe() -> Result<(), String> {
     send("fans-probe-start".into()).await.map(|_| ())
 }
 
+/// Holds one control at `pct` for `secs` (at most 15 s; the recorder ends it by itself), or ends a boost with `id` = None.
+/// The setup wizard spins a fan this way so the user can see which one it is.
+#[tauri::command]
+pub async fn fans_boost(id: Option<String>, pct: Option<f32>, secs: Option<f32>) -> Result<(), String> {
+    let arg = match id {
+        Some(id) => format!("{id} {} {}", pct.unwrap_or(100.0), secs.unwrap_or(6.0)),
+        None => "off".into(),
+    };
+    send(format!("fans-boost {arg}")).await.map(|_| ())
+}
+
 /// Where a FanControl configuration was found on this PC.
 #[tauri::command]
 pub async fn fans_import_find() -> Result<Value, String> {

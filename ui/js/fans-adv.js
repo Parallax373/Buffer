@@ -208,58 +208,175 @@
     pick(K.sel.ctl && K.control(K.sel.ctl) ? "f:" + K.sel.ctl : S.curves.length ? "c:" + S.curves[0].id : sens.length ? "s:" + sens[0] : null);
   }
 
-  /* ───── view C: case ───── */
+  /* ───── view C: the panel (controls first, like FanControl's cards, with the case and the curve beside them) ───── */
 
-  function viewCase(el) {
+  /** a control's fans in words: "3 × Front" */
+  function placesText(ids, slots) {
+    if (!ids || !ids.length) return t("fans.unplaced");
+    const s = slots.find((x) => x.id === ids[0]);
+    const name = s ? App.FansStage.slotLabel(s).replace(/\s*\d+$/, "") : ids[0];
+    return ids.length > 1 ? `${ids.length} × ${name}` : (s ? App.FansStage.slotLabel(s) : name);
+  }
+  /** a small side view of the case with this control's fans lit (the template's real places) */
+  function miniCase(ids, slots) {
+    const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 64 56"); svg.setAttribute("width", "64"); svg.setAttribute("height", "56"); svg.setAttribute("aria-hidden", "true"); svg.classList.add("fmini");
+    const el = (tag, a) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
+    el("rect", { x: 2, y: 2, width: 60, height: 52, rx: 4, class: "mc-case" });
+    if (!slots.length) return svg;
+    const sd = slots.sideT, X = (z) => 6 + ((z - sd.z0) / (sd.z1 - sd.z0)) * 52, Y = (y) => 51 - (y / sd.h) * 46;
+    const on = new Set(ids || []);
+    for (const s of slots) {
+      if (s.id === "pump" || (s.extra && !on.has(s.id))) continue;
+      el("circle", { cx: X(s.tp[2]).toFixed(1), cy: Y(s.tp[1]).toFixed(1), r: s.gpuFan ? 2.6 : 3.2, class: on.has(s.id) ? "mc-on" : "mc-off" });
+    }
+    return svg;
+  }
+  /** a curve's shape as a small line (graph and linear curves; the others show their type) */
+  function miniCurve(c) {
+    const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 120 40"); svg.setAttribute("preserveAspectRatio", "none"); svg.setAttribute("aria-hidden", "true"); svg.classList.add("fminicurve");
+    const pts = (c.type === "graph" || c.type === "linear") ? K.pointsOf(c) : c.type === "flat" ? [[30, c.pct], [90, c.pct]] : null;
+    if (pts && pts.length) {
+      const full = [[30, pts[0][1]], ...pts, [90, pts[pts.length - 1][1]]];
+      const pl = document.createElementNS(NS, "polyline");
+      pl.setAttribute("points", full.map(([tt, p]) => `${(clamp(tt, 30, 90) - 30) * 2},${(38 - p * 0.36).toFixed(1)}`).join(" "));
+      svg.appendChild(pl);
+    }
+    return svg;
+  }
+
+  function viewPanel(el) {
     const S = K.setup;
-    const csHost = h("div", { class: "fcase2" }), looseEl = h("div"), right = h("div", { class: "fstack" }), tab = h("div"), hh = h("div", { class: "card2 fpad" });
-    // the stage is the RGB page's case (read-only): the places come from its template; a click on a fan picks it
-    const stage = App.FansStage.mount(csHost, K, { onPick: (id) => show(id), onReady: () => { drawLoose(); if (K.control(K.sel.ctl)) show(K.sel.ctl, tabId); } });
-    stageCtl = stage;
-    const lay = () => stage.layout;
-    const drawLoose = () => {
-      const loose = S.controls.filter((c) => !c.hidden && !(c.id in lay()));
-      looseEl.replaceChildren(...(loose.length ? [h("div", { class: "rowflex" }, h("span", { class: "cap", text: t("fans.unplaced") }), ...loose.map((c) => h("button", { class: "chip", text: c.name, onClick: () => show(c.id, "place") })))] : []));
-    };
-    const left = h("div", { class: "fpane fleft" }, App.ui.cap(t("fans.caseCap")), csHost, looseEl,
-      App.ui.cap(t("fans.temps")), h("div", { class: "rowflex" }, [["cpu", "CPU"], ["gpu", "GPU"]].map(([k, n]) => K.primary(k) && h("span", { class: "chip" }, n + " ", h("b", { class: "mono", "data-temp": K.primary(k), text: "–" }), "°"))));
     let tabId = "curve";
-    const tabs = App.ui.segc([["curve", t("fans.curve")], ["tune", t("fans.tabTune")], ["place", t("fans.tabPlace")]], tabId, (v) => show(K.sel.ctl, v));
-    const title = h("div", { class: "ftitle" });
-    const histEl = h("div", { "data-hist": 1 });
-    hh.append(h("div", { class: "rowflex" }, h("span", { class: "cap", text: t("fans.history") }), h("span", { class: "sp" }), h("span", { class: "chip", text: "CPU" }), h("span", { class: "chip", text: "GPU" }), h("span", { class: "chip on", text: t("fans.thisFan") })), histEl);
-    right.append(h("div", { class: "rowflex" }, h("div", { style: { flex: 1, minWidth: 0 } }, App.ui.cap(t("fans.fan")), title), tabs), hh, tab);
-    /** the Placement tab: which place the fan stands in, and (in the case's walls) whether it blows in or out */
-    const placeTab = (c) => {
-      const id = c.id, cur = lay()[id] || "", FS = App.FansStage;
-      const slotSel = h("select", { class: "field", onChange: (e) => {
+    const cards = h("div", { class: "fp-cards" }), curvesEl = h("div", { class: "fp-curves" }), tab = h("div", { class: "fp-tab" });
+    const stageHost = h("div", { class: "fcase2" }), title = h("div", { class: "ftitle" });
+    const tabs = App.ui.segc([["curve", t("fans.curve")], ["tune", t("fans.tabTune")], ["place", t("fans.tabPlace")], ["hist", t("fans.history")]], tabId, (v) => show(K.sel.ctl, v));
+    const stage = App.FansStage.mount(stageHost, K, {
+      onPick: (id) => show(id),
+      // a click on a place: on the Placement tab it adds that place to the picked control or takes it away; elsewhere it picks
+      onSlot: (slot, owner) => { if (tabId === "place" && K.sel.ctl) toggleSlot(K.sel.ctl, slot); else if (owner) show(owner); },
+      onReady: () => { refreshCards(); if (K.control(K.sel.ctl)) show(K.sel.ctl, tabId); },
+    });
+    stageCtl = stage;
+
+    /* the heat strip: every temperature a curve can follow, warm ones glowing; the room; the fail-safe speed */
+    const temps = [["cpu", "CPU", K.primary("cpu")], ["gpu", "GPU", K.primary("gpu")], ...S.mixes.map((m) => ["mix", m.name, "mix:" + m.id])].filter((x) => x[2]);
+    const heat = h("div", { class: "fp-heat" }, temps.map(([, name, id]) => h("span", { class: "fheat", "data-heat": id, title: K.sensorName(id) },
+      h("i", { class: "hd" }), h("span", { class: "cap", text: name }), h("b", { class: "mono" }, h("span", { "data-temp": id, text: "–" }), "°"), K.scan("temp", id, 10))),
+      h("span", { class: "sp" }),
+      h("label", { class: "fsafe", title: t("fans.failsafeTip") }, h("span", { class: "muted", text: t("fans.failsafe2") }),
+        h("select", { class: "field", onChange: (e) => { S.failsafe = +e.target.value; K.commit(); } }, [100, 90, 80, 70, 60].map((v) => h("option", { value: v, text: v + " %", selected: Math.round(S.failsafe ?? 100) === v })))),
+      h("button", { class: "btn", text: t("fans.caseInRgb"), title: t("fans.caseInRgbTip"), onClick: () => { App.RGBAdv.openCase(); App.go("rgb"); setTimeout(() => App.RGB && App.RGB.view("advanced"), 0); } }),
+      h("button", { class: "btn acc", text: t("fans.wiz.open"), title: t("fans.wiz.tip"), onClick: () => App.FansWizard.open(K, () => K.redraw()) }));
+
+    /* control cards: click picks (in place, no rebuild), the select picks the curve, drag reorders */
+    const cardOf = (c) => {
+      const sel = h("select", { class: "field", "aria-label": t("fans.curve"), onClick: (e) => e.stopPropagation(), onChange: (e) => {
         const v = e.target.value;
-        S.layout[id] = v;
-        if (v) Object.entries(S.layout).forEach(([k, o]) => { if (k !== id && FS.norm(o) === v) S.layout[k] = ""; });
-        K.commit(); stage.relayout(); drawLoose(); show(id, "place");
-      } }, h("option", { value: "", text: t("fans.unplaced"), selected: !cur }), stage.slots.map((s) => h("option", { value: s.id, text: FS.slotLabel(s), selected: s.id === cur })));
-      const fl = stage.flow(id), rows = [K.row(t("fans.slot"), slotSel)];
-      if (fl === "in" || fl === "out") rows.push(K.row(t("fans.flow"), App.ui.segc([["in", t("fans.flowIn")], ["out", t("fans.flowOut")]], fl, (v) => { (K.pref().flow ||= {})[id] = v; App.persist(); }), t("fans.flowTip")));
-      rows.push(K.row(t("fans.pair"), h("div", { class: "mono muted", text: (c.fan ? K.sensorName(c.fan) : t("fans.unpaired")) })));
-      return h("div", { class: "card2 fpad fstack" }, ...rows);
+        if (v === "auto") { c.mode = "auto"; } else if (v === "manual") { c.mode = "manual"; } else { c.curve = v; c.mode = "curve"; }
+        K.commit(); refreshCurves(); if (c.id === K.sel.ctl) show(c.id, tabId);
+      } }, h("option", { value: "auto", text: t("fans.mode.auto"), selected: c.mode === "auto" }), h("option", { value: "manual", text: t("fans.mode.manual"), selected: c.mode === "manual" }),
+        S.curves.map((x) => h("option", { value: x.id, text: x.name, selected: c.mode === "curve" && c.curve === x.id })));
+      const card = h("div", { class: "fcard" + (c.id === K.sel.ctl ? " sel" : ""), "data-card": c.id, tabindex: 0, draggable: "true", role: "button", "aria-label": c.name,
+        onClick: () => show(c.id), onKeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(c.id); } } },
+        h("div", { class: "fc-top" }, h("span", { class: "fc-mini" }), h("div", { class: "fc-nm" }, h("b", { text: c.name }), h("span", { class: "mono muted fc-where" })), h("span", { "data-dot": c.id, class: "dot" })),
+        sel,
+        h("div", { class: "fc-val" }, h("span", { class: "mono big" }, h("span", { "data-pct": c.id, text: "0" }), h("small", { text: "%" })), h("span", { class: "sp" }), h("span", { class: "mono muted" }, h("span", { "data-rpm": c.id, text: "–" }), " rpm")),
+        K.scan("ctl", c.id, 18));
+      card.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.id); e.dataTransfer.effectAllowed = "move"; card.classList.add("drag"); });
+      card.addEventListener("dragend", () => card.classList.remove("drag"));
+      card.addEventListener("dragover", (e) => { e.preventDefault(); card.classList.add("over"); });
+      card.addEventListener("dragleave", () => card.classList.remove("over"));
+      card.addEventListener("drop", (e) => {
+        e.preventDefault(); card.classList.remove("over");
+        const from = e.dataTransfer.getData("text/plain"); if (!from || from === c.id) return;
+        const a = S.controls.findIndex((x) => x.id === from), [m] = S.controls.splice(a, 1), b = S.controls.findIndex((x) => x.id === c.id);
+        S.controls.splice(b, 0, m); K.commit();
+        const moving = cards.querySelector(`[data-card="${CSS.escape(from)}"]`); if (moving) cards.insertBefore(moving, card);   // moved, not redrawn
+      });
+      return card;
     };
+    const visibleCtl = () => S.controls.filter((c) => !c.hidden);
+    cards.append(...visibleCtl().map(cardOf));
+    function refreshCards() {
+      const lay = stage.layout, slots = stage.slots;
+      cards.querySelectorAll("[data-card]").forEach((card) => {
+        const id = card.dataset.card, c = K.control(id); if (!c) return;
+        card.querySelector(".fc-mini").replaceChildren(miniCase(lay[id], slots));
+        card.querySelector(".fc-where").textContent = placesText(lay[id], slots);
+      });
+    }
+
+    /* curve cards: what they follow, how warm it is, their shape; a click opens the curve on the right */
+    function refreshCurves() {
+      curvesEl.replaceChildren(...S.curves.map((cv) => {
+        const n = S.controls.filter((x) => x.mode === "curve" && x.curve === cv.id).length;
+        return h("button", { class: "fcurve" + (cv.id === K.sel.curve ? " sel" : ""), "data-cv": cv.id, onClick: () => { K.sel.curve = cv.id; markCurve(); tabId = "curve"; showCurve(); syncTabs(); } },
+          h("span", { class: "fcv-top" }, h("b", { text: cv.name }), h("span", { class: "sp" }), h("span", { class: "mono muted", text: n ? t("fans.drives", { n }) : "" })),
+          cv.src ? h("span", { class: "mono fcv-src" }, K.sensorName(cv.src) + " ", h("span", { "data-temp": cv.src, text: "–" }), "°") : h("span", { class: "mono muted fcv-src", text: t("fans.type." + cv.type) }),
+          miniCurve(cv));
+      }), h("button", { class: "fcurve add", onClick: () => { newCurve(); K.redraw(); } }, h("span", { text: "+ " + t("fans.newCurve") })));
+    }
+    const markCurve = () => curvesEl.querySelectorAll("[data-cv]").forEach((b) => b.classList.toggle("sel", b.dataset.cv === K.sel.curve));
+    refreshCurves();
+
+    /* the right side: the case, then the picked control's curve / tuning / places / history */
+    function syncTabs() { tabs.querySelectorAll("button").forEach((b, i) => b.classList.toggle("on", ["curve", "tune", "place", "hist"][i] === tabId)); }
+    function showCurve() {
+      const cv = K.curveOf(K.sel.curve), gh = h("div", { id: "fgraph" });
+      if (!cv) { tab.replaceChildren(h("div", { class: "card2 fpad muted", text: t("fans.noCurve") })); return; }
+      tab.replaceChildren(h("div", { class: "card2 fgraphbox" }, h("div", { class: "rowflex" }, h("span", { class: "cap", text: cv.name }), typeSeg(cv, () => { showCurve(); refreshCurves(); })), gh),
+        h("div", { class: "card2 fpad" }, ...curveFields(cv, () => { showCurve(); refreshCurves(); })));
+      if (cv.type !== "mix" && cv.type !== "sync") K.graph(gh, cv.id, { w: 560, h: 240, edit: true });
+    }
+    function placeTab(c) {
+      const ids = stage.layout[c.id] || [], FS = App.FansStage;
+      const rows = ids.map((sid) => {
+        const s = stage.slots.find((x) => x.id === sid); if (!s) return null;
+        const fl = stage.flowOf(s);
+        return h("div", { class: "srow" }, h("span", { class: "lb", text: FS.slotLabel(s) }),
+          fl === "in" || fl === "out"
+            ? App.ui.segc([["in", t("fans.flowIn")], ["out", t("fans.flowOut")]], fl, (v) => { (S.flow ||= {})[sid] = v; K.commit(); stage.relayout(); })
+            : h("span", { class: "muted", text: t(fl === "int" ? "fans.flowInt" : "fans.flowNone") }),
+          h("button", { class: "chip", text: "✕", title: t("fans.placeDel"), onClick: () => toggleSlot(c.id, sid) }));
+      }).filter(Boolean);
+      return h("div", { class: "card2 fpad fstack" }, h("div", { class: "muted fhint", text: t("fans.placeHint") }), ...rows,
+        K.row(t("fans.pair"), h("div", { class: "mono muted", text: c.fan ? K.sensorName(c.fan) : t("fans.unpaired") })));
+    }
+    /** adds a place to a control's fans or takes it away (a place belongs to one control: another one gives it up) */
+    function toggleSlot(id, slot) {
+      const FS = App.FansStage, cur = new Map(Object.entries(stage.layout));
+      for (const [cid, list] of cur) if (cid !== id && list.includes(slot)) S.layout[cid] = list.filter((x) => x !== slot).join(",");
+      const mine = (cur.get(id) || []).slice(), i = mine.indexOf(slot);
+      if (i >= 0) mine.splice(i, 1); else mine.push(slot);
+      S.layout[id] = mine.join(",");
+      // controls that only had a guessed place keep it as their choice, so taking a place away does not move them about
+      for (const [cid, list] of cur) if (!(cid in S.layout)) S.layout[cid] = list.join(",");
+      K.commit(); stage.relayout(); refreshCards();
+      if (id === K.sel.ctl && tabId === "place") tab.replaceChildren(placeTab(K.control(id)));
+      void FS;
+    }
     const show = (id, which = tabId) => {
       const c = K.control(id); if (!c) return;
-      K.sel.ctl = id; tabId = which; if (c.curve) K.sel.curve = c.curve;
-      stage.select(id);
-      tabs.querySelectorAll("button").forEach((b, i) => b.classList.toggle("on", ["curve", "tune", "place"][i] === which));
+      K.sel.ctl = id; tabId = which; if (c.curve && which !== "curve") K.sel.curve = c.curve; else if (c.curve && which === "curve" && K.sel.curve !== c.curve) K.sel.curve = c.curve;
+      stage.select(id); stage.setEditing(which === "place"); markCurve(); syncTabs();
+      cards.querySelectorAll("[data-card]").forEach((x) => x.classList.toggle("sel", x.dataset.card === id));
       title.textContent = c.name; hist.fan.length = 0;
-      if (which === "curve") {
-        const cv = K.curveOf(c.curve), gh = h("div", { id: "fgraph" });
-        tab.replaceChildren(cv ? h("div", { class: "card2 fgraphbox" }, h("div", { class: "rowflex" }, h("span", { class: "cap", text: cv.name }), typeSeg(cv, () => show(id, which))), gh) : h("div", { class: "card2 fpad muted", text: t("fans.noCurve") }));
-        if (cv && cv.type !== "mix" && cv.type !== "sync") K.graph(gh, cv.id, { w: 560, h: 260, edit: true });
-        if (cv && (cv.type === "mix" || cv.type === "sync")) tab.append(h("div", { class: "card2 fpad" }, ...curveFields(cv, null)));
-      } else if (which === "tune") tab.replaceChildren(h("div", { class: "card2 fpad" }, ...(K.curveOf(c.curve) ? curveFields(K.curveOf(c.curve), null) : []), ...controlFields(c)));
-      else tab.replaceChildren(placeTab(c));
+      if (which === "curve") showCurve();
+      else if (which === "tune") tab.replaceChildren(h("div", { class: "card2 fpad" }, ...controlFields(c)));
+      else if (which === "place") tab.replaceChildren(placeTab(c));
+      else { const hh = h("div", { class: "card2 fpad" }, h("div", { class: "rowflex" }, h("span", { class: "cap", text: t("fans.history") }), h("span", { class: "sp" }), h("span", { class: "chip", text: "CPU" }), h("span", { class: "chip", text: "GPU" }), h("span", { class: "chip on", text: t("fans.thisFan") })), h("div", { "data-hist": 1 })); tab.replaceChildren(hh); }
       K.tick();
     };
-    el.append(h("div", { class: "fa-ci" }, left, h("div", { class: "fpane" }, right)));
-    show(K.control(K.sel.ctl) ? K.sel.ctl : (S.controls.find((c) => !c.hidden) || {}).id, "curve");
+
+    el.append(h("div", { class: "fpanel" }, heat,
+      h("div", { class: "fp-main" },
+        h("div", { class: "fp-left" },
+          h("div", { class: "rowflex" }, App.ui.cap(t("fans.controls")), h("span", { class: "sp" }), h("span", { class: "mono muted", text: t("fans.dragTip") })), cards,
+          App.ui.cap(t("fans.curves")), curvesEl),
+        h("div", { class: "fp-right" }, stageHost, h("div", { class: "rowflex" }, h("div", { style: { flex: 1, minWidth: 0 } }, App.ui.cap(t("fans.fan")), title), tabs), tab))));
+    show(K.control(K.sel.ctl) && !K.control(K.sel.ctl).hidden ? K.sel.ctl : (visibleCtl()[0] || {}).id, "curve");
   }
 
   /* ───── live bits of the Case view ───── */
@@ -277,14 +394,17 @@
     hist.cpu.push(cpu == null ? 30 : cpu); hist.gpu.push(gpu == null ? 30 : gpu); hist.fan.push(c ? K.pctOf(c) : 0);
     Object.values(hist).forEach((a) => a.length > 60 && a.shift());
     box.querySelectorAll("[data-hist]").forEach(drawHist);
+    // the heat strip glows with the temperature (35 °C cold, 85 °C fully lit)
+    box.querySelectorAll(".fheat[data-heat]").forEach((e) => { const v = K.temp(e.dataset.heat); e.style.setProperty("--w", v == null ? 0 : clamp((v - 35) / 50, 0, 1).toFixed(2)); });
   }
 
   function render(el, kit) {
     K = kit; box = el;
     if (stageCtl) { stageCtl.destroy(); stageCtl = null; }
-    const v = K.pref().adv || "curves";
-    el.append(h("div", { class: "fadvhead" }, App.ui.segc([["curves", t("fans.curves")], ["wiring", t("fans.wiring")], ["case", t("fans.case")]], v, (x) => { K.pref().adv = x; App.persist(); K.redraw(); })));
-    ({ curves: viewCurves, wiring: viewWiring, case: viewCase }[v] || viewCurves)(el);
+    let v = K.pref().adv || "panel";
+    if (v === "case") v = K.pref().adv = "panel";   // the Case view became the panel
+    el.append(h("div", { class: "fadvhead" }, App.ui.segc([["panel", t("fans.panel")], ["curves", t("fans.curves")], ["wiring", t("fans.wiring")]], v, (x) => { K.pref().adv = x; App.persist(); K.redraw(); })));
+    ({ panel: viewPanel, curves: viewCurves, wiring: viewWiring }[v] || viewPanel)(el);
   }
 
   App.FansAdv = { render, tick, bind: (kit) => { K = kit; } };

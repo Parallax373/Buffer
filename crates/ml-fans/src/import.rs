@@ -167,7 +167,8 @@ pub fn from_fancontrol(json: &str, sensors: &[SensorInfo], current: &Setup) -> R
         out.curves += 1;
     }
 
-    // controls
+    // controls; `named`: speed sensor -> the control FanControl pairs it with
+    let mut named: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for c in fc["Controls"].as_array().unwrap_or(&vec![]) {
         let nick = c["NickName"].as_str().unwrap_or("").to_string();
         let Some(id) = c["Identifier"].as_str().and_then(|i| map_id(i, sensors)) else {
@@ -187,6 +188,9 @@ pub fn from_fancontrol(json: &str, sensors: &[SensorInfo], current: &Setup) -> R
             avoid: vec![],
         };
         let fan = id_of(c, "PairedFanSensor").and_then(|i| map_id(&i, sensors));
+        if let Some(f) = &fan {
+            named.insert(f.clone(), id.clone());
+        }
         let hidden = c["IsHidden"].as_bool().unwrap_or(false);
         let entry = Control { id: id.clone(), fan, name: if nick.is_empty() { id.clone() } else { nick }, curve, mode, manual: f(c, "ManualControlValue").unwrap_or(40.0), hidden, tuning };
         if let Some(old) = setup.controls.iter_mut().find(|x| x.id == id) {
@@ -198,6 +202,14 @@ pub fn from_fancontrol(json: &str, sensors: &[SensorInfo], current: &Setup) -> R
         out.controls += 1;
         if hidden {
             out.hidden += 1;
+        }
+    }
+    // a speed sensor FanControl gives to one control is not also kept on another by Buffer's guess
+    for c in out.setup.controls.iter_mut() {
+        if let Some(f) = &c.fan {
+            if named.get(f).is_some_and(|owner| owner != &c.id) {
+                c.fan = None;
+            }
         }
     }
     out.notes = notes;
@@ -302,6 +314,18 @@ mod tests {
         assert_eq!((r.controls, r.hidden), (3, 1));
         assert!(r.notes.iter().any(|n| n.contains("Gone")), "{:?}", r.notes);
         assert!(r.notes.iter().any(|n| n.contains("Avg over time")), "{:?}", r.notes);
+    }
+
+    #[test]
+    fn a_sensor_fancontrol_pairs_elsewhere_is_not_kept_twice() {
+        let p = vec![s("/lpc/nct6797d/0/control/0", "control"), s("/lpc/nct6797d/0/control/5", "control"), s("/lpc/nct6797d/0/fan/5", "fan")];
+        let mut cur = Setup::default();
+        cur.controls.push(Control { id: "/lpc/nct6797d/0/control/5".into(), fan: Some("/lpc/nct6797d/0/fan/5".into()), name: "x".into(), curve: None, mode: Mode::Auto, manual: 40.0, hidden: false, tuning: Tuning::default() });
+        let fc = r#"{"FanControl":{"Controls":[{"NickName":"A","Identifier":"/lpc/nct6797d/control/0","Enable":true,"PairedFanSensor":{"Identifier":"/lpc/nct6797d/fan/5"}},{"NickName":"B","Identifier":"/lpc/nct6797d/control/5","Enable":true,"PairedFanSensor":null}],"FanCurves":[]}}"#;
+        let r = from_fancontrol(fc, &p, &cur).unwrap();
+        let get = |id: &str| r.setup.controls.iter().find(|c| c.id == id).unwrap().fan.clone();
+        assert_eq!(get("/lpc/nct6797d/0/control/0").as_deref(), Some("/lpc/nct6797d/0/fan/5"));
+        assert_eq!(get("/lpc/nct6797d/0/control/5"), None, "fan/5 belongs to A in FanControl");
     }
 
     #[test]

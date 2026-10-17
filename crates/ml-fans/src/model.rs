@@ -134,9 +134,13 @@ pub struct Setup {
     /// display names the user gave to sensors (id -> name)
     #[serde(default)]
     pub names: BTreeMap<String, String>,
-    /// where each control sits in the case schematic (control id -> slot); controls without an entry are placed automatically
+    /// where each control's fans sit in the case (control id -> comma-separated place ids: one control can drive several
+    /// fans); controls without an entry are placed automatically. Only the page reads it.
     #[serde(default)]
     pub layout: BTreeMap<String, String>,
+    /// which way the fan in a place blows (place id -> "in" | "out"); places without an entry use their usual direction
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub flow: BTreeMap<String, String>,
 }
 
 fn hundred() -> f32 {
@@ -145,7 +149,7 @@ fn hundred() -> f32 {
 
 impl Default for Setup {
     fn default() -> Self {
-        Setup { mixes: vec![], curves: vec![], controls: vec![], failsafe: 100.0, names: BTreeMap::new(), layout: BTreeMap::new() }
+        Setup { mixes: vec![], curves: vec![], controls: vec![], failsafe: 100.0, names: BTreeMap::new(), layout: BTreeMap::new(), flow: BTreeMap::new() }
     }
 }
 

@@ -274,13 +274,26 @@ scan bars, the animated logo, the tokens. Read it before adding a screen.
   `quit` and normal exit call `SetDefault()`. Never stop it with `schtasks /End` or a kill: LHM keeps the board's original registers only in
   that process (`ml_fans::install::stop` asks for `quit` first). The recorder only ever stops it that way.
 - Conflicts per device: FanControl & co pause every control, the NVIDIA app only the GPU ones; MSI Afterburner too, but only while its software fan curve is on (`SwAutoFanControl=1` in its `MSIAfterburner.cfg`; merely running is no conflict) (`away::fan_conflicts`).
-- Case view = the RGB page's case as a live stage (`ui/js/fans-stage.js`): same templates and places (`App.RGBAdv.geom`: `slotsOf(tpl, caseState)`,
-  `caseXf`, read-only), same 3D / 2D views and fullscreen, blades turn with the live speed, click picks a fan. The case state (`tpl`, `caseAt`, ...) is READ
-  from `rgb_scene_get` and never written (`rgb-scene-set` replaces the whole scene); no scene key = RGB's defaults. Places: `fans.json` `layout` (control -> slot id;
-  old `rear`/`gpu1`/`gpu2` map to `rear1`/`gpuf1`/`gpuf2`), plus two fan rings on the graphics card. Camera, `air` and per-fan `flow` (in/out) live in `App.P.fans`
-  (the Rust `Setup` drops unknown keys). Airflow = an estimate, not CFD: particles run along curves from the intakes (front/bottom) to the exhausts (rear/top/radiator;
-  CPU cooler and GPU fans move air inside), orange near a hot CPU/GPU; the chip shows positive / negative pressure from fan size x speed. The Detect overlay still
-  draws the old SVG schematic (`FansAdv.caseSVG`).
+- Advanced = Panel (default; layout "C, controls first", decided 2026-10-17) | Curves | Wiring. Panel (`fans-adv.js viewPanel`): heat strip (CPU/GPU/Mix glow
+  with their temperature, fail-safe speed, "Case in RGB", "Assign fans"), control cards (mini side view of the case with the control's fans lit, curve /
+  Auto / Manual select, live % and rpm; click picks in place, drag reorders `setup.controls`), curve cards (source temperature, shape), and on the right the
+  stage plus Curve | Tuning | Placement | History of the picked control. On Placement a click on a place adds it to the control or takes it away.
+- Stage (`ui/js/fans-stage.js`): the RGB page's case (`App.RGBAdv.geom`: `slotsOf(tpl, caseState)`, `caseXf`; templates mid, full, matx, itx, sff, dual,
+  open), read from `rgb_scene_get` and never written (`rgb-scene-set` replaces the whole scene; the case is changed in RGB, "Case in RGB" opens it with the
+  case picked: `App.RGBAdv.openCase()`). Places: the template's rings + `cpu2` (push-pull behind the heatsink) + `gpuf1..3` on the card + extra places shown
+  only while placing (`bottom1..3`, `rear2`, `side1..2`). One control = a GROUP of fans: `fans.json` `layout` is control -> comma-separated place ids (old
+  `rear`/`gpu1`/`gpu2` map to `rear1`/`gpuf1`/`gpuf2`); a place belongs to one control. `setup.flow` = place -> "in" | "out" (front/bottom default in,
+  rear/top/rad out; CPU cooler and card fans move air inside, the pump none). RGB devices standing in a place show as a ring in their look's colour.
+- Airflow (`ui/js/fans-air.js`, pure, no DOM; `node scripts/check-air.js` times it and checks it): velocity field on a 14³ grid around the case rebuilt
+  every 0.15 s (intakes = sources, exhausts = sinks, only felt inside the case; a jet along each fan's axis with suction behind it; curl-noise turbulence
+  scaled by the local speed), up to 2400 particles with a little inertia, wall bounces, leaks through gaps when over-pressured. Particles carry a
+  temperature: they heat inside the CPU heatsink and graphics card volumes towards that part's temperature (faster the hotter it is), cool slowly
+  elsewhere; exhaust outlet temperature = average of what leaves there. Intake air = the coolest board sensor (else 25 °C, marked "~"). ~0.6 ms per
+  step for ~1600 particles; the stage draws at about 30 fps, buckets trails by colour (one stroke each), lowers the particle count when a frame takes
+  over 9 ms, pauses when hidden, and honours reduced motion / animations off. An estimate, not CFD (the tooltip says so).
+- Assign fans wizard (`ui/js/fans-wizard.js`): every visible control in turn is spun up with `fans_boost` (recorder `fans-boost <id> <pct> <secs>`: at
+  most 15 s, renewed every 4 s by the page, ends by itself; replaces that control's curve in the worker loop; refused while another fan program runs)
+  and the user clicks where a fan turns; nothing is saved before the last step. The Detect dialog uses the same stage (compact).
 - Detect: first connect pairs controls with fans by LHM numbering; the probe (`fans-probe-start`, only on a click, audible) drives each board
   control to 100 % for 7 s and pairs it with the fan whose rpm rose (`ml_fans::pair`, needs +150 rpm and 2x the runner-up). A control that
   did not move anything while its fan reads 0 is hidden; one that answered is shown. A single 0 rpm reading never hides anything.

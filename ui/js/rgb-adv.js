@@ -210,7 +210,7 @@
      front at +z); the case can then be moved on the desk (S.caseAt, cm) and turned in 90° steps (S.caseRot), and its
      slots and the devices in them go with it. */
   const X1 = -24, FAN_R = 5.5;
-  const CASES = { mid: { w: 22, h: 46, d: 44 }, itx: { w: 18, h: 33, d: 36 }, dual: { w: 28, h: 46, d: 44 }, open: { w: 30, h: 44, d: 40 }, none: null };
+  const CASES = { mid: { w: 22, h: 46, d: 44 }, full: { w: 24, h: 56, d: 52 }, matx: { w: 19, h: 40, d: 38 }, itx: { w: 18, h: 33, d: 36 }, sff: { w: 16, h: 30, d: 34 }, dual: { w: 28, h: 46, d: 44 }, open: { w: 30, h: 44, d: 40 }, none: null };
   /** device types a slot takes; the first one is the type it is meant for (Arrange and new devices try that first) */
   const ACC = { fan: ["fan", "header", "strip"], cpu: ["fan", "header", "strip"], gpu: ["gpu", "strip"], ram: ["ram"], edge: ["strip", "header"], io: ["header", "strip"], kb: ["keyboard"], mouse: ["mouse"], head: ["headset"] };
   const TORDER = ["fan", "gpu", "ram", "header", "strip", "keyboard", "mouse", "headset"];
@@ -269,6 +269,20 @@
         for (let i = 0; i < 3; i++) ring("rear" + (i + 1), "rear", i + 1, [xm, 10 + 13 * i, z0 + 1], "z");
         cpu(34, -6); gpuV(20); dimms(4); io(41, -16, -2);
         path("corner", "corner", 0, [[x1, h, z0], [x1, h, z1], [x1, 0, z1]], ACC.edge);
+      } else if (tpl === "full") {   // a full tower: three big front and top fans, room for a radiator, a tall board
+        for (let i = 0; i < 3; i++) ring("front" + (i + 1), "front", i + 1, [xm, 12 + 14 * i, z1 - 1], "z", 6.5);
+        for (let i = 0; i < 3; i++) ring("top" + (i + 1), "top", i + 1, [xm, h - 1, z1 - 11 - 14 * i], "y", 6.5);
+        ring("rear1", "rear", 1, [xm, h - 13, z0 + 1], "z", 6.5);
+        cpu(43, -8); gpuH(22); gpuV(31); dimms(4); io(51, -20, -4); glass();
+      } else if (tpl === "matx") {   // a mini tower: two front and two top fans
+        for (let i = 0; i < 2; i++) ring("front" + (i + 1), "front", i + 1, [xm, 10 + 13 * i, z1 - 1], "z");
+        for (let i = 0; i < 2; i++) ring("top" + (i + 1), "top", i + 1, [xm, h - 1, z1 - 10 - 12 * i], "y");
+        ring("rear1", "rear", 1, [xm, h - 10, z0 + 1], "z");
+        cpu(29, -5); gpuH(14); dimms(4); io(35, -14, -2); glass();
+      } else if (tpl === "sff") {   // a small form factor box: air in through the floor, the card standing next to the board
+        for (let i = 0; i < 2; i++) ring("bottom" + (i + 1), "bottom", i + 1, [xm, 1, z1 - 9 - 12 * i], "y");
+        ring("rear1", "rear", 1, [xm, h - 9, z0 + 1], "z", 4.5);
+        cpu(22, -3); gpuV(16); dimms(2); io(25, -10, 0);
       } else if (tpl === "open") {
         for (let i = 0; i < 3; i++) ring("rad" + (i + 1), "rad", i + 1, [xm, h + 1, 12 - 12 * i], "y");
         cpu(30, 0); gpuV(14); gpuH(18); dimms(2); io(38, -14, 0);
@@ -716,6 +730,7 @@
   const onDocDown = (e) => { if (POP && !POP.el.contains(e.target) && !POP.a.contains(e.target)) closePop(); };
 
   /* ---------------- mount ---------------- */
+  let openCaseNext = false;
   async function render(container) {
     leave();
     const my = ++gen;
@@ -726,6 +741,7 @@
     restore(sc);
     followSlots();
     build();
+    if (openCaseNext) { openCaseNext = false; selectDev("case"); }   // the Fans page sent the user here to change the case
     document.addEventListener("pointerdown", onDocDown);
     window.addEventListener("keydown", onKey);
     document.addEventListener("visibilitychange", wake);
@@ -2110,5 +2126,5 @@
   }
 
   /** read-only geometry for the Fans page's stage: the same case templates and slots, for a saved case state */
-  App.RGBAdv = { render, leave, geom: { CASES, caseBox, caseXf, slotsOf, FAN_R, DESK_H, get corners() { return corners; } } };
+  App.RGBAdv = { render, leave, openCase: () => { openCaseNext = true; }, geom: { CASES, caseBox, caseXf, slotsOf, FAN_R, DESK_H, get corners() { return corners; } } };
 })();
