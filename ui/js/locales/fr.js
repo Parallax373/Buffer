@@ -920,6 +920,8 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "fans.sensors": "Capteurs",
   "fans.sensor": "Capteur",
   "fans.none": "Aucun ventilateur trouvé",
+  "fans.noControl": "Aucun contrôle des ventilateurs sur ce PC",
+  "fans.noControlD": "Buffer peut lire les températures ici, mais ce PC ne permet pas aux applications de changer la vitesse des ventilateurs. Les portables les pilotent en général via le logiciel du fabricant (MSI Center, Armoury Crate…).",
   "fans.hiddenN": "Masqués ({n})",
   "fans.rename": "Renommer",
   "fans.hide": "Masquer",

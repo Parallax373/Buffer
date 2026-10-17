@@ -920,6 +920,8 @@ App.locales.en = { name: "English", tag: "en-US", ai: true, t: {
   "fans.sensors": "Sensors",
   "fans.sensor": "Sensor",
   "fans.none": "No fans found",
+  "fans.noControl": "No fan control on this PC",
+  "fans.noControlD": "Buffer can read temperatures here, but this PC does not let apps change the fan speed. Laptops usually steer their fans through the maker's own software (MSI Center, Armoury Crate…).",
   "fans.hiddenN": "Hidden ({n})",
   "fans.rename": "Rename",
   "fans.hide": "Hide",

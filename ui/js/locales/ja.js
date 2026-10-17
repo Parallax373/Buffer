@@ -920,6 +920,8 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "fans.sensors": "センサー",
   "fans.sensor": "センサー",
   "fans.none": "ファンが見つかりません",
+  "fans.noControl": "このPCではファン制御ができません",
+  "fans.noControlD": "ここでは温度は読み取れますが、このPCではアプリからファン速度を変更できません。ノートPCでは通常、メーカー純正のソフト（MSI Center、Armoury Crate など）でファンを制御します。",
   "fans.hiddenN": "非表示 ({n})",
   "fans.rename": "名前を変更",
   "fans.hide": "非表示にする",

@@ -312,6 +312,13 @@
     setup.mixes ||= []; setup.curves ||= []; setup.controls ||= []; setup.layout ||= {};
     if (!sel.ctl || !control(sel.ctl) || (control(sel.ctl).hidden && visible().length)) sel.ctl = (visible()[0] || setup.controls[0] || {}).id || null;
     if (!sel.curve || !curveOf(sel.curve)) sel.curve = (control(sel.ctl) || {}).curve || (setup.curves[0] || {}).id || null;
+    // Laptops steer their fans through the embedded controller, which LibreHardwareMonitor cannot write: temperatures
+    // are listed but there is nothing to control. Say so instead of showing an empty list.
+    if (!setup.controls.length && !(st.sensors || []).some((x) => x.control)) {
+      stop();
+      page.replaceChildren(App.emptyState(App.t("fans.noControl"), App.t("fans.noControlD"), App.t("fans.off"), turnOff));
+      return;
+    }
     draw();
     start();
   }
