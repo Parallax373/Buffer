@@ -299,7 +299,7 @@ fn state_of(shared: &session::Shared) -> (State, String) {
     let down: Vec<String> = shared
         .sinks
         .iter()
-        .filter(|s| !s.live.load(Ordering::Relaxed))
+        .filter(|s| s.faulty())
         .map(|s| source_label(s.name))
         .collect();
     if !down.is_empty() {
@@ -375,7 +375,7 @@ fn health_of(shared: &session::Shared, state: State) -> Health {
         State::Idle | State::Starting | State::SaveFailed => Health::Neutral,
         State::Problem => {
             let down: Vec<String> =
-                shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| source_label(s.name)).collect();
+                shared.sinks.iter().filter(|s| s.faulty()).map(|s| source_label(s.name)).collect();
             Health::Warn(down.join(", "))
         }
         State::Stopped => Health::Down(shared.last_error.lock().unwrap().chars().take(90).collect()),
@@ -525,7 +525,7 @@ fn announce_due(recording: bool, seen_for: std::time::Duration, has_error: bool)
 
 fn announce_game(shared: &session::Shared, game: &str) {
     let cfg = shared.cfg.lock().unwrap().clone();
-    let down: Vec<&str> = shared.sinks.iter().filter(|s| !s.live.load(Ordering::Relaxed)).map(|s| s.name).collect();
+    let down: Vec<&str> = shared.sinks.iter().filter(|s| s.faulty()).map(|s| s.name).collect();
     let len = if cfg.buffer_seconds >= 60 && cfg.buffer_seconds % 60 == 0 {
         format!("{} min", cfg.buffer_seconds / 60)
     } else {
@@ -562,12 +562,16 @@ fn apply_hotkeys(shared: &session::Shared, current: &mut (String, String, String
             }
         }
     }
-    if !save.is_empty() {
-        if let Err(e) = win::register_hotkey(&save) {
+    // a refused save shortcut is reported as `hotkey_ok: false` (the app asks for another one), not as `last_error`:
+    // recording itself is fine, and the error would outlive a later shortcut that works
+    let taken = match if save.is_empty() { Ok(()) } else { win::register_hotkey(&save) } {
+        Err(e) => {
             session::log(&e);
-            *shared.last_error.lock().unwrap() = e;
+            save.clone()
         }
-    }
+        Ok(()) => String::new(),
+    };
+    *shared.hotkey_taken.lock().unwrap() = taken;
     if !rec.is_empty() {
         if let Err(e) = win::register_hotkey_id(&rec, crate::input::RECORD as i32) {
             session::log(&e);

@@ -772,6 +772,14 @@ fn default_clips_dir() -> String {
     home.join("Videos").join("Buffer").to_string_lossy().into_owned()
 }
 
+/// Discord is installed (its installer always puts it in `%LOCALAPPDATA%\Discord`, so a running Discord has it too).
+/// The setup wizard splits Discord out of the game track only when this is true, otherwise the Chat track would wait
+/// for a program that never starts.
+#[tauri::command]
+fn discord_installed() -> bool {
+    std::env::var_os("LOCALAPPDATA").is_some_and(|d| PathBuf::from(d).join("Discord").is_dir())
+}
+
 #[derive(Serialize)]
 struct FoundFolder {
     path: String,
@@ -905,6 +913,7 @@ fn main() {
             recorder_levels,
             cancel_export,
             detect_clip_folders,
+            discord_installed,
             default_clips_dir,
             recorder_autostart,
             eq::eq_spectrum_start,

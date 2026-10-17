@@ -12,6 +12,8 @@ App.RecUI = (function () {
   ];
   const CHAT_APPS = () => [["", App.t("chat.none")], ["discord", "Discord"], ["teamspeak", "TeamSpeak"], ["ts3client_win64", "TeamSpeak 3"],
     ["teams", "Microsoft Teams"], ["zoom", "Zoom"], ["telegram", "Telegram"], ["skype", "Skype"]];
+  /** A program's name from its exe stem ("discord" → "Discord"). */
+  const appName = (stem) => (stem && CHAT_APPS().find(([v]) => v === stem)?.[1]) || stem || "";
   const BASE = {
     output_dir: "", per_game_folders: true, post_roll_seconds: 15, game_only: false, follow_game_monitor: true, chat_app: "",
     buffer_seconds: 120, fps: 30, width: 1920, video_kbps: 14000, quality: "std", monitor: 0,
@@ -90,7 +92,7 @@ App.RecUI = (function () {
 
   /** Field that records the next keyboard shortcut, mouse button or gamepad chord. A new input replaces
       the entry of its own kind; Delete clears it (a required binding falls back to `fallback`).
-      `onSet(binding, keyboardChanged)`: keyboard combos need a recorder restart, mouse and pad apply at once. */
+      `onSet(binding, keyboardChanged)`; the recorder applies every kind live (`reload`, no restart). */
   /** The recorder's name for a physical key (KeyboardEvent.code, so the layout and Shift don't change it);
       null for keys a global shortcut can't use. Mirrors `parse_hotkey` in the recorder's win.rs. */
   const NAMED_KEYS = { PageUp: "PgUp", PageDown: "PgDn", Home: "Home", End: "End", Insert: "Ins", Delete: "Del",
@@ -164,6 +166,15 @@ App.RecUI = (function () {
     return input;
   };
 
+  /** Amber line "Shortcut taken by another program — Change", hidden until the recorder reports `hotkey_ok: false`
+   *  (`paint` shows it). `change` focuses the shortcut field. */
+  const takenWarn = (id, change) => h("div", { id, class: "hktaken", hidden: true, title: App.t("hk.takenTip") },
+    h("span", { text: App.t("hk.taken") + " — " }),
+    h("button", { class: "linkbtn", text: App.t("common.change"), onClick: change }));
+
+  /** Seconds left before a pressed save is written (the post-roll), or 0. */
+  const rollLeft = (r) => (r && r.post_roll_left_ms > 0 ? Math.ceil(r.post_roll_left_ms / 1000) : 0);
+
   /** Select of devices; `allowNone` adds an empty choice (used for the optional backup device). */
   function deviceSelect(key, kind, cur, onPick, allowNone) {
     const list = kind === "render" ? devices.render : devices.capture;
@@ -200,7 +211,7 @@ App.RecUI = (function () {
   /** Name of the device a source will use, plus a short note when something needs attention. */
   function deviceLabel(c, key, kind) {
     const list = kind === "render" ? devices.render : devices.capture;
-    if (key === "chat" && c.chat_app) return { text: App.t("dev.sep", { app: c.chat_app }), note: "" };
+    if (key === "chat" && c.chat_app) return { text: App.t("dev.sep", { app: appName(c.chat_app) }), note: "" };
     const p = c[key].primary;
     let text = App.t("dev.unset");
     if (p && p.id === FOLLOW) text = nameOf(list, defaultFor(kind, key)) || App.t("dev.winDef");
@@ -541,7 +552,8 @@ App.RecUI = (function () {
       // SKRÓTY: every global shortcut of the recorder in one place
       /** One shortcut row: the capture field plus a clear button once something is set ("no shortcut" is allowed). */
       const keyRow = (label, key, value, redraw, tip) => {
-        const field = hotkeyField(value, (c, kb) => { save({ [key]: c }, kb ? App.t("key.restart") : ""); redraw(); });
+        const field = hotkeyField(value, (c) => { save({ [key]: c }); redraw(); });   // the recorder applies shortcuts live
+        if (key === "hotkey") field.id = "hkSave";
         const clear = value ? h("button", { class: "linkbtn", text: "✕", title: App.t("hk.clear"),
           onClick: () => { save({ [key]: "" }); redraw(); } }) : null;
         const row = U.srow(label, h("div", { class: "pathrow" }, field, clear));
@@ -553,6 +565,7 @@ App.RecUI = (function () {
       const drawKeys = () => {
         put(recBox,
           keyRow(App.t("key.save"), "hotkey", cfg.hotkey, drawKeys, "key.saveTip"),
+          takenWarn("hkTaken", () => App.$("#hkSave")?.focus()),
           keyRow(App.t("key.record"), "record_hotkey", cfg.record_hotkey, drawKeys, "long.tip"));
         put(devBox,
           keyRow(App.t("key.output"), "output_hotkey", cfg.output_hotkey || "", drawKeys, "key.outputTip"),
@@ -601,6 +614,13 @@ App.RecUI = (function () {
   function paint() {
     // the diagnostics line lives on the Advanced tab, which has no status bar
     const r0 = S.recorder;
+    // Shortcuts tab: the save shortcut is held by another program; the field gets the focus once, when that appears
+    const taken = App.$("#hkTaken");
+    if (taken) {
+      const show = !!r0 && r0.hotkey_ok === false;
+      if (show && taken.hidden) setTimeout(() => App.$("#hkSave")?.focus(), 0);
+      taken.hidden = !show;
+    }
     const diag = App.$("#recDiag");
     if (diag) diag.textContent = r0 ? App.t("adv.diagFmt", { n: r0.restarts, enc: r0.encoder || "?", cap: r0.capture || "?", rate: r0.kbps ? (r0.kbps / 1000).toFixed(1) + " Mb/s" : "?" }) : "—";
     const bar = App.$("#recState");
@@ -611,7 +631,7 @@ App.RecUI = (function () {
     const clock = (sec) => `${sec >= 3600 ? Math.floor(sec / 3600) + ":" : ""}${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
     if (paint.wasLong && !lg) setTimeout(() => App.Lib.load(), 6000);   // the finished MP4 appears after the remux
     paint.wasLong = !!lg;
-    const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
+    const down = r ? r.sources.filter(App.srcFaulty).map((s) => s.name) : [];
     let state = "on", t = App.t("st.on"), l = "";
     if (!r) { state = "off"; t = App.t("st.off"); l = App.t("st.offL"); }
     else if (r.idle) { state = "idle"; t = App.t("st.idle"); l = App.t("st.idleL"); }
@@ -619,6 +639,9 @@ App.RecUI = (function () {
     else if (down.length) { state = "warn"; t = App.t("st.warn"); l = App.t("st.down", { list: down.join(", ") }); }
     if (lg) { state = "on"; t = App.t("long.on"); l = `${clock(lg.elapsed_s || 0)} · ${lg.mb} MB`; }
     else if (r && r.long && r.long.finalizing) t = App.t("long.fin");
+    const left = rollLeft(r);
+    if (left && !lg) { t = App.t("rec.pill.saving"); l = App.t("roll.left", { n: left }); }
+    line.title = left ? App.t("roll.again") : "";
     if (r && !l) l = r.hotkey ? App.t("st.buffer", { cur: fmtBuf(r.buffer_s), target: fmtBuf(r.buffer_target_s), hk: String(r.hotkey).replaceAll("+", " + ") })
       : App.t("st.bufferNoKey", { cur: fmtBuf(r.buffer_s), target: fmtBuf(r.buffer_target_s) });
     dot.className = `sdot ${state}`;
@@ -682,8 +705,26 @@ App.RecUI = (function () {
       }
       if (!src || !dev) continue;
       const base = dev.firstChild ? dev.firstChild.textContent : "";
-      const note = !src.live ? src.status.replace(/^down: /, App.t("src.missing")) : (src.role === "secondary" ? App.t("src.backup") : "");
-      dev.replaceChildren(...[src.device || base, note ? h("em", { class: src.live ? "" : "bad", text: note }) : null].filter(Boolean));   // replaceChildren(null) would print "null"
+      const st = srcState(src);
+      const name = st.name || (src.role === "appx" ? App.t("src.allBut", { app: appName(src.device) }) : src.role === "app" && src.device ? appName(src.device) : src.device) || base;
+      const note = st.note ? h("em", { class: App.srcFaulty(src) ? "bad" : "", text: st.note, title: st.tip || null }) : null;
+      dev.replaceChildren(...[name, note].filter(Boolean));   // replaceChildren(null) would print "null"
+    }
+  }
+
+  /** What a source's status code means, in words: the note after its device name, and a device name to show instead
+   *  when it waits for one. The recorder sends codes (`wait_device:<name>`, `wait_app:<stem>`, ...), never text. */
+  function srcState(src) {
+    if (src.live) return { note: src.role === "secondary" ? App.t("src.backup") : "" };
+    const s = String(src.status || ""), i = s.indexOf(":");
+    const code = i < 0 ? s : s.slice(0, i), arg = i < 0 ? "" : s.slice(i + 1);
+    switch (code) {
+      case "wait_device": return { note: App.t("src.waitDev"), name: arg };
+      case "wait_app": return { note: App.t("src.waitApp", { app: appName(arg) }), tip: App.t("src.waitTip") };
+      case "wait_game": return { note: App.t("src.waitGame") };
+      case "no_device": return { note: App.t("src.noDevice"), tip: App.t("src.noDeviceTip") };
+      case "starting": return { note: App.t("src.starting") };
+      default: return { note: App.t("src.error"), tip: arg || s };
     }
   }
 
@@ -699,6 +740,7 @@ App.RecUI = (function () {
     await load();
     const found = await api.invoke("detect_clip_folders").catch(() => []);
     const others = found.filter((f) => f.source !== "Buffer");     // clip folders of other programs
+    const discord = await api.invoke("discord_installed").catch(() => false);
     const fresh = !App.P.settings.onboarded;
     const resumeAt = fresh ? Math.min(KEY_STEP, Math.max(0, +App.P.settings.wizStep || 0)) : 0;
     const w = {
@@ -718,7 +760,8 @@ App.RecUI = (function () {
     if (fresh && !resumeAt) {
       Object.assign(w.cfg, presets.find((p) => p[0] === recId)[3]);
       // One shared output is the common case: split a chat app out of the game track by default.
-      if (sharedOutput(w.cfg) && !w.cfg.chat_app) w.cfg.chat_app = "discord";
+      // only when Discord is installed: otherwise the Chat track would wait for a program that never starts
+      if (sharedOutput(w.cfg) && !w.cfg.chat_app && discord) w.cfg.chat_app = "discord";
     }
 
     const overlay = h("div", { class: "wz" });
@@ -809,8 +852,12 @@ App.RecUI = (function () {
       const bleed = bleedWarn();
       const paintNotes = () => {
         for (const [key, , , kind] of SRC) {
-          const n = deviceLabel(w.cfg, key, kind).note;
+          // the chat app split is said in the Chat row itself: its sound goes to a track of its own
+          const split = key === "chat" && w.cfg.chat_app;
+          const n = split ? deviceLabel(w.cfg, key, kind).text : deviceLabel(w.cfg, key, kind).note;
           notes[key].textContent = n;
+          if (split) notes[key].title = App.t("wz.splitTip", { app: appName(w.cfg.chat_app) });
+          else notes[key].removeAttribute("title");     // an empty title would hide the row's own tooltip
           notes[key].hidden = !n;
         }
       };
@@ -902,9 +949,22 @@ App.RecUI = (function () {
         bufBars.forEach((b, j) => { b.style.opacity = j < lit ? (0.4 + j * 0.03).toFixed(2) : 0.1; });
         bufText.textContent = r ? App.t("wz.buf", { cur: fmtBuf(cur), target: fmtBuf(target) }) : App.t("wz.starting");
       };
+      const editKey = () => { w.editKey = true; drawKeys(); };
       const paintKey = () => {
+        const r = S.recorder, left = rollLeft(r);
+        // the shortcut is held by another program: say so in amber and open the field, instead of waiting forever
+        if (r && r.hotkey_ok === false && !w.clip) {
+          if (!strip.classList.contains("warn")) {
+            strip.className = "keystrip warn";
+            const warn = takenWarn("", editKey); warn.hidden = false;
+            strip.replaceChildren(warn);
+            if (!w.editKey) editKey();
+          }
+          return;
+        }
         strip.className = "keystrip" + (w.clip ? " ok" : w.tested ? " busy" : "");
-        strip.textContent = w.clip ? "✓ " + App.t("wz.keyOk") : w.tested ? App.t("wz.saving") : App.t("wz.waitKey");
+        strip.title = !w.clip && left ? App.t("roll.again") : "";
+        strip.textContent = w.clip ? "✓ " + App.t("wz.keyOk") : w.tested ? (left ? App.t("wz.saving") + " · " + App.t("roll.left", { n: left }) : App.t("wz.saving")) : App.t("wz.waitKey");
         if (!w.clip) { put(clipBox); return; }
         const thumb = h("div", { class: "wzthumb" });
         const meta = h("span", { class: "mono faint" });
@@ -986,9 +1046,10 @@ App.RecUI = (function () {
     /** A new keyboard shortcut needs a recorder restart. */
     async function applyKey() {
       await persist();
-      if (S.recorder) { App.Rec.expectDown = Date.now(); await api.invoke("recorder_cmd", { cmd: "quit" }).catch(() => {}); await sleep(1200); }
-      await api.invoke("recorder_launch").catch(() => {});
-      await sleep(1500);
+      // the recorder re-registers shortcuts on `reload` (within half a second), so the buffer is kept
+      if (S.recorder) await api.invoke("recorder_cmd", { cmd: "reload" }).catch(() => {});
+      else { await api.invoke("recorder_launch").catch(() => {}); await sleep(1500); }
+      await sleep(700);
       await App.Rec.refresh();
       mark();
     }
@@ -1011,7 +1072,7 @@ App.RecUI = (function () {
         // the clip itself: the recorder names it once the save (and its post-roll) is done
         if (r && w.saved0 != null && r.last_saved && r.last_saved !== w.saved0 && !/\.rec\./.test(r.last_saved) && r.last_saved !== w.clip) {
           w.clip = r.last_saved; w.tested = true; w.paintKey();
-        }
+        } else if (!w.clip) w.paintKey();      // the post-roll countdown, or a shortcut another program holds
         w.paintBuf();
       }, 500);
     }

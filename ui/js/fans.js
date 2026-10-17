@@ -255,7 +255,7 @@
         if (!st.installed) await api.invoke("fans_install");
         await api.invoke("fans_enable");
         await render();
-      } catch (e) { importAfter = false; gate(null, false, String(e)); }
+      } catch (e) { importAfter = false; gate(null, false, App.installError(e) || null); }   // a declined UAC prompt: back to the gate, no error
     };
     page.replaceChildren(App.emptyState(App.t("fans.gate"), error || msg || (unavailable ? App.t("fans.noBuild") : App.t("fans.gateD")), busy || unavailable ? null : App.t("fans.enable"), () => enable(false)));
     const empty = page.querySelector(".empty");

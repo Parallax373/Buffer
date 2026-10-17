@@ -19,6 +19,11 @@ no bloat, no launcher/update breakage, a richer editor, and a size-targeted expo
   (game = executable name of the foreground window, or `Desktop`; map names in `recorder.json: game_names`).
 - Reliability: supervisor restarts ffmpeg with back-off; audio sources reconnect every 2 s; single-instance mutex;
   ffmpeg lives in a kill-on-close job object; tray icon is green (all live) / amber (a source is down) / red (stopped).
+  A source that only waits for its chat app (not running) or for a kind of device the PC does not have (no mic at all)
+  is down but not a fault (`Sink::fault`, status `fault: false`): no amber pill or tray, no health popup. A chosen device
+  that is gone or a failed capture is a fault. Source statuses are codes (`wait_device:<name>`, `wait_app:<stem>`,
+  `wait_game`, `no_device`, `error:<details>`) that the UI translates. The wizard splits Discord out of the game track
+  only when `%LOCALAPPDATA%\Discord` exists (`discord_installed`).
 - Config: `%APPDATA%\moments-lite\recorder.json` (UI: Ustawienia â†’ Nagrywanie). fps, width, bitrate, buffer length,
   monitor, hotkey, devices, audio offset (ms). Control: `ml-recorder status|save|reload|quit` on 127.0.0.1:47821.
 - Autostart: HKCU Run key (`ml-recorder install-autostart`), done by the installer and by Settings.
@@ -59,8 +64,9 @@ Favourites/exports/settings persist in `%APPDATA%\moments-lite\app-state.json`.
   falls back to libx264 for the rest of the run (`Shared.encoder_override`, survives settings reloads). x264 is capped
   at 1080p30. Every encoder gets `-force_key_frames` so segments stay 2.0 s. AMF/QSV were NOT run on real hardware
   (only `ffmpeg -h encoder=` option names were checked); NVENC and x264 were.
-- Bindings (`hotkey`, `marker_hotkey`, `record_hotkey`) are comma-separated: keyboard combo (RegisterHotKey, needs a
-  restart), `Mouse3/4/5` with optional modifiers, `Pad:View+RB` chords (>= 2 buttons, XInput only). `input.rs` polls
+- Bindings (`hotkey`, `marker_hotkey`, `record_hotkey`) are comma-separated: keyboard combo (RegisterHotKey, re-registered
+  live on `reload`; a combo another program holds gives `hotkey_ok: false` in `status`, shown as "Shortcut taken" in the
+  wizard and Settings), `Mouse3/4/5` with optional modifiers, `Pad:View+RB` chords (>= 2 buttons, XInput only). `input.rs` polls
   mouse/pad on its own thread (no hooks) and posts WM_HOTKEY to the tray thread; applied live. Pad path untested (no pad).
 - Long recording (`longrec.rs`, Alt+R / tray / Settings button / `record-start|record-stop`): finished segments are
   appended to `<game>__<stamp>.rec.ts` next to the clips, remuxed to MP4 on stop (3 named tracks, no faststart).

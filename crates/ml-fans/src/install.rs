@@ -171,15 +171,16 @@ Remove-Item -LiteralPath (Split-Path $dest) -Force
 exit 0
 "#;
 
+/// The elevated script's exit code as a short code the UI translates (`uac_declined` = the user said no: a quiet cancel).
 fn reason(code: i32) -> String {
     match code {
-        99 => "the Windows permission prompt was declined".into(),
-        10 => "the fan helper download does not match the expected hash".into(),
-        14 => "the PawnIO installer failed its hash or signature check".into(),
-        11 => "cannot unpack the fan helper into Program Files".into(),
-        12 => "cannot register the fan helper task".into(),
-        13 => "the PawnIO driver installer failed".into(),
-        c => format!("the elevated install failed (code {c})"),
+        99 => "uac_declined".into(),
+        10 => "hash_mismatch".into(),
+        14 => "pawnio_check".into(),
+        11 => "unpack_failed".into(),
+        12 => "task_failed".into(),
+        13 => "pawnio_failed".into(),
+        c => format!("install_failed:{c}"),
     }
 }
 
@@ -202,7 +203,7 @@ pub fn install_zip(zip: &Path, expected: Option<&str>, work: &Path) -> Result<()
     let hold = std::fs::OpenOptions::new().read(true).share_mode_read().open(zip).map_err(|e| e.to_string())?;
     let sha = sha256(zip)?;
     if expected.is_some_and(|e| e != sha) {
-        return Err("the fan helper download does not match the expected hash".into());
+        return Err("hash_mismatch".into());
     }
     let pawn = work.join("PawnIO_setup.exe");
     let pawn_hold = if pawnio_present() { None } else { Some(fetch(PAWNIO_URL, &pawn, PAWNIO_SHA256)) };
@@ -212,7 +213,7 @@ pub fn install_zip(zip: &Path, expected: Option<&str>, work: &Path) -> Result<()
         }
         match elevated(&script(zip, &sha, &pawn, &user_sid()?))? {
             0 if installed() => Ok(()),
-            0 => Err("the install finished but the fan helper is not in place".into()),
+            0 => Err("not_in_place".into()),
             c => Err(reason(c)),
         }
     })();
@@ -234,7 +235,7 @@ pub fn install(work: &Path) -> Result<(), String> {
     } else if let Some(z) = local_zip() {
         install_zip(&z, None, work)
     } else {
-        Err("the fan helper is missing from this build (run scripts/build-fans-helper.ps1)".into())
+        Err("no_build".into()) // a dev build where scripts/build-fans-helper.ps1 was not run
     }
 }
 
@@ -244,7 +245,7 @@ pub fn uninstall() -> Result<(), String> {
     match elevated(&UNINSTALL_PS.replace("{DEST}", &q(&install_dir())))? {
         0 => Ok(()),
         99 => Err(reason(99)),
-        c => Err(format!("the elevated uninstall failed (code {c})")),
+        c => Err(format!("uninstall_failed:{c}")),
     }
 }
 

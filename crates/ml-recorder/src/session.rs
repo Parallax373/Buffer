@@ -65,6 +65,8 @@ pub struct Shared {
     pub flash: Mutex<Option<(Instant, bool)>>,
     /// How many times the save hotkey was pressed (the setup wizard uses it to test the shortcut).
     pub hotkey_hits: AtomicU32,
+    /// The save shortcut (keyboard part) that Windows refused because another program holds it; empty = registered.
+    pub hotkey_taken: Mutex<String>,
     /// Video bitrate (kb/s) of the running session, for diagnostics.
     pub kbps_now: AtomicU32,
     /// Measured load of the recorder and its encoder, tenths of a percent (gpu: -1 = unavailable).

@@ -183,12 +183,16 @@
   App.focusSearch = () => App.$("#topSearch")?.focus();
 
   const fmtBuf = (s) => `${Math.floor(s / 60)}:${String(Math.round(s) % 60).padStart(2, "0")}`;
+  /** A source worth a warning: down for a real reason. One that waits for a chat app that is not running, or for a
+   *  kind of device the PC does not have, is down but fine (an older recorder has no `fault`: then down = fault). */
+  const faulty = (App.srcFaulty = (s) => (s.fault ?? !s.live));
 
   function paintRec() {
     const r = S.recorder;
-    const down = r ? r.sources.filter((s) => !s.live).map((s) => s.name) : [];
+    const down = r ? r.sources.filter(faulty).map((s) => s.name) : [];
     let cls, text;
     if (!r) { cls = "off"; text = App.t("rec.pill.off"); }
+    else if (r.post_roll_left_ms > 0) { cls = "saving"; text = App.t("rec.pill.saveIn", { n: Math.ceil(r.post_roll_left_ms / 1000) }); }
     else if (r.saving) { cls = "saving"; text = App.t("rec.pill.saving"); }
     else if (r.idle) { cls = "idle"; text = App.t("rec.pill.idle"); }
     else if (!r.recording) { cls = "bad"; text = App.t("rec.pill.stopped"); }
@@ -196,9 +200,12 @@
     else { cls = "on"; text = App.t("rec.pill.on", { t: fmtBuf(r.buffer_s) }); }
     // rebuilt only when it changes: a new dot element restarts its pulse animation, and this runs on every poll
     const sig = cls + "|" + text;
-    recPill.title = recTooltip();
+    recPill.title = r && r.post_roll_left_ms > 0 ? App.t("roll.again") : recTooltip();
     if (recPill._sig === sig) return;
+    // only the text changed (the countdown ticking): keep the dot, so its pulse is not restarted every second
+    if (recPill._cls === cls && recPill.lastChild && recPill.lastChild.nodeType === 3) { recPill._sig = sig; recPill.lastChild.textContent = text; return; }
     recPill._sig = sig;
+    recPill._cls = cls;
     recPill.className = `recpill ${cls}`;
     recPill.replaceChildren(h("span", { class: "dot" }), text);
   }
@@ -223,7 +230,7 @@
     if (!r) return App.t("rec.tip.off");
     if (r.idle) return App.t("rec.tip.idle");
     if (!r.recording) return r.last_error || App.t("rec.tip.stopped");
-    const down = r.sources.filter((s) => !s.live).map((s) => s.name);
+    const down = r.sources.filter(faulty).map((s) => s.name);
     const base = down.length ? App.t("rec.tip.down", { list: down.join(", ") }) : App.t("rec.tip.on", { cur: r.buffer_s, target: r.buffer_target_s });
     return App.t("rec.tip.save", { base });
   }
@@ -783,7 +790,7 @@
                 App.toast(App.t("rgb.stopped"), "ok"); App.Settings.render(true);
               } }) : null,
               U.sure(App.t("rgb.remove"), App.t("rgb.removeTip"), async () => {
-                try { await api.invoke("rgb_uninstall"); App.toast(App.t("rgb.removed"), "ok"); } catch (err) { App.toast(App.t("rgb.err", { err }), "err"); }
+                try { await api.invoke("rgb_uninstall"); App.toast(App.t("rgb.removed"), "ok"); } catch (e) { const err = App.installError(e); if (err) App.toast(App.t("rgb.err", { err }), "err"); }
                 App.Settings.render(true);
               }))))) : null,
       // Fans: the same way out (turn off = every fan goes back to the BIOS; remove = also uninstall the helper)
@@ -797,7 +804,7 @@
                 App.toast(App.t("fans.offDone"), "ok"); App.Settings.render(true);
               } }) : null,
               U.sure(App.t("fans.removeHelper"), App.t("fans.removeTip"), async () => {
-                try { await api.invoke("fans_uninstall"); App.toast(App.t("fans.removed"), "ok"); } catch (err) { App.toast(App.t("fans.err", { err }), "err"); }
+                try { await api.invoke("fans_uninstall"); App.toast(App.t("fans.removed"), "ok"); } catch (e) { const err = App.installError(e); if (err) App.toast(App.t("fans.err", { err }), "err"); }
                 App.Settings.render(true);
               }))))) : null));
   }

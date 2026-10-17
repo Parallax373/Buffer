@@ -23,6 +23,7 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
                 "device": *s.device_name.lock().unwrap(),
                 "role": *s.role.lock().unwrap(),
                 "live": s.live.load(Ordering::Relaxed),
+                "fault": s.faulty(),
                 "level": s.level.load(Ordering::Relaxed) as f64 / 1000.0,
                 "status": *s.status.lock().unwrap(),
             })
@@ -30,6 +31,19 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
         .collect();
     let gpu = shared.gpu_x10.load(Ordering::Relaxed);
     let gpu_pct = if gpu < 0 { serde_json::Value::Null } else { json!(gpu as f64 / 10.0) };
+    // false while Windows refuses the save shortcut (another program holds it). Compared with the shortcut in the
+    // settings, so a new one is not reported as taken in the half second before the tray thread registers it.
+    let hotkey_ok = {
+        let t = shared.hotkey_taken.lock().unwrap();
+        t.is_empty() || *t != cfg.hotkey.trim()
+    };
+    // a pressed save waits out its post-roll: how long until it saves (a second press saves at once)
+    let post_roll_left_ms = shared
+        .post_roll_until
+        .lock()
+        .unwrap()
+        .map(|u| u.saturating_duration_since(std::time::Instant::now()).as_millis() as u64)
+        .unwrap_or(0);
     json!({
         "recording": shared.recording.load(Ordering::Relaxed),
         "idle": shared.idle.load(Ordering::Relaxed),
@@ -47,6 +61,8 @@ pub fn status_json(shared: &Shared) -> serde_json::Value {
         "saving": shared.saving.load(Ordering::Relaxed) || shared.post_roll_active.load(Ordering::Relaxed),
         "buffer_s": buffered_seconds().min(cfg.buffer_seconds),
         "buffer_target_s": cfg.buffer_seconds,
+        "hotkey_ok": hotkey_ok,
+        "post_roll_left_ms": post_roll_left_ms,
         "hotkey": cfg.hotkey,
         "output_dir": cfg.output_dir,
         "ffmpeg": ml_core::tools::ffmpeg().to_string_lossy(),

@@ -211,7 +211,7 @@
       gate(App.t("rgb.installing"), true);
       try {
         if (!(await api.invoke("rgb_status")).installed) await api.invoke("rgb_install");
-      } catch (e) { gate(String(e), false); return; }
+      } catch (e) { gate(App.installError(e) || null, false); return; }   // a declined UAC prompt: back to the gate, no error
       // installed: now the other lighting program, which would paint over Buffer's colours, may go (the user asked for
       // that). Only after the install, so a declined prompt does not leave the user with no lighting program at all.
       if (close && close.length) {
