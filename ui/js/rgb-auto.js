@@ -7,6 +7,8 @@
   const inv = (c, a) => api.invoke(c, a);
   const toast = (e) => App.toast(App.t("rgb.err", { err: e }), "err");
   let stat = {}, statAt = 0;
+  /** programs the user closed with the button, whose autostart was not decided yet: the button for it stays */
+  let closedApps = [];
 
   const hm = (min) => String(Math.floor(min / 60)).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0");
   const minutes = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ""); return m ? Math.min(23, +m[1]) * 60 + Math.min(59, +m[2]) : null; };
@@ -25,23 +27,39 @@
     /** Other lighting programs that run and may overwrite our colours. */
     conflictChip(reload) {
       const c = stat.conflicts || [];
-      if (!c.length) return null;
-      const chip = h("span", { class: "chip warn", text: "⚠ " + c[0] + (c.length > 1 ? " +" + (c.length - 1) : ""), title: App.t("rgb.conflictTip", { apps: c.join(", ") }) });
-      // the way out: close them and stop them starting with Windows (one Windows prompt)
-      const btn = h("button", { class: "chip warn act", text: c.length === 1 ? App.t("rgb.closeOther", { name: c[0] }) : App.t("rgb.closeAll"),
-        title: App.t("rgb.closeTip", { apps: c.join(", ") }),
+      const apps = [...new Set([...c, ...closedApps])];
+      if (!apps.length) return null;
+      const out = [];
+      if (c.length) {
+        out.push(h("span", { class: "chip warn", text: "⚠ " + c[0] + (c.length > 1 ? " +" + (c.length - 1) : ""), title: App.t("rgb.conflictTip", { apps: c.join(", ") }) }));
+        // two separate choices: close them now, and (not the same thing) stop them starting with Windows
+        out.push(h("button", { class: "chip warn act", text: c.length === 1 ? App.t("rgb.closeOther", { name: c[0] }) : App.t("rgb.closeAll"),
+          title: App.t("rgb.closeTip", { apps: c.join(", ") }),
+          onClick: async (e) => {
+            const b = e.currentTarget;
+            b.disabled = true;
+            try {
+              await inv("rgb_close_conflicts", { names: c });
+              closedApps = [...new Set([...closedApps, ...c])];
+              App.toast(App.t("rgb.closed", { apps: c.join(", ") }), "ok");
+              await new Promise((r) => setTimeout(r, 2500));   // the recorder looks at the process list every 2 s
+              await A.refresh();
+              if (reload) await reload();
+            } catch (err) { toast(err); b.disabled = false; }
+          } }));
+      }
+      out.push(h("button", { class: "chip warn act", text: App.t("rgb.noAutostart"), title: App.t("rgb.noAutostartTip", { apps: apps.join(", ") }),
         onClick: async (e) => {
           const b = e.currentTarget;
           b.disabled = true;
           try {
-            await inv("rgb_close_conflicts", { names: c });
-            App.toast(App.t("rgb.closed", { apps: c.join(", ") }), "ok");
-            await new Promise((r) => setTimeout(r, 2500));   // the recorder looks at the process list every 2 s
-            await A.refresh();
+            await inv("rgb_disable_autostart", { names: apps });
+            closedApps = closedApps.filter((x) => !apps.includes(x));
+            App.toast(App.t("rgb.noAutostartDone", { apps: apps.join(", ") }), "ok");
             if (reload) await reload();
           } catch (err) { toast(err); b.disabled = false; }
-        } });
-      return [chip, btn];
+        } }));
+      return out;
     },
 
     /** "Lights are out" while a lock / idle / schedule rule holds them off. */

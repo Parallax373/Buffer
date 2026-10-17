@@ -52,12 +52,18 @@ pub async fn rgb_start() -> Result<Value, String> {
     rgb_devices().await
 }
 
-/// Closes the other lighting programs that are in the way (Razer Synapse, SteelSeries GG, ...) and turns their start
-/// with Windows off, so they stop taking the lights from Buffer: one Windows prompt. Only programs the recorder lists
-/// as conflicts can be closed.
+/// Closes the other lighting programs that are in the way (Razer Synapse, SteelSeries GG, ...). Only that: no setting
+/// of theirs changes, so they start again with Windows. Only programs on the recorder's conflict list can be closed.
 #[tauri::command]
 pub async fn rgb_close_conflicts(names: Vec<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || ml_core::others::close_lighting(&names)).await.map_err(|e| e.to_string())?
+}
+
+/// A separate choice: stops those programs from starting with Windows (startup entries, services set to manual, logon
+/// tasks): one Windows prompt. Nothing is closed or removed; Windows or the program itself turns it back on.
+#[tauri::command]
+pub async fn rgb_disable_autostart(names: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ml_core::others::disable_autostart(&names)).await.map_err(|e| e.to_string())?
 }
 
 /// Starts OpenRGB again so it looks for hardware from scratch, then returns the devices. A device that was asleep or
