@@ -242,8 +242,10 @@
     gate(App.t("rgb.starting"), true);
     try {
       adoptDevices(await api.invoke("rgb_start"));
-      adoptScene(await api.invoke("rgb_scene_get"));
-      await App.RGBAuto.refresh();
+      // the scene and the status do not depend on each other: ask for both at once
+      const [sc, status] = await Promise.all([api.invoke("rgb_scene_get"), api.invoke("rgb_status").catch(() => null)]);
+      adoptScene(sc);
+      if (status) App.RGBAuto.adopt(status);
     } catch (e) { gate(String(e), false); return; }
     if (S.view !== "rgb") return;
     draw(true);
@@ -251,7 +253,11 @@
 
   /** The scene or the profile changed outside this page (a profile was loaded): read it again and draw from scratch. */
   async function reload() {
-    try { adoptScene(await api.invoke("rgb_scene_get")); await App.RGBAuto.refresh(); } catch (e) { toast(e); }
+    try {
+      const [sc, status] = await Promise.all([api.invoke("rgb_scene_get"), api.invoke("rgb_status").catch(() => null)]);
+      adoptScene(sc);
+      if (status) App.RGBAuto.adopt(status);
+    } catch (e) { toast(e); }
     draw(true);
   }
 
@@ -474,7 +480,7 @@
       if (S.view !== "rgb") return;
       if (!s || !s.installed) gate();
       else if (!s.enabled) gate();
-      else if (s.running && st.devs.length) { try { adoptScene(await api.invoke("rgb_scene_get")); } catch (_) { /* keep */ } await App.RGBAuto.refresh(); draw(true); }   // the scene may have changed elsewhere
+      else if (s.running && st.devs.length) { App.RGBAuto.adopt(s); try { adoptScene(await api.invoke("rgb_scene_get")); } catch (_) { /* keep */ } draw(true); }   // the scene may have changed elsewhere
       else start();
     },
     leave() { App.RGBCalib.close(); if (mode === "advanced") App.RGBAdv.leave(); },

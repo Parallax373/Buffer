@@ -2325,6 +2325,7 @@ dependencies = [
 name = "ml-eq"
 version = "0.4.2"
 dependencies = [
+ "flate2",
  "serde",
  "serde_json",
  "windows-sys 0.59.0",

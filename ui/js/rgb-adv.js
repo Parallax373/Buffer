@@ -662,8 +662,9 @@
   /** asks OpenRGB which devices exist; the scene is usable (and editable) before this answers */
   let HIDDEN = new Set();
   async function refreshReal(my) {
-    let s = null;
-    try { s = await api.invoke("rgb_status"); } catch (_) { return; }
+    // rgb.js has just fetched the status for this very page open: do not ask the recorder for it again
+    let s = App.RGBAuto.recent(2000);
+    if (!s) try { s = await api.invoke("rgb_status"); } catch (_) { return; }
     HIDDEN = new Set(s && s.hidden || []);
     if (my !== gen || !s || !s.installed) return;
     let devs;

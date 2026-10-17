@@ -241,16 +241,30 @@ pub fn command(cmd: &str, arg: &str) -> Value {
     }
 }
 
-/// The Dark Project keyboard is plugged in. Enumerating HID collections takes ~150 ms and the pages ask for the status
-/// every second or so (and Settings > Advanced waits for it), so the answer is kept for 10 s.
+/// The Dark Project keyboard is plugged in. Enumerating HID collections takes ~200 ms and the pages ask for the status
+/// every second or so (and Settings > Advanced waits for it): the answer is kept for 10 s, and when it is older it is
+/// still returned at once while a background thread looks again, so no status call ever pays for the enumeration
+/// (except the very first one).
 fn keyboard_present() -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
     static CACHE: OnceLock<Mutex<Option<(Instant, bool)>>> = OnceLock::new();
-    let mut c = CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap();
-    match *c {
-        Some((at, found)) if at.elapsed() < Duration::from_secs(10) => found,
-        _ => {
+    static REFRESHING: AtomicBool = AtomicBool::new(false);
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    let cur = *cache.lock().unwrap_or_else(|e| e.into_inner());
+    match cur {
+        None => {
             let found = ml_rgb::darkproject::detect().is_some();
-            *c = Some((Instant::now(), found));
+            *cache.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), found));
+            found
+        }
+        Some((at, found)) => {
+            if at.elapsed() >= Duration::from_secs(10) && !REFRESHING.swap(true, Ordering::SeqCst) {
+                thread::spawn(move || {
+                    let now = ml_rgb::darkproject::detect().is_some();
+                    *cache.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), now));
+                    REFRESHING.store(false, Ordering::SeqCst);
+                });
+            }
             found
         }
     }

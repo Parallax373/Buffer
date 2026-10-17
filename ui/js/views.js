@@ -690,8 +690,10 @@
 
   /* Zaawansowane: what is normally left alone: tools, the recorder's own status, the cache. */
   async function renderAdvancedTab(pane) {
-    const [tools, size0, rgb, fans] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("cache_size").catch(() => 0), api.invoke("rgb_status").catch(() => null), api.invoke("fans_status").catch(() => null)]);
-    const sizeLine = h("span", { text: App.t("cache.used", { size: App.fmtMB(size0) }) });
+    const [tools, rgb, fans] = await Promise.all([api.invoke("tools_status").catch(() => null), api.invoke("rgb_status").catch(() => null), api.invoke("fans_status").catch(() => null)]);
+    // the folder walk is the slowest part and only fills one line: show the page first, write the size in when it is known
+    const sizeLine = h("span", { text: App.t("cache.used", { size: "…" }) });
+    api.invoke("cache_size").catch(() => 0).then((b) => { sizeLine.textContent = App.t("cache.used", { size: App.fmtMB(b) }); });
     pane.append(h("div", { class: "setcol" },
       h("div", null, U.cap(App.t("adv.diag")),
         h("div", { class: "card2 pad stackrows" },

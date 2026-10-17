@@ -331,16 +331,33 @@ pub fn setup_script(installer: Option<&Path>, sha256: &str, ops: &[Op], log: Opt
         .replace("@@LOG@@", &log.map(path_text).transpose()?.unwrap_or_default())
         .replace("@@OPS@@", ops_text(ops)?.trim_end());
     // CreateProcess takes 32767 characters; the UTF-16 base64 form is 8/3 of the text
-    if out.len() * 8 / 3 > 30_000 {
+    if out.len() * 8 / 3 <= 30_000 {
+        return Ok(out);
+    }
+    // Many devices: the registry writes are very repetitive, so the script travels gzipped inside a small loader
+    // (still inline, still no file).
+    use std::io::Write;
+    let mut z = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    z.write_all(out.as_bytes()).map_err(|e| e.to_string())?;
+    let packed = b64(&z.finish().map_err(|e| e.to_string())?);
+    let loader = format!(
+        "$m=New-Object IO.MemoryStream(,[Convert]::FromBase64String('{packed}'));\
+         $r=New-Object IO.StreamReader((New-Object IO.Compression.GZipStream($m,[IO.Compression.CompressionMode]::Decompress)),[Text.Encoding]::UTF8);\
+         Invoke-Expression $r.ReadToEnd()"
+    );
+    if loader.len() * 8 / 3 > 30_000 {
         return Err("too many devices to set up in one step".into());
     }
-    Ok(out)
+    Ok(loader)
 }
 
 /// `powershell -EncodedCommand` wants base64 of UTF-16LE.
 pub fn encode_command(script: &str) -> String {
+    b64(&script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect::<Vec<u8>>())
+}
+
+fn b64(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes: Vec<u8> = script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for c in bytes.chunks(3) {
         let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
@@ -504,6 +521,34 @@ mod tests {
         assert!(out.status.success(), "parse errors: {}", String::from_utf8_lossy(&out.stdout));
         // the whole thing, UTF-16 + base64, must fit into one command line
         assert!(encode_command(&script).len() < 24_000, "script too long: {}", encode_command(&script).len());
+    }
+
+    /// Dozens of endpoints used to fail with "too many devices to set up in one step": now the script is packed.
+    #[test]
+    fn many_devices_still_fit_in_one_command_line() {
+        let plan = |n: u32| {
+            let mut ops = Vec::new();
+            for i in 0..n {
+                let g = format!("{{51828c0d-bfff-4a01-b3e8-{:012x}}}", u64::from(i).wrapping_mul(0x9E37_79B9_7F4A));
+                ops.extend(plan_device(Kind::Render, &g, &fx(&[(SFX, "{C9453E73-8C5C-4463-9984-AF8BAB2F5447}")])));
+            }
+            ops
+        };
+        let ops = plan(60);
+        let script = setup_script(None, &"ab".repeat(32), &ops, None).unwrap();
+        assert!(encode_command(&script).len() < 30_000);
+        assert!(setup_script(None, &"ab".repeat(32), &plan(5000), None).is_err(), "absurd sizes still refused");
+        #[cfg(windows)]
+        {
+            // the loader must give back exactly the plain script (everything but its last statement is run)
+            let plain = {
+                let t = SCRIPT.lines().filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty()).map(|l| l.trim_start()).collect::<Vec<_>>().join("\n");
+                t.replace("@@EXE@@", "").replace("@@HASH@@", &"ab".repeat(32)).replace("@@LOG@@", "").replace("@@OPS@@", ops_text(&ops).unwrap().trim_end())
+            };
+            let probe = script.replace("Invoke-Expression $r.ReadToEnd()", "[Console]::Out.Write($r.ReadToEnd())");
+            let Ok(out) = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &probe]).output() else { return };
+            assert_eq!(String::from_utf8_lossy(&out.stdout), plain);
+        }
     }
 
     #[test]

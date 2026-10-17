@@ -32,7 +32,8 @@ pub fn task_exists() -> bool {
 }
 
 pub fn installed() -> bool {
-    exe().is_file() && task_exists()
+    static TASK_OK: ml_core::elevate::PositiveCache = ml_core::elevate::PositiveCache::new();
+    exe().is_file() && TASK_OK.get(std::time::Duration::from_secs(30), task_exists)
 }
 
 /// A release can fetch the helper itself.

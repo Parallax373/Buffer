@@ -53,6 +53,27 @@ pub fn fetch(url: &str, dest: &Path, sha: &str) -> Result<std::fs::File, String>
     Ok(hold)
 }
 
+/// Keeps a `true` answer for a while. Checking that a scheduled task exists starts `schtasks` (~40 ms) and the RGB and
+/// Fans pages ask for their status every second or so, so a positive answer is reused; a `false` is never kept, so a
+/// fresh install shows up at once (and callers check the exe first, which makes an uninstall show up at once too).
+pub struct PositiveCache(std::sync::Mutex<Option<std::time::Instant>>);
+
+impl PositiveCache {
+    pub const fn new() -> Self {
+        Self(std::sync::Mutex::new(None))
+    }
+
+    pub fn get(&self, ttl: std::time::Duration, check: impl FnOnce() -> bool) -> bool {
+        let mut at = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if at.is_some_and(|t| t.elapsed() < ttl) {
+            return true;
+        }
+        let ok = check();
+        *at = if ok { Some(std::time::Instant::now()) } else { None };
+        ok
+    }
+}
+
 /// A path inside a single-quoted PowerShell string.
 pub fn q(s: &Path) -> String {
     s.to_string_lossy().replace('\'', "''")
@@ -97,6 +118,22 @@ mod tests {
         assert_eq!(base64(b"fo"), "Zm8=");
         assert_eq!(base64(b"foo"), "Zm9v");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn positive_cache_keeps_true_but_never_false() {
+        use std::{cell::Cell, time::Duration};
+        let c = PositiveCache::new();
+        let calls = Cell::new(0);
+        let ttl = Duration::from_secs(60);
+        assert!(!c.get(ttl, || { calls.set(calls.get() + 1); false }));
+        assert!(!c.get(ttl, || { calls.set(calls.get() + 1); false }));
+        assert_eq!(calls.get(), 2, "a false is asked again every time");
+        assert!(c.get(ttl, || { calls.set(calls.get() + 1); true }));
+        assert!(c.get(ttl, || { calls.set(calls.get() + 1); false }));
+        assert_eq!(calls.get(), 3, "a true is reused within the ttl");
+        assert!(!c.get(Duration::ZERO, || { calls.set(calls.get() + 1); false }));
+        assert_eq!(calls.get(), 4, "an expired true is checked again");
     }
 
     #[test]

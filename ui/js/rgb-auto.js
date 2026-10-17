@@ -6,7 +6,7 @@
   const { h, api } = App;
   const inv = (c, a) => api.invoke(c, a);
   const toast = (e) => App.toast(App.t("rgb.err", { err: e }), "err");
-  let stat = {};
+  let stat = {}, statAt = 0;
 
   const hm = (min) => String(Math.floor(min / 60)).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0");
   const minutes = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ""); return m ? Math.min(23, +m[1]) * 60 + Math.min(59, +m[2]) : null; };
@@ -14,9 +14,13 @@
   const A = (App.RGBAuto = {
     stat: () => stat,
     async refresh() {
-      try { stat = (await inv("rgb_status")) || {}; } catch (_) { /* keep the last */ }
+      try { stat = (await inv("rgb_status")) || {}; statAt = Date.now(); } catch (_) { /* keep the last */ }
       return stat;
     },
+    /** takes a status the caller has just fetched, instead of asking the recorder for the same thing again */
+    adopt(s) { stat = s || {}; statAt = Date.now(); },
+    /** the last status if it is younger than `ms`, else null (the caller then asks for a new one) */
+    recent(ms) { return Date.now() - statAt < ms && stat.installed !== undefined ? stat : null; },
 
     /** Other lighting programs that run and may overwrite our colours. */
     conflictChip() {
