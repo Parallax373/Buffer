@@ -1,5 +1,6 @@
 target/
 node_modules/
+.claude/
 src-tauri/gen/
 vendor/
 
