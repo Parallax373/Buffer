@@ -52,6 +52,13 @@ pub async fn rgb_start() -> Result<Value, String> {
     rgb_devices().await
 }
 
+/// Starts OpenRGB again so it looks for hardware from scratch, then returns the devices. A device that was asleep or
+/// busy when OpenRGB started is missing from the list until then; "Scan again" uses this.
+#[tauri::command]
+pub async fn rgb_rescan() -> Result<Value, String> {
+    Ok(send("rgb-rescan".into()).await?["devices"].clone())
+}
+
 /// Re-reads the device list.
 #[tauri::command]
 pub async fn rgb_devices() -> Result<Value, String> {

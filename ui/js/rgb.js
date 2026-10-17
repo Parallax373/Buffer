@@ -238,10 +238,13 @@
     sceneCol = st && st.length ? st[st.length - 1].c : "#c6f432";
   }
 
-  async function start() {
+  /** `rescan`: start OpenRGB again so it looks for hardware from scratch (a device it missed is only found that way) */
+  async function start(rescan = false) {
     gate(App.t("rgb.starting"), true);
     try {
-      adoptDevices(await api.invoke("rgb_start"));
+      adoptDevices(await api.invoke(rescan ? "rgb_rescan" : "rgb_start"));
+      // nothing found on the first look: look once more from scratch, before the page says there is nothing
+      if (!rescan && !st.devs.length) adoptDevices(await api.invoke("rgb_rescan"));
       // the scene and the status do not depend on each other: ask for both at once
       const [sc, status] = await Promise.all([api.invoke("rgb_scene_get"), api.invoke("rgb_status").catch(() => null)]);
       adoptScene(sc);
@@ -302,7 +305,7 @@
       return;
     }
     if (!st.devs.length) {
-      page.replaceChildren(App.emptyState(App.t("rgb.none"), App.t("rgb.noneD"), App.t("rgb.rescan"), () => start()));
+      page.replaceChildren(App.emptyState(App.t("rgb.none"), App.t("rgb.noneD"), App.t("rgb.rescan"), () => start(true)));
       return;
     }
     const all = items(), it = all.find((i) => i.key === st.sel) || all[0];

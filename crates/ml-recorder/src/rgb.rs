@@ -567,6 +567,28 @@ impl Hub {
                 drop(st);
                 self.status()
             }
+            "rgb-rescan" => {
+                // OpenRGB looks for hardware once, when its server starts: a device that was asleep, held by another
+                // program or plugged in later is not in the list until the server starts again (which a restart of
+                // the PC did). So: give everything back, stop the server, start it, and wait for the list to settle.
+                self.command("rgb-disable", "");
+                thread::sleep(Duration::from_millis(500));
+                let on = self.command("rgb-enable", "");
+                if on["ok"] != true {
+                    return on;
+                }
+                let (mut last, mut out) = (usize::MAX, Value::Null);
+                for _ in 0..6 {
+                    out = self.command("rgb-devices", "");
+                    let n = out["devices"].as_array().map_or(0, |a| a.len());
+                    if (n > 0 && n == last) || out["ok"] != true {
+                        break;
+                    }
+                    last = n;
+                    thread::sleep(Duration::from_millis(1500));
+                }
+                out
+            }
             _ => err(format!("unknown command '{cmd}'")),
         }
     }
