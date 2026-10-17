@@ -661,6 +661,9 @@ struct Conn {
     /// the test pattern shown last (colour, calibration revision), so it is sent only when something changes
     test_last: Option<([u8; 3], u64)>,
     stats: Stats,
+    /// when the next frame of a playing scene is due. Frames are paced to these deadlines, not by sleeping one frame
+    /// after each: Windows wakes a sleeper on its 15.6 ms timer tick, so "sleep 33 ms" is 47 ms and 30 fps became 21.
+    next_frame: Option<Instant>,
 }
 
 /// What the stream did lately, written to recorder.log while it plays: every 10 s for the first minute after it starts or
@@ -944,6 +947,7 @@ impl Worker {
             test_last: None,
             // sized on the first plan (it restarts the counting with the device list)
             stats: Stats::new(0),
+            next_frame: None,
         })
     }
 
@@ -1419,8 +1423,15 @@ impl Worker {
                 let driven: Vec<(usize, String)> = c.plan.iter().map(|p| (p.index, key(&c.devs, p.index))).collect();
                 log(&c.stats.take_line(&driven, c.scene.fps()));
             }
-            self.nap(frame.saturating_sub(spent));
+            // the next deadline follows the previous one, so a late wake-up is made up by a shorter wait next time;
+            // a loop that fell more than a frame behind starts over from now instead of sending a burst
+            let at = Instant::now();
+            let due = c.next_frame.map_or(now + frame, |t| t + frame);
+            let due = if due + frame < at { at } else { due };
+            c.next_frame = Some(due);
+            self.nap(due.saturating_duration_since(at));
         } else {
+            c.next_frame = None;
             // with lights that follow the lock screen, the idle time or the clock the loop looks twice a second-ish
             let poll = if power_on { Duration::from_secs(2) } else { Duration::from_secs(5) };
             self.nap(kb_wait.unwrap_or(poll).min(poll));

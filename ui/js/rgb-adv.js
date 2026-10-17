@@ -540,12 +540,18 @@
   /** What the user arranged, before a change that takes many steps to redo (removing, Arrange, another case). */
   const UNDO_KEYS = ["devices", "layers", "tpl", "caseAt", "caseRot", "caseFlip", "origin", "originDev", "sel", "selLayer", "fxName"];
   function snapshot() { const o = {}; for (const k of UNDO_KEYS) o[k] = S[k]; return JSON.parse(JSON.stringify(o, (k, v) => (k === "_b" ? undefined : v))); }
-  /** a toast that says what happened, with "Undo" putting the snapshot back */
+  /** Ctrl+Z: the states before the last changes (a move, a turn, a removal, Arrange, another case), newest last */
+  const UNDO = [];
+  function pushUndo(snap) { UNDO.push(snap || snapshot()); if (UNDO.length > 40) UNDO.shift(); }
+  function applySnap(snap) {
+    Object.assign(S, JSON.parse(JSON.stringify(snap)));
+    syncReal(); renderTree(); renderDevInsp(); renderFx(); mark(); persist();
+  }
+  function undoLast() { const snap = UNDO.pop(); if (snap) applySnap(snap); }
+  /** a toast that says what happened, with "Undo" putting the snapshot back (Ctrl+Z does the same) */
   function undoable(msg, snap) {
-    App.toast(msg, "", { label: App.t("ra.undo"), run: () => {
-      Object.assign(S, JSON.parse(JSON.stringify(snap)));
-      syncReal(); renderTree(); renderDevInsp(); renderFx(); mark(); persist();
-    } });
+    pushUndo(snap);
+    App.toast(msg, "", { label: App.t("ra.undo"), run: () => { const i = UNDO.lastIndexOf(snap); if (i >= 0) UNDO.splice(i, 1); applySnap(snap); } });
   }
 
   /** Negative speeds are gone (the direction arrow turns an effect): a layer saved with one now runs forward, turned the
@@ -1036,7 +1042,7 @@
     const d = selDev(); if (d) { setRange($("#i-x"), d.x); setRange($("#i-y"), d.y); setRange($("#i-z"), d.z); setRange($("#i-rot"), d.rot); setRange($("#i-sc"), d.sc); }
     if (S.sel === "case") { setRange($("#c-x"), S.caseAt[0]); setRange($("#c-z"), S.caseAt[1]); }
   }
-  function rotDev(d, a) { d.rot = (d.rot + a) % 360; updInsp(); moved(d); }
+  function rotDev(d, a) { pushUndo(); d.rot = (d.rot + a) % 360; updInsp(); moved(d); }
   function addReal(r) { const d = placeReal(r); save(); api.invoke("rgb_follow", { name: r.link.name, nth: r.link.nth | 0 }).then(refreshDrive, () => {});   // added on purpose: it follows the effect
     syncReal(); S.sel = d.id; S.tab = "dev"; syncTabs(); renderTree(); renderDevInsp(); persist(); }
   function removeDev(id) {
@@ -1819,8 +1825,12 @@
   function mpos(e) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
   function hit(mx, my) {
     const g = gzHit(mx, my); if (g != null) return { gz: g };
-    if (Math.hypot(mx - sDir[0], my - sDir[1]) < 13) return { dir: true };
     if (Math.hypot(mx - sOrg[0], my - sOrg[1]) < 14) return { org: true };
+    if (Math.hypot(mx - sDir[0], my - sDir[1]) < 13) return { dir: true };
+    {   // the shaft from the origin to the tip
+      const vx = sDir[0] - sOrg[0], vy = sDir[1] - sOrg[1], l2 = vx * vx + vy * vy;
+      if (l2 > 1) { const u = clamp(((mx - sOrg[0]) * vx + (my - sOrg[1]) * vy) / l2, 0, 1); if (Math.hypot(mx - (sOrg[0] + vx * u), my - (sOrg[1] + vy * u)) < 7) return { dir: true }; }
+    }
     // A click picks a device when it is on one of its LED dots or inside what is drawn for it (a card's body, a keyboard's
     // plate, a stick); where several qualify the one that takes the least room wins, so a board spread over the whole case
     // (dots everywhere, little to see) never swallows the card or the stick in front of it.
@@ -1870,6 +1880,7 @@
           // the places it sits in now (moving a device takes it out of them); a card does not jump into another kind of place
           fromSlots: d ? placesOf(d).map(slotById).filter(Boolean) : [],
           back: d && d.slot && !d.parts ? d.slot : null,   // a click that hardly moves it leaves it where it was
+          snap: snapshot(),   // for Ctrl+Z, kept once the drag really moves something
           p0: d ? [d.x, d.y, d.z] : [S.caseAt[0], 0, S.caseAt[1]], c0: GZ.c.slice(), done: [0, 0] };
         drag.arms = GZ.arms;
         if (hh.gz === "free") { const p = planePt(m[0], m[1], GZ.c); drag.off = [GZ.c[0] - p[0], GZ.c[2] - p[2]]; }
@@ -1912,6 +1923,7 @@
         }
       } else if (drag.k === "gz") {
         drag.moved += Math.abs(dx) + Math.abs(dy);
+        if (!drag.undo && drag.moved > 3) { pushUndo(drag.snap); drag.undo = true; }
         // how far, in cm, from where the drag started
         let dv = [0, 0, 0];
         if (drag.axis === "free") {
@@ -1988,6 +2000,7 @@
     else if ((e.key === "r" || e.key === "R") && d && !e.ctrlKey && !e.metaKey) rotDev(d, S.snap ? 15 : 5);
     else if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey) focusSel();
     else if (e.key === "Escape") closePop();
+    else if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); undoLast(); }
   }
 
   /* The preview runs on the recorder's clock: every few seconds it takes the effect time the lights are at (rgb-status
