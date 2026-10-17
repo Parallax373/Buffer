@@ -58,6 +58,9 @@ Windows clip recorder/editor, live EQ, sound switcher and RGB control. Rust work
 - Hardware seen on the dev PC: board + 4 RAM sticks (elevated only), GPU, headset, the keyboard. UI must not promise every device.
 - Equalizer APO setup is one UAC prompt with no wizard (`ml-eq/src/apo/setup.rs`); a test run once uninstalled the user's real
   APO. Before any install/uninstall test, snapshot what is installed first.
+- OpenRGB cannot read some devices' real mode: an Aerox 9 Wireless left in its own Rainbow Breathing is reported as
+  "Direct", so `SET_CUSTOM_MODE` alone did nothing and Buffer's colours never showed. `take_over` therefore sends the
+  Direct mode itself (`proto::direct_mode`) before the first colours of a session.
 - Recorder state keyed by DEVICE KEY (`name#n`), never by list index: the OpenRGB list can change while it runs (a false
   detection once shifted every index and put the GPU into "Off" on restore). RAM sticks save every native mode to their own
   memory: never test native effects on them. Always check `modes` example output (`cargo run -p ml-rgb --example modes`) after

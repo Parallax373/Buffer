@@ -192,6 +192,16 @@ pub fn parse_device(d: &[u8]) -> Result<Device, String> {
     Ok(Device { kind, name, vendor, description, location, active_mode, modes, zones, led_names, colors })
 }
 
+/// The mode Buffer streams colours in: "Direct" (or "Custom") with a colour per LED, and not one that saves to the
+/// device's memory on every change. `None` when the device has no such mode (it is then left to `SET_CUSTOM_MODE`).
+pub fn direct_mode(modes: &[Mode]) -> Option<usize> {
+    modes.iter().position(|m| {
+        (m.name.eq_ignore_ascii_case("direct") || m.name.eq_ignore_ascii_case("custom"))
+            && m.flags & flag::PER_LED_COLOR != 0
+            && m.flags & flag::AUTOMATIC_SAVE == 0
+    })
+}
+
 /// UPDATE_LEDS payload: total size, colour count, one `r g b 0` per LED.
 pub fn leds_payload(colors: &[[u8; 3]]) -> Vec<u8> {
     let size = 4 + 2 + 4 * colors.len();
@@ -365,5 +375,16 @@ mod tests {
         let p = mode_payload(0, &d.modes[0]);
         assert_eq!(p.len(), 8 + d.modes[0].raw.len());
         assert_eq!(&p[8..], &d.modes[0].raw[..]);
+    }
+
+    #[test]
+    fn direct_mode_is_found_by_name_and_flags() {
+        let m = |name: &str, flags: u32| Mode { name: name.into(), value: 0, flags, speed_min: 0, speed_max: 0, brightness_min: 0, brightness_max: 0, colors_min: 0, colors_max: 0, speed: 0, brightness: 0, direction: 0, color_mode: 0, raw: Vec::new() };
+        let aerox = [m("Direct", flag::BRIGHTNESS | flag::PER_LED_COLOR | flag::MANUAL_SAVE), m("Rainbow Breathing", flag::MANUAL_SAVE)];
+        assert_eq!(direct_mode(&aerox), Some(0));
+        assert_eq!(direct_mode(&[m("Static", flag::MODE_COLORS), m("custom", flag::PER_LED_COLOR)]), Some(1));
+        // a Direct that writes to the device's memory every time is left alone, and so is a mode without a colour per LED
+        assert_eq!(direct_mode(&[m("Direct", flag::PER_LED_COLOR | flag::AUTOMATIC_SAVE)]), None);
+        assert_eq!(direct_mode(&[m("Direct", 0), m("Rainbow", flag::PER_LED_COLOR)]), None);
     }
 }
