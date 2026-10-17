@@ -82,6 +82,8 @@ const App = {};
       // Xbox Game Bar and Nvidia name clips "<Game> 2025.07.08 23.40.22.01 [.DVR Trim]": the game is what comes before the date
       const dated = g.replace(/\s+\d{4}[.\-_]\d{2}[.\-_]\d{2}\b.*$/, "").trim();
       if (dated) g = dated;
+      // clips saved with no game in front are named `Desktop__…` by the recorder: shown in the UI language, file name unchanged
+      if (own && g === "Desktop") g = App.t("lib.desktop");
       gameCache.set(clip, g);
     }
     return g || App.t("clip.unknown");
@@ -169,7 +171,7 @@ const App = {};
       sub: true, hw: true,
       normDef: false, drag: true, defTarget: 10, outDir: "", onboarded: false, lang: "en", langHint: false, presets: [10, 50, 500], autoCleanDays: 7,
     },
-    libDirs: ["E:\\Nagrania"],
+    libDirs: [],
     favs: {}, titles: {}, trims: {}, clipGains: {}, newSet: [], libSeenAt: 0, exports: [], meta: {}, gains: { Game: 100, Chat: 100, Mic: 100 },
   };
   App.P = structuredClone(DEFAULTS);
@@ -227,8 +229,9 @@ const App = {};
     App.persist();
   };
 
-  /** Animated logo trail + message, used for empty and loading states. */
-  App.emptyState = (title, sub, actionLabel, onAction) => {
+  /** Animated logo trail + message, used for empty and loading states. `more`: further buttons, in one row after the
+   *  main action (a way out next to "try again"). */
+  App.emptyState = (title, sub, actionLabel, onAction, more = null) => {
     const tails = [30, 10, 38, 18, 26, 6, 34, 14, 40];
     const rows = tails.map((t, i) => {
       const w = 12 + (4 - Math.abs(i - 4)) * 14;
@@ -236,9 +239,11 @@ const App = {};
         h("div", { class: "t" }, h("i", { style: { width: `${t}px`, animationDelay: `${i * 0.07}s` } })),
         h("div", { class: "w" }, h("i", { style: { width: `${w}px` } })));
     });
+    const main = actionLabel ? h("button", { class: "btn", text: actionLabel, onClick: onAction }) : null;
+    const extra = (more || []).filter(Boolean);
     return h("div", { class: "empty" }, h("div", { class: "lines" }, rows),
       h("b", { text: title }), sub ? h("div", { class: "muted", text: sub }) : null,
-      actionLabel ? h("button", { class: "btn", text: actionLabel, onClick: onAction }) : null);
+      extra.length ? h("div", { class: "acts" }, main, ...extra) : main);
   };
 
   /* ───── settings building blocks (used by views.js and recording.js) ───── */
@@ -251,6 +256,23 @@ const App = {};
     trow: (title, desc, on, set) => h("div", { class: "trow", onClick: () => set(!on) },
       h("div", null, h("div", { class: "tt", text: title }), desc ? h("div", { class: "ds", text: desc }) : null),
       h("span", { class: "toggle lg" + (on ? " on" : "") })),
+    /** A button for something hard to take back (an elevated uninstall): the first click turns it into "Sure?" for a
+     *  few seconds, only a second click runs `run(button)`. */
+    sure: (label, tip, run) => {
+      let armed = 0;
+      const b = h("button", { class: "btn", text: label, title: tip || null, onClick: () => {
+        if (b.disabled) return;
+        if (!armed) {
+          b.textContent = App.t("common.sure"); b.classList.add("warn");
+          armed = setTimeout(() => { armed = 0; b.textContent = label; b.classList.remove("warn"); }, 3500);
+          return;
+        }
+        clearTimeout(armed); armed = 0;
+        b.textContent = label; b.classList.remove("warn"); b.disabled = true;
+        run(b);
+      } });
+      return b;
+    },
   };
 
   /* ───── toast ───── */
@@ -336,7 +358,8 @@ const App = {};
   App.exportDirFor = () => {
     const s = App.P.settings;
     if (s.outDir) return s.outDir.replace(/[\\/]+$/, "");
-    const base = (App.P.libDirs[0] || "E:\\Nagrania").replace(/[\\/]+$/, "");
+    // no library folder yet: next to where the recorder saves on a fresh install (%USERPROFILE%\Videos\Buffer)
+    const base = (App.P.libDirs[0] || App.clipsHome || "").replace(/[\\/]+$/, "");
     return `${base}\\Exported Clips`;
   };
 

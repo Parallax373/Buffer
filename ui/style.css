@@ -445,6 +445,8 @@ body { color: var(--text); }
 .empty .t i, .empty .w i { display: block; height: 5px; border-radius: 2px; background: var(--acc); }
 .empty .t i { opacity: .3; animation: trailIn .9s var(--ease) both; }
 .empty b { font: 600 18px "Instrument Sans"; }
+.empty .acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.btn.warn { border-color: var(--warn); color: var(--warn); }
 
 /* editor: playhead wake, markers, shortcuts popover, header "?" */
 .tl .head::before { content: ""; position: absolute; right: 1px; top: 26px; bottom: 4px; width: 56px;
