@@ -114,6 +114,11 @@ settings are never rewritten by plug/unplug; the primary wins again as soon as i
   the last boot â€” shown as "Restart may be needed" (a hint; never seen true here, the user had rebooted).
 - **Clips and the EQ:** endpoint loopback and mic capture are post-APO, so Game/Chat (device sources) and Mic are
   recorded WITH the EQ; per-app sources (`@app:`) are pre-APO and stay clean (measured).
+- **Attached is not heard (2026-10-17):** some drivers never run APO (measured: Focusrite USB Audio 4.124 on the dev PC; the
+  Realtek output next to it obeys). The EQ page's "Test EQ" chip (`probeEq` in `ui/js/eq.js`, `eq_probe_level` in
+  `src-tauri/src/eq.rs`) plays a -40 dBFS 1 kHz tone on the output, reads it back from the loopback (post-APO) with and
+  without a band-pass solo at 8 kHz, and calls the EQ heard when the tone drops by 10 dB or more. Manual, because it makes
+  a sound and mutes the output for ~4 s. Real machine: `cargo test -p buffer probe_default -- --ignored --nocapture`.
 - Spectrum: the app opens its own WASAPI loopback/capture only while the EQ page is open (own radix-2 FFT, 160
   log bins as raw bytes over a `tauri::ipc::Channel`, ~30 fps).
 

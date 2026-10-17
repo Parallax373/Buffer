@@ -909,6 +909,7 @@ fn main() {
             recorder_autostart,
             eq::eq_spectrum_start,
             eq::eq_spectrum_stop,
+            eq::eq_probe_level,
             eq::eq_autoeq_search,
             eq::eq_autoeq_fetch,
             eq::eq_apo_status,
