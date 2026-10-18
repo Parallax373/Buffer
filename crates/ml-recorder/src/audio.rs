@@ -270,7 +270,8 @@ fn capture_once(sink: &Sink, stop: &AtomicBool) -> Result<(), String> {
     let mut client = device.get_iaudioclient().map_err(|e| e.to_string())?;
     let fmt = WaveFormat::new(32, 32, &SampleType::Float, RATE as usize, 2, None);
     let (_, min_period) = client.get_device_period().map_err(|e| e.to_string())?;
-    let mode = StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: min_period.max(200_000) };
+    // 200 ms of slack so the once-a-second device check cannot overrun the endpoint buffer.
+    let mode = StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: min_period.max(2_000_000) };
     // For a playback device, Direction::Capture selects loopback.
     client.initialize_client(&fmt, &Direction::Capture, &mode).map_err(|e| e.to_string())?;
     let event = client.set_get_eventhandle().map_err(|e| e.to_string())?;
@@ -352,7 +353,8 @@ fn capture_app_once(sink: &Sink, stop: &AtomicBool, src: &AppSource) -> Result<(
 
     let mut client = wasapi::AudioClient::new_application_loopback_client(pid, include).map_err(|e| e.to_string())?;
     let fmt = WaveFormat::new(32, 32, &SampleType::Float, RATE as usize, 2, None);
-    let mode = StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: 0 };
+    // 200 ms of slack: the once-a-second process snapshot below takes tens of ms while a game runs.
+    let mode = StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: 2_000_000 };
     client.initialize_client(&fmt, &Direction::Capture, &mode).map_err(|e| e.to_string())?;
     let event = client.set_get_eventhandle().map_err(|e| e.to_string())?;
     let capture = client.get_audiocaptureclient().map_err(|e| e.to_string())?;
