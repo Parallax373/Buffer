@@ -168,6 +168,8 @@
     let cv = null, ctx = null, CW = 600, CH = 340, DPR = 1, raf = 0, dead = false, lastT = 0, lastDraw = 0, full = false;
     const CAM = { c: [0, 0, 0], f: [0, 0, 1], r: [1, 0, 0], u: [0, 1, 0], foc: 400 }, pr = [0, 0, 0, 1];
     const ang = {}, hits = [];
+    let mark = null;    // a place to point at (the Assign fans wizard)
+    let hold = false;   // paused from outside (the Assign fans wizard); not saved, unlike the Pause chip
     const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.anim === "off";
     let ext = { c: [0, 20, 0], s: [30, 46, 44] }, sim = null, simKey = "", budget = 2400, slow = 0, amb = { t: 25, assumed: true };
 
@@ -182,6 +184,8 @@
     fsB.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
     const legend = h("div", { class: "fleg" },
       h("span", null, h("i", { class: "c-cool" }), t("fans.legCool")), h("span", null, h("i", { class: "c-warm" }), t("fans.legWarm")), h("span", null, h("i", { class: "c-hot" }), t("fans.legHot")),
+      h("span", null, h("i", { class: "c-exh" }), t("fans.legExhaust")),
+      h("span", null, h("i", { class: "c-spd" }), t("fans.legSpeed")),
       h("span", null, h("i", { class: "c-slot" }), h("span", { class: "fleg-slot", text: t(opts.editing ? "fans.legSlotEdit" : "fans.legSlot") })));
     cv = h("canvas", { class: "ra-cv", "aria-label": t("fans.caseCap") });
     wrap.append(h("div", { class: "ra-tb" }, vSeg, pSeg, h("button", { class: "btn ra-sm", text: t("ra.fit"), title: t("ra.fitTip"), onClick: () => { fit(); App.persist(); } }), h("span", { class: "sp" }), ...(compact ? [] : [ambB, balB, airB, pauseB])),
@@ -265,13 +269,23 @@
       if (!sim) return;
       const list = fans.map((f) => ({ f, kind: flowOf(K, f.s), pct: speedOf(f) })).filter((x) => x.kind !== "none");
       const cpuT = K.temp(K.primary("cpu")), gpuT = K.temp(K.primary("gpu"));
+      const cpuW = K.power && K.power("cpu"), gpuW = K.power && K.power("gpu");
       amb = ambientOf(K);
-      const key = list.map((x) => x.f.s.id + x.kind + Math.round(x.pct * 20)).join("|") + "|" + Math.round((cpuT || 0) / 2) + "|" + Math.round((gpuT || 0) / 2) + "|" + Math.round(amb.t) + "|" + budget;
+      const key = list.map((x) => x.f.s.id + x.kind + Math.round(x.pct * 20)).join("|") + "|" + Math.round((cpuT || 0) / 2) + "|" + Math.round((gpuT || 0) / 2) + "|" + Math.round((cpuW || 0) / 10) + "|" + Math.round((gpuW || 0) / 10) + "|" + Math.round(amb.t) + "|" + budget;
       if (key === simKey) return;
       simKey = key;
       const heat = [];
-      if (slots.heat.cpu && cpuT != null) heat.push({ ...slots.heat.cpu, t: cpuT, id: "cpu" });
-      if (slots.heat.gpu && gpuT != null) heat.push({ ...slots.heat.gpu, t: gpuT, id: "gpu" });
+      // The air takes up the part's power: warming = watts / (air mass per second x specific heat). The air through the CPU
+      // heatsink or over the graphics card is what its own fans move (a 120 mm fan at full speed is about 0.03 m3/s).
+      // That is only a few kelvin in real life, so VIS stretches it to show on the colour scale; without a power reading
+      // the part's temperature is used as before.
+      const airOf = (ids, w) => {
+        const q = list.filter((x) => ids.test(x.f.s.id)).reduce((a, x) => a + 0.03 * x.pct * (x.f.s.r / 6) ** 2, 0);
+        return amb.t + Math.min(45, VIS * w / (1.2 * 1005 * Math.max(q, 0.004)));
+      };
+      const VIS = 4;
+      if (slots.heat.cpu && cpuT != null) heat.push({ ...slots.heat.cpu, t: cpuT, id: "cpu", ...(cpuW != null ? { tw: airOf(/^cpu/, cpuW) } : {}) });
+      if (slots.heat.gpu && gpuT != null) heat.push({ ...slots.heat.gpu, t: gpuT, id: "gpu", ...(gpuW != null ? { tw: airOf(/^gpuf/, gpuW) } : {}) });
       sim.set({
         ambient: amb.t, heat,
         fans: list.map(({ f, kind, pct }) => ({ c: f.s.c, r: f.s.r, pct, kind, slot: f.s.id, spread: !!f.s.gpuFan, a: kind === "in" ? f.s.aIn : kind === "out" ? f.s.aIn.map((v) => -v) : (f.s.aInt || f.s.aIn) })),
@@ -368,9 +382,12 @@
         const isLit = (ctl && ctl.id === lit) || inSet, on = isLit || (ctl && ctl.id === sel);
         const p = inSet ? (assign.boost ? 100 : 60) : ctl ? K.pctOf(ctl) : 0, r = ctl ? K.rpmOf(ctl) : null;
         ang[s.id] = ((ang[s.id] || 0) + (reduced() ? 0 : dt * (p / 100) * TAU * 3)) % TAU;
-        if (isLit) { ctx.shadowColor = "#c6f432"; ctx.shadowBlur = 14; }
-        ctx.strokeStyle = on ? "#c6f432" : assign ? "#3a4030" : "#5b6450"; ctx.lineWidth = on ? 2 : 1.4; ctx.beginPath(); ring(s, s.r + 0.6); ctx.stroke(); ctx.lineWidth = 1; ctx.shadowBlur = 0;
-        ctx.fillStyle = on ? "rgba(198,244,50,.62)" : assign ? "rgba(198,244,50,.12)" : "rgba(198,244,50,.28)";
+        // exhaust fans are amber, intake (and the CPU and graphics card) lime
+        const exhaust = flowOf(K, s) === "out", hex = exhaust ? "#ffb454" : "#c6f432", rgb3 = exhaust ? "255,180,84" : "198,244,50";
+        if (isLit) { ctx.shadowColor = hex; ctx.shadowBlur = 14; }
+        ctx.strokeStyle = on ? hex : assign ? (exhaust ? "#5a4326" : "#3a4030") : (exhaust ? "#8a6a3a" : "#5b6450"); ctx.lineWidth = on ? 2 : 1.4; ctx.beginPath(); ring(s, s.r + 0.6); ctx.stroke(); ctx.lineWidth = 1; ctx.shadowBlur = 0;
+        // the ring says which way the air goes (above); the blades say how fast: lime when slow, amber when fast
+        ctx.fillStyle = bladeColor(p, on ? 0.85 : assign ? 0.4 : 0.65);
         for (let i = 0; i < 7; i++) {
           const a = ang[s.id] + i * TAU / 7, pts = [onRing(s, s.r * 0.2, a), onRing(s, s.r * 0.95, a - 0.12), onRing(s, s.r * 0.95, a + 0.5), onRing(s, s.r * 0.2, a + 0.4)];
           let ok = true; const xy = [];
@@ -389,6 +406,15 @@
           ctx.textAlign = "start";
         }
       }
+      // a place the wizard points at (the user hovers its row): a pulsing ring and its name
+      const ms = mark && slots.find((x) => x.id === mark);
+      if (ms && proj(ms.c[0], ms.c[1], ms.c[2])) {
+        const px = pr[0], py = pr[1], rr = Math.max(ms.r * pr[3], 10) * (1.3 + 0.1 * Math.sin(performance.now() / 150));
+        ctx.save(); ctx.shadowColor = "#c6f432"; ctx.shadowBlur = 18; ctx.strokeStyle = "#c6f432"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(px, py, rr, 0, TAU); ctx.stroke(); ctx.restore();
+        ctx.font = '600 11px "JetBrains Mono",Consolas,monospace'; ctx.textAlign = "center"; ctx.fillStyle = "#c6f432";
+        ctx.fillText(slotLabel(ms), px, py - rr - 7); ctx.textAlign = "start";
+      }
     }
     function balance() {
       if (compact) return;
@@ -400,10 +426,30 @@
       }
       ambB.hidden = false; ambB.textContent = t(amb.assumed ? "fans.ambAssumed" : "fans.amb", { t: Math.round(amb.t) }); ambB.title = t("fans.ambTip");
     }
+    /** Blade colour by speed, lime (#c6f432) to amber (#ffb454) through yellow, blended in hue so the middle stays bright.
+     *  Fans mostly run between about 20 and 100 %, so that is the range the colour covers (below 20 % it is full lime). */
+    function bladeColor(pct, alpha) {
+      const t = clamp((pct - 20) / 80, 0, 1);
+      return "hsla(" + (72 - 38 * t).toFixed(0) + "," + (90 + 10 * t).toFixed(0) + "%," + (57 + 9 * t).toFixed(0) + "%," + alpha + ")";
+    }
+    /** says in the middle of the picture that it stands still */
+    function pausedBadge() {
+      ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.font = '600 13px "JetBrains Mono",Consolas,monospace'; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const label = t("fans.pausedBadge"), bw = ctx.measureText(label).width + 28;
+      ctx.fillStyle = "rgba(9,10,8,.72)"; ctx.fillRect(CW / 2 - bw / 2, CH / 2 - 16, bw, 32);
+      ctx.strokeStyle = "rgba(198,244,50,.5)"; ctx.lineWidth = 1; ctx.strokeRect(CW / 2 - bw / 2 + .5, CH / 2 - 15.5, bw - 1, 31);
+      ctx.fillStyle = "#c6f432"; ctx.fillText(label, CW / 2, CH / 2 + 1);
+      ctx.restore();
+    }
+    let idleShown = false;   // the "window not in front" badge is drawn once, not on every idle tick
     function frame(now) {
       if (dead) return;
       if (!wrap.isConnected) { dead = true; return; }
-      if (cv.offsetParent === null || document.hidden || !document.hasFocus() || !slots.length) { lastT = now; raf = setTimeout(() => (raf = requestAnimationFrame(frame)), 400); return; }
+      if (cv.offsetParent === null || document.hidden || !document.hasFocus() || !slots.length) {
+        // The animation stops while the window is not in front: say so too, once, over the last picture.
+        if (!idleShown && cv.offsetParent !== null && !document.hidden && slots.length) { idleShown = true; pausedBadge(); }
+        lastT = now; raf = setTimeout(() => (raf = requestAnimationFrame(frame)), 400); return; }
       raf = requestAnimationFrame(frame);
       if (now - lastDraw < 15) return;          // up to 60 frames a second, and nothing at all while the window is not in front
       const dt = Math.min(0.1, (now - lastT) / 1000 || 0.033); lastT = now; lastDraw = now;
@@ -411,9 +457,11 @@
       if (w && (w !== CW || hgt !== CH || DPR !== Math.min(2, devicePixelRatio || 1))) { DPR = Math.min(2, devicePixelRatio || 1); CW = w; CH = hgt; cv.width = Math.round(CW * DPR); cv.height = Math.round(CH * DPR); }
       const t0 = performance.now();
       feed();
-      const frozen = !!pref.paused;
+      const frozen = !!pref.paused || hold;
       if (sim && pref.air && !compact && !reduced() && !frozen) sim.step(dt);
       draw(frozen ? 0 : dt); balance();
+      if (frozen) pausedBadge();
+      idleShown = false;
       // the frame budget: a slow machine gets fewer particles (and more back when it keeps up)
       const ms = performance.now() - t0;
       slow = slow * 0.9 + ms * 0.1;
@@ -455,6 +503,9 @@
       /** placing mode: the places in `slots` are drawn as chosen; `boost` = the control spun up meanwhile */
       /** placing on the Placement tab: every free place shows (and names itself under the pointer) */
       setEditing(on) { editing = !!on; const l = legend.querySelector(".fleg-slot"); if (l) l.textContent = t(editing ? "fans.legSlotEdit" : "fans.legSlot"); },
+      /** freezes the picture (blades and air) until released; the Pause chip is separate and persists */
+      setMark(id) { mark = id || null; },
+      setHold(on) { hold = !!on; },
       setAssign(a) { assign = a ? { slots: new Set(a.slots || []), boost: a.boost || null } : null; simKey = ""; },
       relayout() { relayout(); },
       get slots() { return slots; },

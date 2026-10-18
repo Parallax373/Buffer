@@ -100,12 +100,24 @@ pub fn elevated(script: &str) -> Result<i32, String> {
         "try {{ $p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-EncodedCommand','{}'; exit $p.ExitCode }} catch {{ exit 99 }}",
         base64(&utf16)
     );
-    let st = Command::new("powershell.exe")
+    let mut child = Command::new("powershell.exe")
         .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &outer])
         .creation_flags(NO_WINDOW)
-        .status()
+        .spawn()
         .map_err(|e| e.to_string())?;
-    st.code().ok_or_else(|| "interrupted".to_string())
+    // Never wait for ever: the script is hidden, so a stuck step (a driver installer, a file lock) would look like a frozen app.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(240);
+    loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(st) => return st.code().ok_or_else(|| "interrupted".to_string()),
+            None if std::time::Instant::now() > deadline => {
+                let _ = Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).creation_flags(NO_WINDOW).output();
+                let _ = child.kill();
+                return Err("the elevated step did not finish in 4 minutes".to_string());
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(200)),
+        }
+    }
 }
 
 #[cfg(test)]

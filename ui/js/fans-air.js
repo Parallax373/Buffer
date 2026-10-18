@@ -207,8 +207,10 @@
           let heated = false;
           for (const hv of H) {
             if (x > hv.lo[0] && x < hv.hi[0] && y > hv.lo[1] && y < hv.hi[1] && z > hv.lo[2] && z < hv.hi[2]) {
-              const k = 0.9 + 1.6 * clamp((hv.t - amb) / 50, 0, 1);
-              temp[i] += (hv.t - 4 - temp[i]) * Math.min(1, k * dt);
+              // the air heads for `tw` (from the part's power and the air through it) when the page knows it, else for its temperature
+              const tgt = hv.tw != null ? hv.tw : hv.t - 4;
+              const k = 0.9 + 1.6 * clamp((tgt - amb) / 50, 0, 1);
+              temp[i] += (tgt - temp[i]) * Math.min(1, k * dt);
               heated = true;
             }
           }

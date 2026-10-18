@@ -144,7 +144,8 @@ static class Program
         foreach (var h in Walk(Pc!.Hardware)) h.Update();
         foreach (var h in Walk(Pc!.Hardware))
             foreach (var s in h.Sensors)
-                if (s.SensorType is SensorType.Temperature or SensorType.Fan or SensorType.Control or SensorType.Load)
+                // Power (watts) is read only: the Fans page uses it for how much heat the air picks up in the case
+                if (s.SensorType is SensorType.Temperature or SensorType.Fan or SensorType.Control or SensorType.Load or SensorType.Power)
                 {
                     All[s.Identifier.ToString()] = s;
                     if (s.SensorType == SensorType.Control && s.Control != null) Controls[s.Identifier.ToString()] = s;

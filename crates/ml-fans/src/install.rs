@@ -302,6 +302,20 @@ mod tests {
         assert!(installed());
     }
 
+    /// Replaces an installed helper with the local build (development; the app only installs when there is none):
+    /// asks the running helper to quit, removes it, installs the zip from `scripts/build-fans-helper.ps1`.
+    /// `cargo test -p ml-fans dev_reinstall -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn dev_reinstall() {
+        stop(None);
+        if installed() || task_exists() {
+            uninstall().unwrap();
+        }
+        install(&std::env::temp_dir().join("buffer-fans-install-test")).unwrap();
+        assert!(installed());
+    }
+
     #[test]
     fn reads_the_user_sid() {
         assert!(user_sid().unwrap().starts_with("S-1-5-"));

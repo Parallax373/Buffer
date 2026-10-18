@@ -14,11 +14,16 @@ if ($Inspect) {
 }
 Set-Location (Split-Path -Parent $PSScriptRoot)
 if (-not $NoRecorder) {
+    # cargo must replace the executable during the build. Stop a previous debug
+    # or installed recorder first, otherwise Windows keeps the file locked.
+    $existingRecorder = Get-Process buffer-recorder -ErrorAction SilentlyContinue
+    if ($existingRecorder) {
+        $existingRecorder | Stop-Process -Force
+        $existingRecorder | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+    }
     cargo build -p ml-recorder
     if ($LASTEXITCODE -ne 0) { throw "recorder build failed" }
     # Only one recorder may run (single-instance lock): replace an installed/old one with the debug build.
-    Get-Process buffer-recorder -ErrorAction SilentlyContinue | Stop-Process -Force
-    Start-Sleep -Milliseconds 800
     Start-Process (Resolve-Path "target\debug\buffer-recorder.exe") -ArgumentList "run" -WindowStyle Hidden
 }
 npx tauri dev --config src-tauri/tauri.dev.conf.json

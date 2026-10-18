@@ -40,6 +40,12 @@
     return (list.find((s) => /package|tctl|core \(max\)|gpu core/i.test(s.name)) || list[0] || {}).id || null;
   }
 
+  /** the power draw in watts of the CPU or the graphics card (its package sensor), or null when the helper does not report it */
+  function power(kind) {
+    const s = (st.sensors || []).find((x) => x.kind === "power" && (kind === "cpu" ? /^Cpu/ : /^Gpu/).test(x.hw_type) && /package/i.test(x.name));
+    return s ? value(s.id) : null;
+  }
+
   /** a sensor's value, with custom Mix sensors worked out here (the recorder does the same for the real control) */
   function temp(id) {
     if (!id) return null;
@@ -638,7 +644,7 @@
   /** what fans-adv.js needs */
   const kit = {
     h, slider, scan, graph, numRow, row: (l, v, t) => h("div", { class: "srow", title: t || "" }, h("span", { class: "lb", text: l }), h("div", { class: "fval" }, v)),
-    get st() { return st; }, get setup() { return setup; }, sel, pref, commit, control, curveOf, sensorName, tempSensors, temp, pctOf, rpmOf, driven, value,
+    get st() { return st; }, get setup() { return setup; }, power, sel, pref, commit, control, curveOf, sensorName, tempSensors, temp, pctOf, rpmOf, driven, value,
     primary, uid, toast, tick, redraw: () => draw(), pointsOf, interp, hwTag, curveSrc,
   };
 

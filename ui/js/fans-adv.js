@@ -268,7 +268,7 @@
       h("label", { class: "fsafe", title: t("fans.failsafeTip") }, h("span", { class: "muted", text: t("fans.failsafe2") }),
         h("select", { class: "field", onChange: (e) => { S.failsafe = +e.target.value; K.commit(); } }, [100, 90, 80, 70, 60].map((v) => h("option", { value: v, text: v + " %", selected: Math.round(S.failsafe ?? 100) === v })))),
       h("button", { class: "btn", text: t("fans.caseInRgb"), title: t("fans.caseInRgbTip"), onClick: () => { App.RGBAdv.openCase(); App.go("rgb"); setTimeout(() => App.RGB && App.RGB.view("advanced"), 0); } }),
-      h("button", { class: "btn acc", text: t("fans.wiz.open"), title: t("fans.wiz.tip"), onClick: () => App.FansWizard.open(K, () => K.redraw()) }));
+      h("button", { class: "btn acc", text: t("fans.wiz.open"), title: t("fans.wiz.tip"), onClick: () => App.FansWizard.open(K, () => K.redraw(), stage) }));
 
     /* control cards: click picks (in place, no rebuild), the select picks the curve, drag reorders */
     const cardOf = (c) => {
