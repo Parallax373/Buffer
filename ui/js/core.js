@@ -310,7 +310,11 @@ const App = {};
     lastUiErr = Date.now();
     try { App.toast(App.t("err.ui", { err: msg.slice(0, 160) }), "err"); } catch { /* toast host not ready */ }
   };
-  window.addEventListener("error", (ev) => uiError(ev.error || ev.message));
+  /* "ResizeObserver loop ..." is the browser noting that a layout settled over two frames: harmless, nothing broke. */
+  window.addEventListener("error", (ev) => {
+    if (/^ResizeObserver loop/.test(ev.message || "")) { ev.stopImmediatePropagation(); return; }
+    uiError(ev.error || ev.message);
+  });
   window.addEventListener("unhandledrejection", (ev) => uiError(ev.reason));
 
   /* ───── helpers shared by several views ───── */
