@@ -820,6 +820,18 @@ mod fresh_tail_tests {
     }
 
     #[test]
+    fn frame_watch_flags_a_counter_that_stands_still() {
+        let t0 = Instant::now();
+        let mut w = FrameWatch { frames: 100, since: t0 };
+        let limit = Duration::from_secs(15);
+        assert!(!w.stalled(100, t0 + Duration::from_secs(10), limit), "not long enough yet");
+        assert!(w.stalled(100, t0 + Duration::from_secs(16), limit), "same frame for 16 s");
+        assert!(!w.stalled(101, t0 + Duration::from_secs(17), limit), "moving again resets it");
+        assert!(!w.stalled(101, t0 + Duration::from_secs(30), limit), "13 s since the last change");
+        assert!(w.stalled(101, t0 + Duration::from_secs(33), limit));
+    }
+
+    #[test]
     fn drops_footage_from_before_a_pause() {
         let dir = std::env::temp_dir().join(format!("fresh_tail_{}", std::process::id()));
         let _ = fs::create_dir_all(&dir);
@@ -865,15 +877,4 @@ mod sound_tests {
         }
     }
 
-    #[test]
-    fn frame_watch_flags_a_counter_that_stands_still() {
-        let t0 = Instant::now();
-        let mut w = FrameWatch { frames: 100, since: t0 };
-        let limit = Duration::from_secs(15);
-        assert!(!w.stalled(100, t0 + Duration::from_secs(10), limit), "not long enough yet");
-        assert!(w.stalled(100, t0 + Duration::from_secs(16), limit), "same frame for 16 s");
-        assert!(!w.stalled(101, t0 + Duration::from_secs(17), limit), "moving again resets it");
-        assert!(!w.stalled(101, t0 + Duration::from_secs(30), limit), "13 s since the last change");
-        assert!(w.stalled(101, t0 + Duration::from_secs(33), limit));
-    }
 }
