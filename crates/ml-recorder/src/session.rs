@@ -13,7 +13,7 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc::Sender,
         Arc, Mutex,
     },
@@ -453,9 +453,11 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
 
     // Open the audio gates as soon as ffmpeg reports its first video frame (or after a short timeout),
     // so that audio and video start from the same moment.
+    let frames = Arc::new(AtomicU64::new(0));
     {
         let stdout = child.stdout.take();
         let go = go.clone();
+        let frames = frames.clone();
         thread::spawn(move || {
             if let Some(out) = stdout {
                 let (mut last_log, mut stats) = (Instant::now(), String::new());
@@ -472,7 +474,9 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
                         }
                     }
                     if let Some(n) = line.strip_prefix("frame=") {
-                        if n.trim().parse::<u64>().unwrap_or(0) > 0 {
+                        let n = n.trim().parse::<u64>().unwrap_or(0);
+                        frames.store(n, Ordering::Relaxed);
+                        if n > 0 {
                             go.store(true, Ordering::Relaxed);
                         }
                     }
@@ -486,6 +490,7 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
 
     let mut last_prune = Instant::now();
     let mut last_progress = Instant::now();
+    let mut video = FrameWatch::new();
     let mut no_game_since: Option<Instant> = None;
     loop {
         let long = crate::longrec::active(shared);
@@ -537,7 +542,40 @@ fn run_session(shared: &Arc<Shared>) -> Result<(), String> {
             finish(&mut child, &stop);
             return Err("ffmpeg stopped producing output".into());
         }
+        // The segment check above is fooled when only the picture dies: the audio inputs keep every segment fresh.
+        // Seen on a laptop: ddagrab lost the desktop (`AcquireNextFrame failed: 887a0026`), ffmpeg lived on for hours,
+        // and every save was a clip of old audio over a frozen frame.
+        let n = frames.load(Ordering::Relaxed);
+        if started.elapsed() > Duration::from_secs(20) && video.stalled(n, Instant::now(), VIDEO_STALL) {
+            finish(&mut child, &stop);
+            return Err(format!("video capture stalled at frame {n}"));
+        }
         thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// How long the video frame counter may stand still before the session is restarted. Capture runs at a constant
+/// rate (a still screen is repeated), so a counter that stops means the capture is gone.
+const VIDEO_STALL: Duration = Duration::from_secs(15);
+
+/// Notices a frame counter that stopped moving.
+struct FrameWatch {
+    frames: u64,
+    since: Instant,
+}
+
+impl FrameWatch {
+    fn new() -> Self {
+        FrameWatch { frames: 0, since: Instant::now() }
+    }
+
+    /// True when `frames` has not changed for `limit` as of `now`.
+    fn stalled(&mut self, frames: u64, now: Instant, limit: Duration) -> bool {
+        if frames != self.frames {
+            self.frames = frames;
+            self.since = now;
+        }
+        now.saturating_duration_since(self.since) > limit
     }
 }
 
@@ -784,6 +822,18 @@ mod fresh_tail_tests {
     }
 
     #[test]
+    fn frame_watch_flags_a_counter_that_stands_still() {
+        let t0 = Instant::now();
+        let mut w = FrameWatch { frames: 100, since: t0 };
+        let limit = Duration::from_secs(15);
+        assert!(!w.stalled(100, t0 + Duration::from_secs(10), limit), "not long enough yet");
+        assert!(w.stalled(100, t0 + Duration::from_secs(16), limit), "same frame for 16 s");
+        assert!(!w.stalled(101, t0 + Duration::from_secs(17), limit), "moving again resets it");
+        assert!(!w.stalled(101, t0 + Duration::from_secs(30), limit), "13 s since the last change");
+        assert!(w.stalled(101, t0 + Duration::from_secs(33), limit));
+    }
+
+    #[test]
     fn drops_footage_from_before_a_pause() {
         let dir = std::env::temp_dir().join(format!("fresh_tail_{}", std::process::id()));
         let _ = fs::create_dir_all(&dir);
@@ -828,4 +878,5 @@ mod sound_tests {
             assert!(w.len() < 120_000, "{s:?} is {} bytes", w.len());
         }
     }
+
 }
