@@ -267,6 +267,18 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "exp.dragTip": "拖到 Discord 或其他窗口",
   "exp.dragFail": "无法拖动：{err}",
   "exp.calc": "计算中…",
+
+  "exp.retry": "超出大小：重新编码 (第 {n} 次)",
+
+  "ed.autoNote": "自动：缩小到 {h}p",
+
+  "ed.cpuNote": "CPU 编码",
+
+  "exp.tries": "{n} 次编码",
+
+  "exp.over": "超出目标：{size} / {target} MiB",
+
+  "ed.autoRes": "目标较小：已缩小到 {h}p 以保持清晰",
   "exp.done": "用时 {secs} 秒 · {size} MiB",
   "exp.dragBig": "拖动",
   "exp.empty": "导出的片段将显示在这里。",
@@ -435,7 +447,9 @@ App.locales.zh = { name: "简体中文", tag: "zh-CN", ai: true, t: {
   "ed.codec": "编码器",
   "ed.codecAuto": "自动 (GPU)",
   "ed.codecAutoPlain": "自动",
-  "ed.lowHint": "裁剪 (I / O) 或选择更大的大小",
+  "ed.qualityHead": "画质",
+
+  "ed.loading": "正在加载片段…",
   "ed.speed": "速度",
   "ed.exporting": "导出中…",
   "ed.again": "再次导出",

@@ -267,6 +267,18 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "exp.dragTip": "Discord'a veya başka pencereye sürükle",
   "exp.dragFail": "Sürüklenemedi: {err}",
   "exp.calc": "hesaplanıyor…",
+
+  "exp.retry": "Çok büyük: yeniden kodlanıyor ({n}. deneme)",
+
+  "ed.autoNote": "Otomatik: {h}p’ye küçültüldü",
+
+  "ed.cpuNote": "CPU ile kodlama",
+
+  "exp.tries": "{n} geçiş",
+
+  "exp.over": "Hedefi aştı: {size} / {target} MiB",
+
+  "ed.autoRes": "Küçük hedef: görüntü net kalsın diye {h}p’ye küçültüldü",
   "exp.done": "{secs} sn'de bitti · {size} MiB",
   "exp.dragBig": "Sürükle",
   "exp.empty": "Dışa aktarılan klipler burada görünür.",
@@ -435,7 +447,9 @@ App.locales.tr = { name: "Türkçe", tag: "tr-TR", ai: true, t: {
   "ed.codec": "Kodek",
   "ed.codecAuto": "Otomatik (GPU)",
   "ed.codecAutoPlain": "Otomatik",
-  "ed.lowHint": "Kırp (I / O) ya da daha büyük bir boyut seç",
+  "ed.qualityHead": "Kalite",
+
+  "ed.loading": "Klip yükleniyor…",
   "ed.speed": "Hız",
   "ed.exporting": "Aktarılıyor…",
   "ed.again": "Tekrar aktar",

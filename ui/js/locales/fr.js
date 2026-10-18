@@ -267,6 +267,18 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "exp.dragTip": "Glisser vers Discord ou une autre fenêtre",
   "exp.dragFail": "Glissement impossible : {err}",
   "exp.calc": "calcul…",
+
+  "exp.retry": "Trop gros : nouvel encodage (essai {n})",
+
+  "ed.autoNote": "Auto : réduit à {h}p",
+
+  "ed.cpuNote": "encodage CPU",
+
+  "exp.tries": "{n} passes",
+
+  "exp.over": "Au-dessus de la cible : {size} sur {target} MiB",
+
+  "ed.autoRes": "Petite cible : réduit à {h}p pour une image plus nette",
   "exp.done": "Terminé en {secs} s · {size} Mio",
   "exp.dragBig": "Glisser",
   "exp.empty": "Les clips exportés apparaîtront ici.",
@@ -435,7 +447,9 @@ App.locales.fr = { name: "Français", tag: "fr-FR", ai: true, t: {
   "ed.codec": "Codec",
   "ed.codecAuto": "Automatique (GPU)",
   "ed.codecAutoPlain": "Automatique",
-  "ed.lowHint": "Coupez (I / O) ou choisissez une taille plus grande",
+  "ed.qualityHead": "Qualité",
+
+  "ed.loading": "Chargement du clip…",
   "ed.speed": "Vitesse",
   "ed.exporting": "Export…",
   "ed.again": "Exporter à nouveau",

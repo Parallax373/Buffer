@@ -55,6 +55,7 @@
     App.go("ed");          // needs E to be set: go() falls back to the library when no clip is open
     build();
     renderAll();
+    ui.loading.hidden = false;
 
     try {
       const [info, files] = await Promise.all([
@@ -181,6 +182,12 @@
     for (const t of E.tracks) { t.el.currentTime = video.currentTime; t.el.play().catch(() => {}); }
   });
   video.addEventListener("loadedmetadata", () => paintCrop());
+  // a big clip shows a black frame until the first picture arrives: say it is loading
+  const showLoading = (on) => { if (ui?.loading) ui.loading.hidden = !on; };
+  video.addEventListener("loadstart", () => showLoading(true));
+  video.addEventListener("loadeddata", () => showLoading(false));
+  video.addEventListener("canplay", () => showLoading(false));
+  video.addEventListener("error", () => showLoading(false));
   video.addEventListener("seeked", paintHead);
   window.addEventListener("resize", () => { if (App.S.view === "ed") paintCrop(); });
 
@@ -194,6 +201,7 @@
       stage: h("div", { class: "stage" }),
       crop: h("div", { class: "crop", hidden: true }),
       big: h("div", { class: "big", onClick: toggle }),
+      loading: h("div", { class: "loading", hidden: true }, h("div", { class: "lbar" }, h("i")), h("span", { text: App.t("ed.loading") })),
       transport: h("div", { class: "transport" }),
       lanesWrap: h("div", { class: "tl" }),
       panel: h("div", { class: "expanel" }),
@@ -204,7 +212,7 @@
       ].map(([l, k]) => h("div", null, h("span", { text: l }), h("kbd", { text: k })))),
     };
     const box = h("div", { class: "box" }, video, ui.crop);
-    ui.stage.append(box, ui.big);
+    ui.stage.append(box, ui.big, ui.loading);
     root.append(h("div", { class: "ed" },
       h("div", { class: "edmain" }, ui.head, ui.stage, ui.transport, ui.lanesWrap),
       ui.panel, ui.kb));
@@ -586,10 +594,11 @@
       h("span", { text: label }), h("span", { class: "toggle" + (E[key] ? " on" : "") }));
 
     const sum = h("div", { class: "sumcard", title: App.t("ed.qualityTip") },
+      h("div", { class: "cap", text: App.t("ed.qualityHead") }),
       h("div", { class: "r1" }, h("span", { class: "big", id: "sumLen" }), h("span", { class: "mono muted", id: "sumTarget", style: { fontSize: "12px" } })),
       h("div", { class: "meter" }, h("div", { id: "sumMeter" })),
       h("div", { class: "r3" }, h("span", { id: "sumQ" }), h("span", { id: "sumKbps" })),
-      h("div", { class: "hint", id: "sumHint", hidden: true, text: App.t("ed.lowHint") }));
+      h("div", { class: "hint", id: "sumNote", hidden: true }));
 
     const exporting = S.exporting && S.exporting.source === E.clip.path;
     const items = [
@@ -651,6 +660,16 @@
     return h("div", { class: "opt customsz" }, slider, num, h("span", { class: "muted", text: "MB" }));
   }
 
+  /** Resolution "original" still scales down when the bitrate would be tiny: 1080p at 150 kbps is mush. null = keep. */
+  function autoHeight() {
+    if (!E?.info || E.res !== "orig") return null;
+    const kbps = App.kbps(E.target, E.end - E.start, E.speed);
+    const h = kbps < 120 ? 480 : kbps < 300 ? 720 : null;
+    return h && h < E.info.height ? h : null;
+  }
+
+  const CPU_BELOW_KBPS = 500;   // mirrors SOFTWARE_BELOW_KBPS in ml-core/export.rs
+
   function updateEstimate() {
     if (!E || !E.info) return;
     const sec = E.end - E.start;
@@ -659,12 +678,17 @@
     const set = (id, v) => { const n = App.$("#" + id); if (n) n.textContent = v; };
     set("sumLen", App.fmtS(sec / E.speed));
     set("sumTarget", `→ ${E.target} MiB`);
-    set("sumQ", label); set("sumKbps", `${kbps} kbps · ${E.res === "orig" ? E.info.height : E.res}p`);
+    set("sumQ", label); const auto = autoHeight();
+    set("sumKbps", `${kbps} kbps · ${auto || (E.res === "orig" ? E.info.height : E.res)}p`);
+    const kb = App.$("#sumKbps"); if (kb) kb.title = auto ? App.t("ed.autoRes", { h: auto }) : "";
+    // say what is decided for the user: the automatic downscale
+    const notes = [];
+    if (auto) notes.push(App.t("ed.autoNote", { h: auto }));
+    if (kbps < CPU_BELOW_KBPS && encoder !== "libx264") notes.push(App.t("ed.cpuNote"));
+    const nt = App.$("#sumNote"); if (nt) { nt.textContent = notes.join(" · "); nt.hidden = !notes.length; }
     const q = App.$("#sumQ"); if (q) q.style.color = color;
-    // amber or red: say what helps (a shorter clip or a bigger file)
-    const hint = App.$("#sumHint"); if (hint) hint.hidden = color === "var(--ok)";
     const m = App.$("#sumMeter");
-    if (m) { m.style.width = `${Math.min(100, (kbps / 9000) * 100)}%`; m.style.background = color; }
+    if (m) { m.style.width = `${Math.min(100, (kbps / 2500) * 100)}%`; m.style.background = color; }
   }
 
   async function doExport() {
@@ -672,7 +696,7 @@
     stop();
     const res = await App.Exports.run({
       path: E.clip.path, start: E.start, end: E.end >= E.info.duration - 0.01 ? null : E.end,
-      target: E.target, maxHeight: E.res === "orig" ? null : parseInt(E.res, 10), codec: E.codec,
+      target: E.target, maxHeight: E.res === "orig" ? autoHeight() : parseInt(E.res, 10), codec: E.codec,
       speed: E.speed, wide: E.wide ? E.pan / 100 : null, normalize: E.norm,
       volumes: E.tracks.map((t) => [t.name, t.gain]),
     });

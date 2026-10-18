@@ -351,7 +351,8 @@
       App.P.exports.unshift(entry);
       App.P.exports = App.P.exports.slice(0, 200);
       App.persist();
-      S.lastDone = { ...entry, secs, at: Date.now() };
+      S.lastDone = { ...entry, secs, at: Date.now(), h: o.maxHeight ?? null, tries: r.attempts, over: r.size > opts.target_bytes };
+      if (S.lastDone.over) App.toast(App.t("exp.over", { size: entry.size, target: mb }), "err");
       popUntil = Date.now() + 7000;
       setTimeout(() => Exports.autoClean(), 0);
       return { name: entry.name, path: output, size: entry.size };
@@ -438,6 +439,16 @@
     if (!smoothRaf) smoothRaf = requestAnimationFrame(smoothTick);
   });
 
+  // The first file came out over the target, so it is encoded again: the bar restarts, say why.
+  api.listen("export-retry", (e) => {
+    const ex = S.exporting;
+    if (!ex) return;
+    ex.retry = e.payload; ex.pct = 0; ex.shown = 0; ex.startedAt = Date.now();
+    App.toast(App.t("exp.retry", { n: e.payload }));
+    updatePop();
+    if (!smoothRaf) smoothRaf = requestAnimationFrame(smoothTick);
+  });
+
   Exports.togglePop = () => { popOpen ? closePop() : Exports.openPop(true); };
   Exports.openPop = (manual) => {
     popOpen = true;
@@ -460,8 +471,17 @@
     if (S.lastDone && Date.now() - S.lastDone.at >= 7000 && chip.classList.contains("done")) paintChip();
   }, 500);
 
+  /** What the export decided on its own: a smaller picture, extra passes, or a file that missed the target. */
+  const doneNote = (d) => {
+    const bits = [];
+    if (d.h) bits.push(`${d.h}p`);
+    if (d.tries > 1) bits.push(App.t("exp.tries", { n: d.tries }));
+    if (d.over) bits.push(App.t("exp.over", { size: d.size, target: d.target }));
+    return bits.length ? h("div", { class: "mono muted", style: { fontSize: "11px", marginTop: "2px", ...(d.over ? { color: "var(--warn)" } : {}) }, text: bits.join(" · ") }) : "";
+  };
+
   const dragHandle = (path, cls, text) => {
-    const el = h("span", { class: cls, text, title: App.t("exp.dragTip") });
+    const el = h("span", { class: cls, text, title: App.t("exp.dragTip"), "data-handle": "1" });
     el.addEventListener("pointerdown", (ev) => {
       if (ev.button !== 0) return;
       ev.preventDefault();
@@ -470,13 +490,21 @@
     return el;
   };
 
-  // one delegated listener: pressing anywhere on an export card (not on a button) starts the drag-out
+  // one delegated listener per card: a click opens the export in the default app, pressing and moving drags it out
   for (const id of ["#pop", "#drawer"]) {
     App.$(id).addEventListener("pointerdown", (ev) => {
       const card = ev.target.closest("[data-path]");
-      if (!card || ev.button !== 0 || ev.target.closest("button, .linkbtn")) return;
-      ev.preventDefault();
-      api.startDrag(card.dataset.path).catch((err) => App.toast(App.t("exp.dragFail", { err }), "err"));
+      if (!card || ev.button !== 0 || ev.target.closest("button, .linkbtn, [data-handle]")) return;
+      const x0 = ev.clientX, y0 = ev.clientY, path = card.dataset.path;
+      const done = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); };
+      const move = (e) => {
+        if (Math.hypot(e.clientX - x0, e.clientY - y0) < 6) return;
+        done();
+        api.startDrag(path).catch((err) => App.toast(App.t("exp.dragFail", { err }), "err"));
+      };
+      const up = () => { done(); api.invoke("open_file", { path }).catch((err) => App.toast(String(err), "err")); };
+      addEventListener("pointermove", move);
+      addEventListener("pointerup", up);
     });
   }
 
@@ -497,7 +525,8 @@
     const real = ex.pct;
     const elapsed = (Date.now() - ex.startedAt) / 1000;
     const eta = real > 3 ? Math.max(0, Math.round((elapsed * (100 - real)) / real)) : null;
-    popLive.eta.textContent = eta == null ? App.t("exp.calc") : `≈ ${eta} s`;
+    popLive.eta.textContent = ex.retry ? App.t("exp.retry", { n: ex.retry }) + (eta == null ? "" : ` · ≈ ${eta} s`)
+      : eta == null ? App.t("exp.calc") : `≈ ${eta} s`;
   }
 
   function renderPop() {
@@ -516,7 +545,8 @@
       const pctEl = h("span", { class: "mono lime", text: `${Math.round(p)}%` });
       const barEls = Array.from({ length: 30 }, (_, i) =>
         h("i", { style: { opacity: 0.12 + (0.35 + 0.65 * (i / 30) - 0.12) * fill(p, 30, i) } }));
-      const etaEl = h("span", { text: eta == null ? App.t("exp.calc") : `≈ ${eta} s` });
+      const etaEl = h("span", { text: ex.retry ? App.t("exp.retry", { n: ex.retry }) + (eta == null ? "" : ` · ≈ ${eta} s`)
+        : eta == null ? App.t("exp.calc") : `≈ ${eta} s` });
       popLive = { pct: pctEl, bars: barEls, eta: etaEl };
       parts.push(h("div", null,
         h("div", { class: "pr1" }, h("b", { text: `${ex.name} · ${ex.target} MB` }), pctEl),
@@ -527,7 +557,8 @@
     if (done) {
       parts.push(h("div", { class: "donecard", "data-path": done.path },
         h("div", { style: { minWidth: 0 } }, h("div", { class: "nm", text: done.name }),
-          h("div", { class: "mono lime", text: App.t("exp.done", { secs: done.secs, size: done.size }) })),
+          h("div", { class: "mono lime", text: App.t("exp.done", { secs: done.secs, size: done.size }) }),
+          doneNote(done)),
         dragHandle(done.path, "big", "⇪ " + App.t("exp.dragBig"))));
     }
     for (const e of recent) {

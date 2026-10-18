@@ -267,6 +267,18 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "exp.dragTip": "Перетягніть у Discord або інше вікно",
   "exp.dragFail": "Не вдалося перетягнути: {err}",
   "exp.calc": "обчислення…",
+
+  "exp.retry": "Завеликий: кодуємо знову (спроба {n})",
+
+  "ed.autoNote": "Авто: зменшено до {h}p",
+
+  "ed.cpuNote": "кодування на CPU",
+
+  "exp.tries": "{n} проходи",
+
+  "exp.over": "Понад ціль: {size} із {target} МіБ",
+
+  "ed.autoRes": "Малий розмір: зменшено до {h}p, щоб картинка була чіткішою",
   "exp.done": "Готово за {secs} с · {size} МіБ",
   "exp.dragBig": "Перетягнути",
   "exp.empty": "Тут з’являться експортовані кліпи.",
@@ -440,7 +452,9 @@ App.locales.uk = { name: "Українська", tag: "uk-UA", ai: true, t: {
   "ed.codec": "Кодек",
   "ed.codecAuto": "Авто (GPU)",
   "ed.codecAutoPlain": "Авто",
-  "ed.lowHint": "Обріжте (I / O) або виберіть більший розмір",
+  "ed.qualityHead": "Якість",
+
+  "ed.loading": "Завантаження кліпу…",
   "ed.speed": "Швидкість",
   "ed.exporting": "Експорт…",
   "ed.again": "Експортувати ще раз",

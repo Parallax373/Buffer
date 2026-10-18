@@ -390,6 +390,9 @@ async fn export_clip(app: AppHandle, opts: ExportOptions) -> Result<ExportResult
             |p| {
                 let _ = app.emit("export-progress", p);
             },
+            |n| {
+                let _ = app.emit("export-retry", n);
+            },
             || CANCEL_EXPORT.load(Ordering::Relaxed),
         )
         .map_err(|e| e.to_string())
@@ -501,6 +504,16 @@ fn open_issue_page(url: String) -> Result<(), String> {
 fn reveal(path: String) -> Result<(), String> {
     Command::new("explorer")
         .arg(format!("/select,{}", path.replace('/', "\\")))
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Opens a file with its default app (the user's own video player or editor).
+#[tauri::command]
+fn open_file(path: String) -> Result<(), String> {
+    Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &path.replace('/', "\\")])
         .spawn()
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -895,6 +908,7 @@ fn main() {
             cache_size,
             export_clip,
             reveal,
+            open_file,
             game_icons,
             import_game_icons,
             rename_clip,

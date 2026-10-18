@@ -267,6 +267,18 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "exp.dragTip": "Discordや他のウィンドウへドラッグ",
   "exp.dragFail": "ドラッグできませんでした: {err}",
   "exp.calc": "計算中…",
+
+  "exp.retry": "サイズ超過: 再エンコード中 ({n}回目)",
+
+  "ed.autoNote": "自動: {h}p に縮小",
+
+  "ed.cpuNote": "CPUエンコード",
+
+  "exp.tries": "{n}回エンコード",
+
+  "exp.over": "目標超過: {size} / {target} MiB",
+
+  "ed.autoRes": "小さい目標サイズ: 画面を鮮明に保つため {h}p に縮小",
   "exp.done": "{secs} 秒で完了 · {size} MiB",
   "exp.dragBig": "ドラッグ",
   "exp.empty": "エクスポートしたクリップがここに表示されます。",
@@ -435,7 +447,9 @@ App.locales.ja = { name: "日本語", tag: "ja-JP", ai: true, t: {
   "ed.codec": "コーデック",
   "ed.codecAuto": "自動 (GPU)",
   "ed.codecAutoPlain": "自動",
-  "ed.lowHint": "トリム (I / O) するか、より大きいサイズを選択",
+  "ed.qualityHead": "画質",
+
+  "ed.loading": "クリップを読み込み中…",
   "ed.speed": "速度",
   "ed.exporting": "エクスポート中…",
   "ed.again": "もう一度エクスポート",

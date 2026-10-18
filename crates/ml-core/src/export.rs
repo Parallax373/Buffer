@@ -35,17 +35,17 @@ impl Codec {
 
     fn args(self) -> &'static [&'static str] {
         match self {
-            Codec::Auto => &["-c:v", "libx264", "-preset", "slow"],
+            Codec::Auto => &["-c:v", "libx264", "-preset", "medium"],
             Codec::H264Amf => &["-c:v", "h264_amf", "-quality", "quality", "-rc", "vbr_peak"],
             Codec::H264Qsv => &["-c:v", "h264_qsv", "-preset", "slower"],
             Codec::H264Nvenc => &[
-                "-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-multipass", "fullres",
+                "-c:v", "h264_nvenc", "-preset", "p4", "-tune", "hq", "-rc", "vbr",
             ],
             Codec::HevcNvenc => &[
-                "-c:v", "hevc_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-multipass", "fullres",
+                "-c:v", "hevc_nvenc", "-preset", "p4", "-tune", "hq", "-rc", "vbr",
                 "-tag:v", "hvc1",
             ],
-            Codec::X264 => &["-c:v", "libx264", "-preset", "slow"],
+            Codec::X264 => &["-c:v", "libx264", "-preset", "medium"],
         }
     }
 }
@@ -93,14 +93,21 @@ pub struct ExportResult {
 }
 
 /// Fraction of the byte budget used for payload; the rest absorbs muxing overhead and rate-control error.
-const BUDGET_FACTOR: f64 = 0.96;
-const MIN_VIDEO_KBPS: i64 = 150;
+const BUDGET_FACTOR: f64 = 0.92;
+const MIN_VIDEO_KBPS: i64 = 40;
 const MAX_ATTEMPTS: u32 = 4;
+/// Below this video bitrate tiny budgets go to x264. Measured on 60 s pieces of a 300 s Overwatch clip at 720p
+/// (actual / requested bitrate): NVENC 84-138% at 250 kbps, 93-168% at 450 (one piece never fits, 126% even at 600),
+/// x264 always 78-97%. At 720p x264 medium takes about as long as NVENC p4 (5.5 s vs 4.8 s per 60 s).
+/// Keep in sync with CPU_BELOW_KBPS in ui/js/editor.js.
+const SOFTWARE_BELOW_KBPS: i64 = 500;
 
+/// `on_retry(n)` fires before attempt `n` (2, 3, ...): the first file came out over the target and is encoded again.
 /// `cancel` is polled while ffmpeg runs; returning true kills it and fails with "cancelled".
 pub fn export(
     opts: &ExportOptions,
     mut on_progress: impl FnMut(f64),
+    mut on_retry: impl FnMut(u32),
     cancel: impl Fn() -> bool,
 ) -> Result<ExportResult> {
     let mut resolved = opts.clone();
@@ -123,18 +130,20 @@ pub fn export(
     let mut attempts = 0;
     loop {
         attempts += 1;
-        if video_kbps < MIN_VIDEO_KBPS {
-            bail!(
-                "target too small for a {:.0}s clip: only {} kbps left for video (min {}). Trim, lower the resolution or raise the target.",
-                out_dur,
-                video_kbps,
-                MIN_VIDEO_KBPS
-            );
+        // Too small a target is a warning in the UI, not a block: encode at the floor and let the file run over.
+        let at_floor = video_kbps <= MIN_VIDEO_KBPS;
+        if at_floor {
+            video_kbps = MIN_VIDEO_KBPS;
         }
+        // Dynamic bitrate first (best picture); tiny budgets go to x264; a retry (file still too big) switches the hardware encoder to constant.
+        let codec = if video_kbps < SOFTWARE_BELOW_KBPS { Codec::X264 } else { opts.codec };
         let job = Job { opts, info: &info, gains: &gains, start: opts.start, src_dur, out_dur, speed };
-        job.run(video_kbps as u64, &mut on_progress, &cancel)?;
+        job.run(video_kbps as u64, codec, attempts > 1, &mut on_progress, &cancel)?;
         let size = std::fs::metadata(&opts.output)?.len();
         if size <= opts.target_bytes {
+            return Ok(ExportResult { size, attempts, video_kbps: video_kbps as u64 });
+        }
+        if at_floor {
             return Ok(ExportResult { size, attempts, video_kbps: video_kbps as u64 });
         }
         if attempts >= MAX_ATTEMPTS {
@@ -146,8 +155,9 @@ pub fn export(
             );
         }
         // Scale the video rate by how far we overshot, with a little extra margin.
-        let ratio = opts.target_bytes as f64 / size as f64 * 0.97;
+        let ratio = opts.target_bytes as f64 / size as f64 * 0.94;
         video_kbps = (video_kbps as f64 * ratio) as i64;
+        on_retry(attempts + 1);
     }
 }
 
@@ -221,10 +231,10 @@ impl Job<'_> {
         vf
     }
 
-    fn run(&self, video_kbps: u64, on_progress: &mut impl FnMut(f64), cancel: &impl Fn() -> bool) -> Result<()> {
+    fn run(&self, video_kbps: u64, codec: Codec, strict: bool, on_progress: &mut impl FnMut(f64), cancel: &impl Fn() -> bool) -> Result<()> {
         let mut cmd = Command::new(crate::tools::ffmpeg());
         cmd.args(["-y", "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1"]);
-        if self.opts.hwaccel && self.opts.codec != Codec::X264 {
+        if self.opts.hwaccel && codec != Codec::X264 {
             // Let the GPU decode too; frames come back to system memory for the CPU filters.
             cmd.args(["-hwaccel", "auto"]);
         }
@@ -245,7 +255,11 @@ impl Job<'_> {
             cmd.args(["-map", "[aout]", "-c:a", "aac", "-b:a", &format!("{}k", self.opts.audio_kbps)]);
         }
         let v = video_kbps.to_string();
-        cmd.args(self.opts.codec.args())
+        cmd.args(codec.args());
+        if strict && matches!(codec, Codec::H264Nvenc | Codec::HevcNvenc | Codec::H264Amf) {
+            cmd.args(["-rc", "cbr"]);   // the last -rc wins; x264 and QSV have no such option
+        }
+        cmd
             .args([
                 "-b:v",
                 &format!("{v}k"),

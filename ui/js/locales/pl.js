@@ -267,6 +267,18 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "exp.dragTip": "Przeciągnij do Discorda lub innego okna",
   "exp.dragFail": "Nie można przeciągnąć: {err}",
   "exp.calc": "liczenie…",
+
+  "exp.retry": "Plik za duży: koduję ponownie (próba {n})",
+
+  "ed.autoNote": "Auto: zmniejszono do {h}p",
+
+  "ed.cpuNote": "kodowanie na CPU",
+
+  "exp.tries": "{n} przebiegi",
+
+  "exp.over": "Ponad cel: {size} z {target} MiB",
+
+  "ed.autoRes": "Mały rozmiar: zmniejszono do {h}p, żeby obraz był ostrzejszy",
   "exp.done": "Gotowe w {secs} s · {size} MiB",
   "exp.dragBig": "Przeciągnij",
   "exp.empty": "Tu pojawią się wyeksportowane klipy.",
@@ -435,7 +447,9 @@ App.locales.pl = { name: "Polski", tag: "pl-PL", ai: false, t: {
   "ed.codec": "Kodek",
   "ed.codecAuto": "Automatyczny (GPU)",
   "ed.codecAutoPlain": "Automatyczny",
-  "ed.lowHint": "Przytnij (I / O) albo wybierz większy rozmiar",
+  "ed.qualityHead": "Jakość",
+
+  "ed.loading": "Wczytywanie klipu…",
   "ed.speed": "Prędkość",
   "ed.exporting": "Eksportowanie…",
   "ed.again": "Eksportuj ponownie",

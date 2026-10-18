@@ -267,6 +267,18 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "exp.dragTip": "Auf Discord oder ein anderes Fenster ziehen",
   "exp.dragFail": "Ziehen fehlgeschlagen: {err}",
   "exp.calc": "berechne…",
+
+  "exp.retry": "Zu groß: Neuberechnung (Versuch {n})",
+
+  "ed.autoNote": "Auto: auf {h}p verkleinert",
+
+  "ed.cpuNote": "CPU-Kodierung",
+
+  "exp.tries": "{n} Durchgänge",
+
+  "exp.over": "Über dem Ziel: {size} von {target} MiB",
+
+  "ed.autoRes": "Kleines Ziel: auf {h}p verkleinert, damit das Bild schärfer bleibt",
   "exp.done": "Fertig in {secs} s · {size} MiB",
   "exp.dragBig": "Ziehen",
   "exp.empty": "Exportierte Clips erscheinen hier.",
@@ -435,7 +447,9 @@ App.locales.de = { name: "Deutsch", tag: "de-DE", ai: true, t: {
   "ed.codec": "Codec",
   "ed.codecAuto": "Automatisch (GPU)",
   "ed.codecAutoPlain": "Automatisch",
-  "ed.lowHint": "Kürzen (I / O) oder eine größere Größe wählen",
+  "ed.qualityHead": "Qualität",
+
+  "ed.loading": "Clip wird geladen…",
   "ed.speed": "Tempo",
   "ed.exporting": "Exportiere…",
   "ed.again": "Erneut exportieren",

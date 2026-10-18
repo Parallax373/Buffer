@@ -393,9 +393,9 @@ const App = {};
 
   /** Bitrate maths shared by editor panel and batch export; mirrors ml-core's budget. */
   App.kbps = (targetMb, seconds, speed = 1) =>
-    Math.max(0, Math.floor((targetMb * 1048576 * 8 * 0.96) / (seconds / speed) / 1000) - 128);
+    Math.max(0, Math.floor((targetMb * 1048576 * 8 * 0.92) / (seconds / speed) / 1000) - 128);
   App.quality = (kbps) =>
-    kbps < 150 ? [App.t("q.bad"), "var(--err)"] : kbps < 800 ? [App.t("q.low"), "var(--warn)"]
-      : kbps < 3000 ? [App.t("q.good"), "var(--ok)"] : [App.t("q.great"), "var(--ok)"];
+    kbps < 60 ? [App.t("q.bad"), "var(--err)"] : kbps < 300 ? [App.t("q.low"), "var(--warn)"]
+      : kbps < 1000 ? [App.t("q.good"), "var(--ok)"] : [App.t("q.great"), "var(--ok)"];
 })();
 

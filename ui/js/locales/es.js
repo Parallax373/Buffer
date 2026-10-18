@@ -267,6 +267,18 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "exp.dragTip": "Arrastra a Discord u otra ventana",
   "exp.dragFail": "No se pudo arrastrar: {err}",
   "exp.calc": "calculando…",
+
+  "exp.retry": "Demasiado grande: recodificando (intento {n})",
+
+  "ed.autoNote": "Auto: reducido a {h}p",
+
+  "ed.cpuNote": "codificación en CPU",
+
+  "exp.tries": "{n} pasadas",
+
+  "exp.over": "Por encima del objetivo: {size} de {target} MiB",
+
+  "ed.autoRes": "Objetivo pequeño: reducido a {h}p para que se vea más nítido",
   "exp.done": "Listo en {secs} s · {size} MiB",
   "exp.dragBig": "Arrastrar",
   "exp.empty": "Los clips exportados aparecerán aquí.",
@@ -435,7 +447,9 @@ App.locales.es = { name: "Español", tag: "es-ES", ai: true, t: {
   "ed.codec": "Códec",
   "ed.codecAuto": "Automático (GPU)",
   "ed.codecAutoPlain": "Automático",
-  "ed.lowHint": "Recorta (I / O) o elige un tamaño mayor",
+  "ed.qualityHead": "Calidad",
+
+  "ed.loading": "Cargando clip…",
   "ed.speed": "Velocidad",
   "ed.exporting": "Exportando…",
   "ed.again": "Exportar otra vez",

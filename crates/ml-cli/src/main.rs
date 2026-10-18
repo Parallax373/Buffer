@@ -108,6 +108,7 @@ fn main() -> Result<()> {
                     print!("\r{:5.1}%", p * 100.0);
                     let _ = std::io::stdout().flush();
                 },
+                |n| println!(" over target, attempt {n}"),
                 || false,
             )?;
             println!(
